@@ -1,0 +1,123 @@
+﻿/* =========================
+   Header + navigation
+   ========================= */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+}
+
+:root[data-theme="dark"] .site-header {
+  background: rgba(31, 27, 23, 0.92);
+}
+
+.header__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+}
+
+.header__links {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.logo {
+  font-family: "DM Serif Display", serif;
+  font-size: 1.2rem;
+  letter-spacing: 0.16em;
+  color: var(--accent-dark);
+}
+
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.nav__link {
+  font-weight: 600;
+  position: relative;
+  padding: 6px 2px;
+  transition: color 0.2s ease;
+}
+
+.nav__link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -6px;
+  width: 0%;
+  height: 2px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.nav__link:hover,
+.nav__link:focus-visible {
+  color: var(--accent-dark);
+}
+
+.nav__link:hover::after,
+.nav__link.active::after {
+  width: 100%;
+}
+
+.nav__link.active {
+  color: var(--accent-dark);
+}
+
+.nav__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.toggle-button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.toggle-button:hover,
+.toggle-button:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-soft);
+}
+
+@media (max-width: 960px) {
+  .header__inner {
+    align-items: flex-start;
+  }
+
+  .header__links {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .header__inner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .nav {
+    justify-content: flex-start;
+  }
+}

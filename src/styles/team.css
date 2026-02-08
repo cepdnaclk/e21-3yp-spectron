@@ -1,0 +1,102 @@
+﻿/* =========================
+   Team section
+   ========================= */
+.team-section {
+  position: relative;
+}
+
+.team-grid {
+  display: grid;
+  gap: 28px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.team-card {
+  background: var(--surface);
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  padding: 32px 24px;
+  text-align: center;
+  box-shadow: var(--shadow-soft);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.team-card:hover,
+.team-card:focus-within {
+  transform: translateY(-6px);
+  box-shadow: var(--shadow);
+  border-color: color-mix(in srgb, var(--team-accent) 25%, var(--border));
+}
+
+.team-card__img {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin: 0 auto 18px;
+  border: 5px solid var(--team-accent);
+}
+
+.team-card__name {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--team-accent);
+}
+
+.team-card__reg {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.team-card__portfolio {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--team-accent);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  font-weight: 600;
+  margin-bottom: 18px;
+}
+
+.team-card__social {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.social-link {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  background: var(--surface);
+  box-shadow: 0 6px 14px rgba(40, 31, 22, 0.08);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+.social-link:hover,
+.social-link:focus-visible {
+  transform: translateY(-2px);
+  color: var(--team-accent);
+  box-shadow: 0 10px 18px rgba(40, 31, 22, 0.16);
+}
+
+.social-link svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+@media (max-width: 720px) {
+  .team-grid {
+    grid-template-columns: 1fr;
+  }
+}
