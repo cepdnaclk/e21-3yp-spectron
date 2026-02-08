@@ -2,7 +2,7 @@
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  // GitHub Pages project site base path.
-  base: "/e21-3yp-spectron/",
+  // Use relative paths so the build works on GitHub Pages regardless of repo name.
+  base: "./",
   plugins: [react()],
 });
