@@ -1,10 +1,12 @@
 ﻿// Replace the image paths and portfolio links with real assets/URLs.
+const baseUrl = import.meta.env.BASE_URL || "/";
+
 export const teamMembers = [
   {
     id: "jarshigan",
     name: "Jarshigan K.",
     regNo: "E/21/188",
-    image: "/team/jarshigan.jpeg",
+    image: `${baseUrl}team/jarshigan.jpeg`,
     portfolioUrl: "https://www.thecn.com/EJ476",
     links: {
       github: "https://github.com/",
@@ -16,7 +18,7 @@ export const teamMembers = [
     id: "thirumenan",
     name: "Thirumenan S.",
     regNo: "E/21/412",
-    image: "/team/thirumenan.jpeg",
+    image: `${baseUrl}team/thirumenan.jpeg`,
     portfolioUrl: "https://www.thecn.com/ET643",
     links: {
       github: "https://github.com/",
@@ -28,7 +30,7 @@ export const teamMembers = [
     id: "tithurshan",
     name: "Tithurshan T.",
     regNo: "E/21/413",
-    image: "/team/tithurshan.jpeg",
+    image: `${baseUrl}team/tithurshan.jpeg`,
     portfolioUrl: "https://www.thecn.com/ET641",
     links: {
       github: "https://github.com/",
@@ -40,7 +42,7 @@ export const teamMembers = [
     id: "varshan",
     name: "Varshan A.",
     regNo: "E/21/417",
-    image: "/team/varshan.jpeg",
+    image: `${baseUrl}team/varshan.jpeg`,
     portfolioUrl: "https://www.thecn.com/AV864",
     links: {
       github: "https://github.com/",
