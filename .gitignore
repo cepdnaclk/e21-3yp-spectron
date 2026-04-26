@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+
+backups/
+**/backups/
+*.sql
+!software/backend/internal/db/migrations/*.sql
+*.sql.enc
+*.key
