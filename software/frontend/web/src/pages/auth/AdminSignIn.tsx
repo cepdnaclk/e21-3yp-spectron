@@ -87,7 +87,7 @@ const AdminSignIn: React.FC = () => {
           <Box sx={{ position: 'relative', maxWidth: 540 }}>
             <Typography variant="h4">Register devices before users claim them.</Typography>
             <Typography sx={{ mt: 1.5, color: 'rgba(255, 253, 248, 0.76)' }}>
-              Admin accounts manage controller IDs, pairing tokens, QR payloads, users, and system readiness.
+              Admin accounts manage controller IDs, QR labels, users, and system readiness.
             </Typography>
           </Box>
           <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative', color: '#e1c7a3' }}>

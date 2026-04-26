@@ -1,15 +1,29 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Button, Card, CardContent, Chip, Grid, Stack, Typography } from '@mui/material';
-import { Add, DevicesOther, Key, Sensors, WarningAmber } from '@mui/icons-material';
+import { Add, DevicesOther, Inventory2, Sensors, WarningAmber } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { AdminOverview, getAdminOverview } from '../../services/adminService';
 
 const statCards = [
   { key: 'totalDevices', label: 'Total Devices', icon: DevicesOther, tone: '#fffaf4' },
   { key: 'unclaimedDevices', label: 'Unclaimed', icon: WarningAmber, tone: '#fff7ef' },
-  { key: 'activeTokens', label: 'Active Tokens', icon: Key, tone: '#f7fbf0' },
+  { key: 'pairedDevices', label: 'Owned Devices', icon: Inventory2, tone: '#f7fbf0' },
   { key: 'configuredSensors', label: 'Configured Sensors', icon: Sensors, tone: '#f4fbfb' },
 ] as const;
+
+const compactButtonSx = {
+  minHeight: 36,
+  px: 1.5,
+  py: 0.5,
+  borderRadius: 2,
+  transition: 'transform 160ms ease, background-color 160ms ease, border-color 160ms ease',
+  '&:hover': {
+    transform: 'translateY(-1px)',
+  },
+  '&:active': {
+    transform: 'translateY(0)',
+  },
+};
 
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -21,17 +35,29 @@ const AdminDashboard: React.FC = () => {
 
   return (
     <Box>
-      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} sx={{ mb: 3 }}>
+      <Stack
+        direction={{ xs: 'column', md: 'row' }}
+        justifyContent="space-between"
+        alignItems={{ xs: 'stretch', md: 'center' }}
+        spacing={2}
+        sx={{ mb: 3 }}
+      >
         <Box>
           <Typography variant="overline" color="secondary" fontWeight={800}>
             Admin Dashboard
           </Typography>
           <Typography variant="h4">Device operations overview</Typography>
           <Typography color="text.secondary" sx={{ mt: 0.75, maxWidth: 760 }}>
-            Register hardware, issue pairing QR tokens, and keep device readiness visible before users claim controllers.
+            Register hardware IDs, print controller QR labels, and keep ownership visible after users claim controllers.
           </Typography>
         </Box>
-        <Button variant="contained" color="secondary" startIcon={<Add />} onClick={() => navigate('/admin/devices/new')}>
+        <Button
+          variant="contained"
+          color="secondary"
+          startIcon={<Add />}
+          onClick={() => navigate('/admin/devices/new')}
+          sx={{ ...compactButtonSx, alignSelf: { xs: 'stretch', md: 'center' } }}
+        >
           Add Device
         </Button>
       </Stack>
@@ -69,8 +95,8 @@ const AdminDashboard: React.FC = () => {
               <Stack spacing={1.3} sx={{ mt: 2 }}>
                 {[
                   'Admin registers a physical controller ID.',
-                  'Admin generates a short-lived pairing token and prints the QR payload.',
-                  'User scans the QR code from the app and claims the controller.',
+                  'Admin prints the permanent controller ID QR label.',
+                  'User scans the QR code from the app and claims the controller if it is unowned.',
                   'Sensors are configured and monitored from the normal user dashboard.',
                 ].map((item, index) => (
                   <Stack direction="row" spacing={1.2} alignItems="center" key={item}>
@@ -92,8 +118,8 @@ const AdminDashboard: React.FC = () => {
                   <Typography fontWeight={800}>{overview?.pairedDevices ?? '-'}</Typography>
                 </Stack>
                 <Stack direction="row" justifyContent="space-between">
-                  <Typography color="text.secondary">Expired tokens</Typography>
-                  <Typography fontWeight={800}>{overview?.expiredTokens ?? '-'}</Typography>
+                  <Typography color="text.secondary">Unclaimed devices</Typography>
+                  <Typography fontWeight={800}>{overview?.unclaimedDevices ?? '-'}</Typography>
                 </Stack>
                 <Stack direction="row" justifyContent="space-between">
                   <Typography color="text.secondary">Unconfigured sensors</Typography>

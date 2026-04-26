@@ -14,15 +14,17 @@ import {
   IconButton,
   Snackbar,
 } from '@mui/material';
-import { ArrowBack, Settings, DeviceThermostat, Place, Memory, Tune } from '@mui/icons-material';
+import { ArrowBack, DeleteOutline, Settings, DeviceThermostat, Place, Memory, Tune, Wifi, WifiOff } from '@mui/icons-material';
 import { Controller } from '../../services/controllerService';
 import { Sensor } from '../../services/sensorService';
 import {
   HardwarePairingSensor,
   getHardwareController,
   getHardwareSensors,
+  releaseHardwareController,
 } from '../../services/hardwarePairingService';
 import { ControllerDashboardSkeleton } from '../../components/LoadingSkeletons';
+import { useAuth } from '../../contexts/AuthContext';
 
 type DashboardNavigationState = {
   controllerId?: string;
@@ -39,14 +41,18 @@ const ControllerDashboard: React.FC = () => {
   const { id, controllerId } = useParams<{ id?: string; controllerId?: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth();
   const [controller, setController] = useState<Controller | null>(null);
   const [sensors, setSensors] = useState<Sensor[]>([]);
   const [loading, setLoading] = useState(true);
+  const [removing, setRemoving] = useState(false);
   const navigationState = (location.state || null) as DashboardNavigationState | null;
   const [saveNotice, setSaveNotice] = useState<DashboardNavigationState | null>(navigationState);
   const [toastOpen, setToastOpen] = useState(Boolean(navigationState?.configurationSaved));
+  const [toastSeverity, setToastSeverity] = useState<'success' | 'error'>('success');
   const activeControllerId = controllerId || id || navigationState?.controllerId || '';
   const isHardwareRoute = Boolean(controllerId);
+  const canManageControllers = user?.accounts?.some((account) => account.role === 'OWNER' || account.role === 'ADMIN');
 
   const handleBack = () => {
     if ((window.history.state?.idx ?? 0) > 0) {
@@ -90,6 +96,7 @@ const ControllerDashboard: React.FC = () => {
     }
 
     setSaveNotice(navigationState);
+    setToastSeverity('success');
     setToastOpen(true);
     navigate(location.pathname, { replace: true, state: null });
   }, [location.pathname, navigate, navigationState]);
@@ -128,6 +135,33 @@ const ControllerDashboard: React.FC = () => {
       return { label: 'Live - config optional', color: 'success' as const };
     }
     return { label: 'Discovered', color: 'default' as const };
+  };
+
+  const handleRemoveController = async () => {
+    if (!activeControllerId || removing) {
+      return;
+    }
+
+    setRemoving(true);
+    try {
+      await releaseHardwareController(activeControllerId);
+      navigate('/controllers', {
+        replace: true,
+        state: { message: 'Controller removed from your account.' },
+      });
+    } catch (err: any) {
+      const responseData = err?.response?.data;
+      setSaveNotice({
+        observationMessage:
+          typeof responseData === 'string'
+            ? responseData
+            : responseData?.message || 'Failed to remove controller.',
+      });
+      setToastSeverity('error');
+      setToastOpen(true);
+    } finally {
+      setRemoving(false);
+    }
   };
 
   if (loading) {
@@ -199,7 +233,7 @@ const ControllerDashboard: React.FC = () => {
         onClose={() => setToastOpen(false)}
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
-        <Alert severity="success" onClose={() => setToastOpen(false)}>
+        <Alert severity={toastSeverity} onClose={() => setToastOpen(false)}>
           {saveNotice?.observationMessage || 'Configuration activated successfully'}
         </Alert>
       </Snackbar>
@@ -222,6 +256,7 @@ const ControllerDashboard: React.FC = () => {
               <Typography variant="h4">{controller.name || 'Unnamed Controller'}</Typography>
             </Box>
             <Chip
+              icon={controller.status === 'ONLINE' ? <Wifi /> : <WifiOff />}
               label={controller.status}
               color={getStatusColor(controller.status) as any}
               sx={{ bgcolor: controller.status === 'ONLINE' ? '#6c8930' : undefined, color: '#fffdf8' }}
@@ -238,6 +273,26 @@ const ControllerDashboard: React.FC = () => {
             )}
             <Chip icon={<Memory />} label={controller.hw_id} sx={{ bgcolor: 'rgba(255, 253, 248, 0.12)', color: '#fffdf8' }} />
           </Stack>
+          {canManageControllers && (
+            <Button
+              variant="outlined"
+              color="inherit"
+              startIcon={<DeleteOutline />}
+              onClick={handleRemoveController}
+              disabled={removing}
+              sx={{
+                mt: 2,
+                color: '#fffdf8',
+                borderColor: 'rgba(255, 253, 248, 0.36)',
+                '&:hover': {
+                  borderColor: '#fffdf8',
+                  bgcolor: 'rgba(255, 253, 248, 0.08)',
+                },
+              }}
+            >
+              {removing ? 'Removing...' : 'Remove from my account'}
+            </Button>
+          )}
         </CardContent>
       </Card>
 
@@ -257,11 +312,35 @@ const ControllerDashboard: React.FC = () => {
       <Grid container spacing={2} sx={{ mt: 1 }}>
         {sensors.length === 0 ? (
           <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography align="center" color="text.secondary">
-                  No sensors found. Sensors will appear here once the controller discovers them.
-                </Typography>
+            <Card
+              sx={{
+                border: '1px solid',
+                borderColor: controller.status === 'ONLINE' ? 'info.light' : 'warning.light',
+                bgcolor: controller.status === 'ONLINE' ? 'rgba(25, 118, 210, 0.04)' : 'rgba(237, 108, 0, 0.04)',
+              }}
+            >
+              <CardContent sx={{ py: 4 }}>
+                <Box sx={{ textAlign: 'center' }}>
+                  {controller.status === 'OFFLINE' ? (
+                    <>
+                      <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>
+                        Controller is OFFLINE
+                      </Typography>
+                      <Typography color="text.secondary">
+                        Turn on the ESP32 controller to start sensor discovery. Sensors will appear here automatically once the controller connects and reports its connected sensors.
+                      </Typography>
+                    </>
+                  ) : (
+                    <>
+                      <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>
+                        Waiting for sensor discovery...
+                      </Typography>
+                      <Typography color="text.secondary">
+                        The controller is <strong>ONLINE</strong> and listening for sensor data. Sensors will appear here once they are detected and reported by the controller. Check that your sensor modules are powered on and properly connected to the ESP32.
+                      </Typography>
+                    </>
+                  )}
+                </Box>
               </CardContent>
             </Card>
           </Grid>

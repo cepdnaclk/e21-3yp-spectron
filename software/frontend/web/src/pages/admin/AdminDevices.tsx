@@ -15,16 +15,29 @@ import {
   TableRow,
   Typography,
 } from '@mui/material';
-import { Add, Key, Refresh } from '@mui/icons-material';
+import { Add, Refresh } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { AdminDevice, generateAdminPairingToken, getAdminDevices } from '../../services/adminService';
+import { AdminDevice, getAdminDevices } from '../../services/adminService';
 
 const formatDate = (value?: string) => (value ? new Date(value).toLocaleString() : '-');
+
+const compactButtonSx = {
+  minHeight: 36,
+  px: 1.5,
+  py: 0.5,
+  borderRadius: 2,
+  transition: 'transform 160ms ease, background-color 160ms ease, border-color 160ms ease',
+  '&:hover': {
+    transform: 'translateY(-1px)',
+  },
+  '&:active': {
+    transform: 'translateY(0)',
+  },
+};
 
 const AdminDevices: React.FC = () => {
   const navigate = useNavigate();
   const [devices, setDevices] = useState<AdminDevice[]>([]);
-  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   const loadDevices = () => {
@@ -36,39 +49,34 @@ const AdminDevices: React.FC = () => {
     loadDevices();
   }, []);
 
-  const handleGenerateToken = async (controllerId: string) => {
-    try {
-      const token = await generateAdminPairingToken(controllerId, 24);
-      setMessage(`New token for ${controllerId}: ${token.pairingToken}`);
-      loadDevices();
-    } catch {
-      setError('Failed to generate pairing token.');
-    }
-  };
-
   return (
     <Box>
-      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} sx={{ mb: 3 }}>
+      <Stack
+        direction={{ xs: 'column', md: 'row' }}
+        justifyContent="space-between"
+        alignItems={{ xs: 'stretch', md: 'center' }}
+        spacing={2}
+        sx={{ mb: 3 }}
+      >
         <Box>
           <Typography variant="overline" color="secondary" fontWeight={800}>
             Device Registry
           </Typography>
           <Typography variant="h4">Controllers</Typography>
           <Typography color="text.secondary" sx={{ mt: 0.75 }}>
-            Register physical controllers, review ownership, and issue new pairing tokens.
+            Register physical controller IDs and review which account owns each device.
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1}>
-          <Button variant="outlined" startIcon={<Refresh />} onClick={loadDevices}>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexShrink: 0 }}>
+          <Button variant="outlined" startIcon={<Refresh />} onClick={loadDevices} sx={compactButtonSx}>
             Refresh
           </Button>
-          <Button variant="contained" color="secondary" startIcon={<Add />} onClick={() => navigate('/admin/devices/new')}>
+          <Button variant="contained" color="secondary" startIcon={<Add />} onClick={() => navigate('/admin/devices/new')} sx={compactButtonSx}>
             Add Device
           </Button>
         </Stack>
       </Stack>
 
-      {message && <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>}
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       <Card>
@@ -82,9 +90,7 @@ const AdminDevices: React.FC = () => {
                   <TableCell>Status</TableCell>
                   <TableCell>Owner</TableCell>
                   <TableCell>Sensors</TableCell>
-                  <TableCell>Token</TableCell>
                   <TableCell>Updated</TableCell>
-                  <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -98,27 +104,12 @@ const AdminDevices: React.FC = () => {
                     <TableCell><Chip size="small" label={device.status} /></TableCell>
                     <TableCell>{device.ownerEmail || 'Unclaimed'}</TableCell>
                     <TableCell>{device.configuredSensors}/{device.sensorCount} configured</TableCell>
-                    <TableCell>
-                      <Chip
-                        size="small"
-                        label={device.tokenStatus}
-                        color={device.tokenStatus === 'active' ? 'success' : device.tokenStatus === 'expired' ? 'warning' : 'default'}
-                      />
-                      <Typography variant="caption" display="block" color="text.secondary">
-                        {formatDate(device.tokenExpiresAt)}
-                      </Typography>
-                    </TableCell>
                     <TableCell>{formatDate(device.updatedAt)}</TableCell>
-                    <TableCell align="right">
-                      <Button size="small" startIcon={<Key />} onClick={() => handleGenerateToken(device.controllerId)}>
-                        Token
-                      </Button>
-                    </TableCell>
                   </TableRow>
                 ))}
                 {devices.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8}>
+                    <TableCell colSpan={6}>
                       <Typography align="center" color="text.secondary" sx={{ py: 3 }}>
                         No devices registered yet.
                       </Typography>

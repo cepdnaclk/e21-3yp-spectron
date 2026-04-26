@@ -13,7 +13,7 @@ import {
 import { CameraAlt, QrCodeScanner } from '@mui/icons-material';
 import { Html5Qrcode } from 'html5-qrcode';
 import {
-  extractPairingToken,
+  extractControllerId,
   pairHardwareController,
 } from '../../services/hardwarePairingService';
 
@@ -23,7 +23,7 @@ const PairController: React.FC = () => {
   const navigate = useNavigate();
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const scanHandledRef = useRef(false);
-  const [qrToken, setQrToken] = useState('');
+  const [controllerCode, setControllerCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [scanInfo, setScanInfo] = useState('');
@@ -33,10 +33,10 @@ const PairController: React.FC = () => {
   useEffect(() => {
     setIsScannerSupported(Boolean(navigator.mediaDevices?.getUserMedia));
 
-    const tokenFromUrl = extractPairingToken(window.location.href);
-    if (tokenFromUrl) {
-      setQrToken(tokenFromUrl);
-      setScanInfo(`QR token loaded: ${tokenFromUrl}`);
+    const controllerIdFromUrl = extractControllerId(window.location.href);
+    if (controllerIdFromUrl) {
+      setControllerCode(controllerIdFromUrl);
+      setScanInfo(`Controller ID loaded: ${controllerIdFromUrl}`);
     }
 
     return () => {
@@ -89,15 +89,15 @@ const PairController: React.FC = () => {
             return;
           }
 
-          const value = extractPairingToken(decodedText || '');
+          const value = extractControllerId(decodedText || '');
           if (!value) {
-            setError('Invalid QR code');
+            setError('Invalid controller QR code');
             return;
           }
 
           scanHandledRef.current = true;
-          setQrToken(value);
-          setScanInfo(`Scanned QR token: ${value}`);
+          setControllerCode(value);
+          setScanInfo(`Scanned controller ID: ${value}`);
           await stopCamera();
         },
         () => undefined
@@ -112,18 +112,18 @@ const PairController: React.FC = () => {
     event.preventDefault();
     setError('');
 
-    const normalizedToken = extractPairingToken(qrToken);
+    const normalizedControllerId = extractControllerId(controllerCode);
 
-    if (!normalizedToken) {
-      setError(qrToken.trim() ? 'Invalid QR code' : 'Controller ID required');
+    if (!normalizedControllerId) {
+      setError(controllerCode.trim() ? 'Invalid controller QR code' : 'Controller ID required');
       return;
     }
 
     setLoading(true);
     try {
-      const pairing = await pairHardwareController(normalizedToken);
-      setQrToken(normalizedToken);
-      navigate(`/hardware/${pairing.controllerId}/sensors`, {
+      const pairing = await pairHardwareController(normalizedControllerId);
+      setControllerCode(normalizedControllerId);
+      navigate(`/controllers/${pairing.controllerId}`, {
         state: {
           controllerId: pairing.controllerId,
           sensors: pairing.sensors,
@@ -151,13 +151,13 @@ const PairController: React.FC = () => {
           </Box>
           <Box>
             <Typography variant="overline" color="secondary" fontWeight={800}>
-              Pairing flow
+              Controller setup
             </Typography>
             <Typography variant="h4">Scan Controller QR</Typography>
           </Box>
         </Stack>
         <Typography color="text.secondary" sx={{ mb: 2, maxWidth: 680 }}>
-          Scan the QR code on the controller or enter the pairing token manually. One-time tokens and legacy controller IDs are both supported.
+          Scan the QR code on the controller label or enter the controller ID manually. A controller can be added only while it is unowned.
         </Typography>
 
         {error && (
@@ -206,10 +206,10 @@ const PairController: React.FC = () => {
 
           <TextField
             fullWidth
-            label="Pairing Token or Controller ID"
-            value={qrToken}
-            onChange={(e) => setQrToken(e.target.value)}
-            placeholder="e.g., PAIR-7X4P2L or CTRL-8F2A19"
+            label="Controller ID"
+            value={controllerCode}
+            onChange={(e) => setControllerCode(e.target.value)}
+            placeholder="e.g., CTRL-8F2A19"
             disabled={loading}
             required
           />
@@ -221,7 +221,7 @@ const PairController: React.FC = () => {
             sx={{ mt: 2 }}
             disabled={loading}
           >
-            {loading ? 'Pairing...' : 'Pair Controller'}
+            {loading ? 'Adding...' : 'Add Controller'}
           </Button>
         </Box>
       </Paper>

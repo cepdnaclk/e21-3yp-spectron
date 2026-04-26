@@ -87,7 +87,7 @@ const Controllers: React.FC = () => {
               Keep every Spectron node in view.
             </Typography>
             <Typography sx={{ mt: 1, maxWidth: 620, color: 'rgba(255, 253, 248, 0.76)' }}>
-              Pair, configure, and monitor your connected sensing hardware from one calm workspace.
+              Add, configure, and monitor your connected sensing hardware from one calm workspace.
             </Typography>
           </Box>
           <Button
@@ -97,7 +97,7 @@ const Controllers: React.FC = () => {
             onClick={() => navigate('/controllers/pair')}
             sx={{ alignSelf: { xs: 'stretch', md: 'flex-end' } }}
           >
-            Pair Controller
+            Add Controller
           </Button>
         </Stack>
       </Box>
@@ -113,7 +113,7 @@ const Controllers: React.FC = () => {
                   Add your first controller to start collecting field data.
                 </Typography>
                 <Button variant="contained" color="secondary" startIcon={<Add />} onClick={() => navigate('/controllers/pair')}>
-                  Pair Controller
+                  Add Controller
                 </Button>
               </CardContent>
             </Card>

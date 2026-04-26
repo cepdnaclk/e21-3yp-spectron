@@ -15,7 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	internaldb "spectron-backend/internal/db"
 	"spectron-backend/internal/iot"
@@ -104,15 +104,6 @@ func (h *ControllerHandler) AdminOverviewAPI(w http.ResponseWriter, r *http.Requ
 
 	_ = h.db.QueryRow(r.Context(), `
 		SELECT
-			COUNT(*) FILTER (WHERE used_at IS NULL AND expires_at > NOW())::int,
-			COUNT(*) FILTER (WHERE used_at IS NOT NULL)::int,
-			COUNT(*) FILTER (WHERE used_at IS NULL AND expires_at <= NOW())::int
-		FROM controller_pairing_tokens t
-		JOIN controllers c ON c.id = t.controller_id
-	`).Scan(&response.ActiveTokens, &response.UsedTokens, &response.ExpiredTokens)
-
-	_ = h.db.QueryRow(r.Context(), `
-		SELECT
 			COUNT(*) FILTER (WHERE cs.configured = true)::int,
 			COUNT(*) FILTER (WHERE cs.configured = false)::int
 		FROM controller_sensors cs
@@ -153,8 +144,34 @@ func (h *ControllerHandler) AdminCreateDeviceAPI(w http.ResponseWriter, r *http.
 	}
 
 	controllerUID := strings.ToUpper(strings.TrimSpace(req.ControllerID))
-	if controllerUID == "" {
-		controllerUID = "CTRL-" + randomCode(6)
+	manualControllerID := controllerUID != ""
+	if manualControllerID {
+		exists, err := h.controllerUIDExists(r.Context(), controllerUID)
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		if exists {
+			http.Error(w, "Controller ID already exists. Use a different controller ID.", http.StatusConflict)
+			return
+		}
+	} else {
+		for attempt := 0; attempt < 10; attempt++ {
+			candidate := "CTRL-" + randomCode(6)
+			exists, err := h.controllerUIDExists(r.Context(), candidate)
+			if err != nil {
+				http.Error(w, "database error", http.StatusInternalServerError)
+				return
+			}
+			if !exists {
+				controllerUID = candidate
+				break
+			}
+		}
+		if controllerUID == "" {
+			http.Error(w, "failed to generate unique controller ID", http.StatusInternalServerError)
+			return
+		}
 	}
 	if !strings.HasPrefix(controllerUID, "CTRL-") {
 		http.Error(w, "controllerId must start with CTRL-", http.StatusBadRequest)
@@ -166,16 +183,6 @@ func (h *ControllerHandler) AdminCreateDeviceAPI(w http.ResponseWriter, r *http.
 		name = "Main Controller"
 	}
 	location := strings.TrimSpace(req.Location)
-	expiryHours := req.TokenExpiryHours
-	if expiryHours <= 0 {
-		expiryHours = 24
-	}
-	if expiryHours > 720 {
-		expiryHours = 720
-	}
-
-	pairingToken := "PAIR-" + randomCode(6)
-	expiresAt := time.Now().Add(time.Duration(expiryHours) * time.Hour)
 
 	tx, err := h.db.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
@@ -198,22 +205,14 @@ func (h *ControllerHandler) AdminCreateDeviceAPI(w http.ResponseWriter, r *http.
 			updated_at
 		)
 		VALUES ($1, $2, $3, $3, $4, $5, 'unclaimed', NOW(), NOW())
-		ON CONFLICT (hw_id) DO UPDATE
-		SET controller_uid = EXCLUDED.controller_uid,
-		    name = EXCLUDED.name,
-		    location = EXCLUDED.location,
-		    account_id = CASE
-		        WHEN controllers.owner_user_id IS NULL THEN EXCLUDED.account_id
-		        ELSE controllers.account_id
-		    END,
-		    status = CASE
-		        WHEN controllers.owner_user_id IS NULL THEN 'unclaimed'
-		        ELSE controllers.status
-		    END,
-		    updated_at = NOW()
 		RETURNING id
 	`, uuid.New(), accountID, controllerUID, name, nullableString(location)).Scan(&controllerID)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			http.Error(w, "Controller ID already exists. Use a different controller ID.", http.StatusConflict)
+			return
+		}
 		http.Error(w, "failed to create device", http.StatusInternalServerError)
 		return
 	}
@@ -223,15 +222,6 @@ func (h *ControllerHandler) AdminCreateDeviceAPI(w http.ResponseWriter, r *http.
 			http.Error(w, "failed to create default sensors", http.StatusInternalServerError)
 			return
 		}
-	}
-
-	_, err = tx.Exec(r.Context(), `
-		INSERT INTO controller_pairing_tokens (id, controller_id, token_hash, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, NOW())
-	`, uuid.New(), controllerID, hashPairingToken(pairingToken), expiresAt)
-	if err != nil {
-		http.Error(w, "failed to create pairing token", http.StatusInternalServerError)
-		return
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
@@ -254,9 +244,9 @@ func (h *ControllerHandler) AdminCreateDeviceAPI(w http.ResponseWriter, r *http.
 	}
 
 	json.NewEncoder(w).Encode(models.AdminCreateDeviceResponse{
-		Device:       created,
-		PairingToken: pairingToken,
-		PairingURL:   "/controllers/pair?code=" + pairingToken,
+		Device:    created,
+		QRPayload: controllerUID,
+		ClaimURL:  "/controllers/pair?code=" + controllerUID,
 	})
 }
 
@@ -430,12 +420,15 @@ func (h *ControllerHandler) PairAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provided := strings.TrimSpace(req.PairingTokenOrControllerID)
+	provided := strings.TrimSpace(req.ControllerID)
+	if provided == "" {
+		provided = strings.TrimSpace(req.PairingTokenOrControllerID)
+	}
 	if provided == "" {
 		provided = strings.TrimSpace(req.QRToken)
 	}
 	if provided == "" {
-		http.Error(w, "missing pairing token/controller ID", http.StatusBadRequest)
+		http.Error(w, "missing controller ID", http.StatusBadRequest)
 		return
 	}
 
@@ -527,6 +520,39 @@ func (h *ControllerHandler) ControllerSensorsAPI(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(models.ControllerSensorsResponse{
 		ControllerID: controller.uid,
 		Sensors:      sensors,
+	})
+}
+
+func (h *ControllerHandler) ReleaseControllerAPI(w http.ResponseWriter, r *http.Request) {
+	accountID := GetAccountID(r).(uuid.UUID)
+	controllerParam := strings.TrimSpace(chi.URLParam(r, "controllerId"))
+
+	controller, err := h.lookupAccountHardwareController(r.Context(), accountID, controllerParam)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	if controller.ownerUserID == "" {
+		http.Error(w, "This controller is already unowned.", http.StatusConflict)
+		return
+	}
+
+	_, err = h.db.Exec(r.Context(), `
+		UPDATE controllers
+		SET owner_user_id = NULL,
+		    status = 'unclaimed',
+		    updated_at = NOW()
+		WHERE id = $1 AND account_id = $2
+	`, controller.id, accountID)
+	if err != nil {
+		http.Error(w, "failed to remove controller", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{
+		"message":      "Controller removed from this account.",
+		"controllerId": controller.uid,
 	})
 }
 
@@ -781,13 +807,16 @@ func (h *ControllerHandler) claimController(ctx context.Context, userID uuid.UUI
 	defer tx.Rollback(ctx)
 
 	normalized := strings.ToUpper(strings.TrimSpace(provided))
-	record, tokenID, err := h.findControllerForPairing(ctx, tx, normalized)
+	record, err := h.findControllerForClaim(ctx, tx, normalized)
 	if err != nil {
 		return hardwareControllerRecord{}, err
 	}
 
-	if record.ownerUserID != "" && !strings.EqualFold(record.ownerUserID, userID.String()) {
-		return hardwareControllerRecord{}, apiError{status: http.StatusConflict, message: "controller already claimed"}
+	if record.ownerUserID != "" {
+		if strings.EqualFold(record.ownerUserID, userID.String()) {
+			return hardwareControllerRecord{}, apiError{status: http.StatusConflict, message: "This device is already added to your account."}
+		}
+		return hardwareControllerRecord{}, apiError{status: http.StatusConflict, message: "This controller is already owned by another account."}
 	}
 
 	_, err = tx.Exec(ctx, `
@@ -803,26 +832,6 @@ func (h *ControllerHandler) claimController(ctx context.Context, userID uuid.UUI
 		return hardwareControllerRecord{}, err
 	}
 
-	_, err = tx.Exec(ctx, `
-		UPDATE controller_pairing_tokens
-		SET used_at = COALESCE(used_at, NOW())
-		WHERE controller_id = $1
-		  AND (id = $2 OR used_at IS NULL)
-	`, record.id, tokenID)
-	if err != nil {
-		return hardwareControllerRecord{}, err
-	}
-
-	_, _ = tx.Exec(ctx, `
-		UPDATE pairing_tokens
-		SET used_at = COALESCE(used_at, NOW())
-		WHERE controller_id = $1 AND used_at IS NULL
-	`, record.id)
-
-	if err := h.ensureDefaultHardwareSensors(ctx, tx, record.id, record.uid); err != nil {
-		return hardwareControllerRecord{}, err
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return hardwareControllerRecord{}, err
 	}
@@ -832,70 +841,34 @@ func (h *ControllerHandler) claimController(ctx context.Context, userID uuid.UUI
 	return record, nil
 }
 
-func (h *ControllerHandler) findControllerForPairing(ctx context.Context, tx pgx.Tx, normalized string) (hardwareControllerRecord, uuid.UUID, error) {
-	if strings.HasPrefix(normalized, "CTRL-") {
-		record, err := scanHardwareController(tx.QueryRow(ctx, `
-			SELECT id,
-			       COALESCE(controller_uid, hw_id),
-			       COALESCE(name, 'Main Controller'),
-			       status,
-			       COALESCE(owner_user_id::text, '')
-			FROM controllers
-			WHERE UPPER(COALESCE(controller_uid, hw_id)) = UPPER($1)
-			   OR id::text = $1
-		`, normalized))
-		if err == nil {
-			return record, uuid.Nil, nil
-		}
-		if err != pgx.ErrNoRows {
-			return hardwareControllerRecord{}, uuid.Nil, err
-		}
+func (h *ControllerHandler) findControllerForClaim(ctx context.Context, tx pgx.Tx, normalized string) (hardwareControllerRecord, error) {
+	if !strings.HasPrefix(normalized, "CTRL-") {
+		return hardwareControllerRecord{}, apiError{status: http.StatusBadRequest, message: "Scan the controller QR code or enter a controller ID."}
 	}
 
-	tokenHash := hashPairingToken(normalized)
-	var tokenID uuid.UUID
-	var expiresAt time.Time
-	var usedAt pgtype.Timestamptz
-	record, err := scanHardwareControllerWithToken(tx.QueryRow(ctx, `
-		SELECT c.id,
-		       COALESCE(c.controller_uid, c.hw_id),
-		       COALESCE(c.name, 'Main Controller'),
-		       c.status,
-		       COALESCE(c.owner_user_id::text, ''),
-		       t.id,
-		       t.expires_at,
-		       t.used_at
-		FROM controller_pairing_tokens t
-		JOIN controllers c ON c.id = t.controller_id
-		WHERE t.token_hash = $1
-		ORDER BY t.created_at DESC
-		LIMIT 1
-	`, tokenHash), &tokenID, &expiresAt, &usedAt)
+	record, err := scanHardwareController(tx.QueryRow(ctx, `
+		SELECT id,
+		       COALESCE(controller_uid, hw_id),
+		       COALESCE(name, 'Main Controller'),
+		       status,
+		       COALESCE(owner_user_id::text, '')
+		FROM controllers
+		WHERE UPPER(COALESCE(controller_uid, hw_id)) = UPPER($1)
+		   OR id::text = $1
+	`, normalized))
 	if err == nil {
-		if usedAt.Valid {
-			return hardwareControllerRecord{}, uuid.Nil, apiError{status: http.StatusGone, message: "pairing token expired"}
-		}
-		if time.Now().After(expiresAt) {
-			return hardwareControllerRecord{}, uuid.Nil, apiError{status: http.StatusGone, message: "pairing token expired"}
-		}
-		return record, tokenID, nil
+		return record, nil
 	}
 	if err != pgx.ErrNoRows {
-		return hardwareControllerRecord{}, uuid.Nil, err
+		return hardwareControllerRecord{}, err
 	}
 
-	return hardwareControllerRecord{}, uuid.Nil, apiError{status: http.StatusNotFound, message: "controller not found"}
+	return hardwareControllerRecord{}, apiError{status: http.StatusNotFound, message: "Controller ID not found."}
 }
 
 func scanHardwareController(row pgx.Row) (hardwareControllerRecord, error) {
 	var record hardwareControllerRecord
 	err := row.Scan(&record.id, &record.uid, &record.name, &record.status, &record.ownerUserID)
-	return record, err
-}
-
-func scanHardwareControllerWithToken(row pgx.Row, tokenID *uuid.UUID, expiresAt *time.Time, usedAt *pgtype.Timestamptz) (hardwareControllerRecord, error) {
-	var record hardwareControllerRecord
-	err := row.Scan(&record.id, &record.uid, &record.name, &record.status, &record.ownerUserID, tokenID, expiresAt, usedAt)
 	return record, err
 }
 
@@ -1206,6 +1179,19 @@ func nullableString(value string) interface{} {
 	return trimmed
 }
 
+func (h *ControllerHandler) controllerUIDExists(ctx context.Context, controllerUID string) (bool, error) {
+	var exists bool
+	err := h.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM controllers
+			WHERE UPPER(COALESCE(controller_uid, hw_id)) = UPPER($1)
+			   OR UPPER(hw_id) = UPPER($1)
+		)
+	`, strings.TrimSpace(controllerUID)).Scan(&exists)
+	return exists, err
+}
+
 func (h *ControllerHandler) lookupAdminController(ctx context.Context, identifier string) (hardwareControllerRecord, error) {
 	if strings.TrimSpace(identifier) == "" {
 		return hardwareControllerRecord{}, apiError{status: http.StatusBadRequest, message: "controller ID required"}
@@ -1242,30 +1228,12 @@ func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.Admi
 			COALESCE(u.email, ''),
 			COUNT(cs.id)::int,
 			COUNT(cs.id) FILTER (WHERE cs.configured = true)::int,
-			COALESCE(
-				CASE
-					WHEN latest_token.used_at IS NOT NULL THEN 'used'
-					WHEN latest_token.expires_at <= NOW() THEN 'expired'
-					WHEN latest_token.expires_at IS NOT NULL THEN 'active'
-					ELSE 'none'
-				END,
-				'none'
-			),
-			latest_token.expires_at,
-			latest_token.used_at,
 			c.last_seen,
 			c.updated_at
 		FROM controllers c
 		LEFT JOIN users u ON u.id = c.owner_user_id
 		LEFT JOIN controller_sensors cs ON cs.controller_id = c.id
-		LEFT JOIN LATERAL (
-			SELECT expires_at, used_at
-			FROM controller_pairing_tokens t
-			WHERE t.controller_id = c.id
-			ORDER BY t.created_at DESC
-			LIMIT 1
-		) latest_token ON true
-		GROUP BY c.id, c.controller_uid, c.hw_id, c.name, c.location, c.status, u.email, latest_token.expires_at, latest_token.used_at, c.last_seen, c.updated_at
+		GROUP BY c.id, c.controller_uid, c.hw_id, c.name, c.location, c.status, u.email, c.last_seen, c.updated_at
 		ORDER BY c.updated_at DESC, c.created_at DESC
 	`)
 	if err != nil {
@@ -1277,8 +1245,6 @@ func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.Admi
 	for rows.Next() {
 		var device models.AdminDeviceResponse
 		var id uuid.UUID
-		var tokenExpiresAt *time.Time
-		var tokenUsedAt *time.Time
 		var lastSeen *time.Time
 		var updatedAt *time.Time
 		if err := rows.Scan(
@@ -1290,21 +1256,12 @@ func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.Admi
 			&device.OwnerEmail,
 			&device.SensorCount,
 			&device.ConfiguredSensors,
-			&device.TokenStatus,
-			&tokenExpiresAt,
-			&tokenUsedAt,
 			&lastSeen,
 			&updatedAt,
 		); err != nil {
 			return nil, err
 		}
 		device.ID = id.String()
-		if tokenExpiresAt != nil {
-			device.TokenExpiresAt = tokenExpiresAt.Format(time.RFC3339)
-		}
-		if tokenUsedAt != nil {
-			device.TokenUsedAt = tokenUsedAt.Format(time.RFC3339)
-		}
 		if lastSeen != nil {
 			device.LastSeen = lastSeen.Format(time.RFC3339)
 		}
