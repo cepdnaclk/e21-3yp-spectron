@@ -36,8 +36,8 @@ static const char *TAG = "CTRL_REAL";
  * Hardcoded uplink identity
  * ========================================================= */
 #define DEVICE_ID_STR      "CTRL-REAL-001"
-#define SENSOR_ID_STR      "SEN-TH-001"
 #define SENSOR_TYPE_STR    "temperature_humidity"
+#define SENSOR_UID_SUFFIX  "-sensor-temp-01"
 
 #define TELEMETRY_HOST     "spectron-backend-env.eba-niaes6bi.ap-south-1.elasticbeanstalk.com"
 #define CONFIG_PATH        "/api/iot/config"
@@ -154,6 +154,8 @@ static char g_http_resp[HTTP_RESP_BUF_SIZE];
 static char g_http_post_body[HTTP_POST_BUF_SIZE];
 static char g_telemetry_ip[16];
 static bool g_have_telemetry_ip = false;
+static char g_sensor_uid[64];
+static bool g_sensor_uid_ready = false;
 
 static void send_config_set(const uint8_t *mac, uint32_t base_id, uint32_t sensor_id);
 
@@ -205,6 +207,49 @@ static uint32_t ts_now_seconds(void)
     time_t now = 0;
     time(&now);
     return (uint32_t)now;
+}
+
+static const char *get_backend_sensor_uid(void)
+{
+    if (g_sensor_uid_ready) {
+        return g_sensor_uid;
+    }
+
+    size_t used = 0;
+
+    memset(g_sensor_uid, 0, sizeof(g_sensor_uid));
+
+    for (const char *p = DEVICE_ID_STR; *p != '\0' && used < sizeof(g_sensor_uid) - 1; ++p) {
+        char ch = *p;
+
+        if (ch >= 'A' && ch <= 'Z') {
+            ch = (char)(ch - 'A' + 'a');
+        }
+
+        if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+            g_sensor_uid[used++] = ch;
+        }
+    }
+
+    while (used > 0 && g_sensor_uid[0] == '-') {
+        memmove(g_sensor_uid, g_sensor_uid + 1, used);
+        used--;
+    }
+    while (used > 0 && g_sensor_uid[used - 1] == '-') {
+        g_sensor_uid[--used] = '\0';
+    }
+
+    if (used == 0) {
+        strlcpy(g_sensor_uid, "sensor", sizeof(g_sensor_uid));
+        used = strlen(g_sensor_uid);
+    }
+
+    if (used < sizeof(g_sensor_uid) - 1) {
+        strlcat(g_sensor_uid, SENSOR_UID_SUFFIX, sizeof(g_sensor_uid));
+    }
+
+    g_sensor_uid_ready = true;
+    return g_sensor_uid;
 }
 
 static void clear_telemetry_endpoint_cache(void)
@@ -980,9 +1025,10 @@ static int build_config_pull_json(char *buf, size_t buf_len)
         buf, buf_len,
         "{"
           "\"deviceId\":\"" DEVICE_ID_STR "\","
-          "\"sensorId\":\"" SENSOR_ID_STR "\","
+          "\"sensorId\":\"%s\","
           "\"sensorType\":\"%s\""
         "}",
+        get_backend_sensor_uid(),
         sensor_type_to_backend_name(sensor_type)
     );
 }
@@ -1002,13 +1048,14 @@ static int build_payload_json(float temp_value, char *buf, size_t buf_len)
           "\"ts\":%lu,"
           "\"sensors\":["
             "{"
-              "\"id\":\"" SENSOR_ID_STR "\","
+              "\"id\":\"%s\","
               "\"type\":\"%s\","
               "\"v\":%.1f"
             "}"
           "]"
         "}",
         (unsigned long)ts_now_seconds(),
+        get_backend_sensor_uid(),
         sensor_type_to_backend_name(sensor_type),
         temp_value
     );
@@ -1030,7 +1077,7 @@ static int build_discovery_json(char *buf, size_t buf_len)
           "\"ts\":%lu,"
           "\"sensors\":["
             "{"
-              "\"id\":\"" SENSOR_ID_STR "\","
+              "\"id\":\"%s\","
               "\"type\":\"%s\","
               "\"name\":\"%s\","
               "\"unit\":\"%s\""
@@ -1038,6 +1085,7 @@ static int build_discovery_json(char *buf, size_t buf_len)
           "]"
         "}",
         (unsigned long)ts_now_seconds(),
+        get_backend_sensor_uid(),
         sensor_type_to_backend_name(sensor_type),
         sensor_name,
         sensor_type_to_backend_unit(sensor_type)
@@ -1557,7 +1605,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Controller booted");
     ESP_LOGI(TAG, "Startup order: SIM800 PPP first, ESP-NOW second");
     ESP_LOGI(TAG, "Hardcoded deviceId=%s", DEVICE_ID_STR);
-    ESP_LOGI(TAG, "Hardcoded sensorId=%s", SENSOR_ID_STR);
+    ESP_LOGI(TAG, "Derived sensorId=%s", get_backend_sensor_uid());
     ESP_LOGI(TAG, "Sequence: local config ACK -> backend discovery -> telemetry upload");
     ESP_LOGI(TAG, "Uploading only fresh temperature readings after sensor wake cycles");
 
