@@ -121,8 +121,8 @@ export interface SaveSensorConfigResponse {
 }
 
 export const getSensors = async (controllerId: string): Promise<Sensor[]> => {
-  const response = await api.get<Sensor[]>(API_ENDPOINTS.SENSORS.LIST(controllerId));
-  return response.data;
+  const response = await api.get<Sensor[] | null>(API_ENDPOINTS.SENSORS.LIST(controllerId));
+  return Array.isArray(response.data) ? response.data : [];
 };
 
 export const getSensor = async (id: string): Promise<Sensor> => {

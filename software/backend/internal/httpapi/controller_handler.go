@@ -152,8 +152,20 @@ func (h *ControllerHandler) Pair(w http.ResponseWriter, r *http.Request) {
 			defaultName := fmt.Sprintf("Controller %s", hwID)
 			now := time.Now().UTC()
 			_, err = h.db.Exec(r.Context(), `
-				INSERT INTO controllers (id, account_id, hw_id, name, qr_code, status, last_seen, created_at, min_reporting_interval_sec)
-				VALUES ($1, $2, $3, $4, $5, 'PENDING_CONFIG', NULL, $6, $7)
+				INSERT INTO controllers (
+					id,
+					account_id,
+					hw_id,
+					controller_uid,
+					name,
+					qr_code,
+					status,
+					last_seen,
+					created_at,
+					updated_at,
+					min_reporting_interval_sec
+				)
+				VALUES ($1, $2, $3, $3, $4, $5, 'PENDING_CONFIG', NULL, $6, $6, $7)
 			`, controllerID, accountID, hwID, defaultName, hwID, now, 300)
 			if err != nil {
 				http.Error(w, "failed to register controller", http.StatusInternalServerError)
@@ -171,6 +183,7 @@ pairController:
 		UPDATE controllers
 		SET account_id = $1,
 		    status = 'PENDING_CONFIG',
+		    updated_at = NOW(),
 		    min_reporting_interval_sec = LEAST(min_reporting_interval_sec, 300)
 		WHERE id = $2
 	`, accountID, controllerID)
@@ -230,6 +243,7 @@ func (h *ControllerHandler) resolveControllerForPairing(r *http.Request, account
 			UPDATE controllers
 			SET account_id = $1,
 			    status = 'PENDING_CONFIG',
+			    updated_at = NOW(),
 			    min_reporting_interval_sec = LEAST(min_reporting_interval_sec, 300)
 			WHERE id = $2
 		`, accountID, controllerID)
@@ -260,6 +274,7 @@ func (h *ControllerHandler) resolveControllerForPairing(r *http.Request, account
 		UPDATE controllers
 		SET account_id = $1,
 		    status = 'PENDING_CONFIG',
+		    updated_at = NOW(),
 		    min_reporting_interval_sec = LEAST(min_reporting_interval_sec, 300)
 		WHERE id = $2
 	`, accountID, controllerID)

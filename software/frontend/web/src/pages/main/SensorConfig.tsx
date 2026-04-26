@@ -28,6 +28,10 @@ import {
   AISuggestRequest,
   SensorContext,
 } from '../../services/sensorService';
+import {
+  getHardwareSensor,
+  saveHardwareSensorConfiguration,
+} from '../../services/hardwarePairingService';
 import { estimateBatteryLifeDays, getSensorMetrics } from '../../utils/sensorConfig';
 import { SensorConfigSkeleton } from '../../components/LoadingSkeletons';
 
@@ -66,6 +70,11 @@ type PresentationProfileOption =
 type SensorConfigNavigationState = {
   preferredSetupMode?: SetupMode;
   returnTo?: string;
+  controllerId?: string;
+  sensorId?: string;
+  sensorType?: string;
+  sensorName?: string;
+  configured?: boolean;
 };
 
 type AiDraftSummary = {
@@ -73,6 +82,13 @@ type AiDraftSummary = {
   warnings: string[];
   confidenceScore: number;
   requiresUserConfirmation: boolean;
+};
+
+type TypeSpecificField = {
+  key: string;
+  label: string;
+  type: 'number' | 'text';
+  required?: boolean;
 };
 
 const toNumberOrUndefined = (value: string): number | undefined => {
@@ -146,6 +162,69 @@ const toPositiveIntOrUndefined = (value: string): number | undefined => {
   return Math.round(parsed);
 };
 
+const toCamelCaseThresholdKey = (metricKey: string, suffix: string) => {
+  return `${metricKey}${suffix.charAt(0).toUpperCase()}${suffix.slice(1)}`.replace(
+    /_([a-z])/g,
+    (_, letter: string) => letter.toUpperCase()
+  );
+};
+
+const getOptionLabel = <T extends string>(
+  options: Array<{ value: T; label: string }>,
+  value: T
+) => options.find((option) => option.value === value)?.label || value;
+
+const getTypeSpecificFieldsForSensorType = (sensorType: string): TypeSpecificField[] => {
+  switch (sensorType.toLowerCase()) {
+    case 'ultrasonic':
+      return [
+        { key: 'tankHeight', label: 'Tank Height', type: 'number', required: true },
+        { key: 'emptyDistance', label: 'Empty Distance', type: 'number', required: true },
+        { key: 'fullDistance', label: 'Full Distance', type: 'number', required: true },
+        { key: 'lowLevelAlert', label: 'Low Level Alert', type: 'number', required: true },
+        { key: 'highLevelAlert', label: 'High Level Alert', type: 'number', required: true },
+        { key: 'unit', label: 'Unit', type: 'text', required: true },
+      ];
+    case 'load':
+    case 'load_cell':
+      return [
+        { key: 'maximumWeight', label: 'Maximum Weight', type: 'number', required: true },
+        { key: 'minimumWeight', label: 'Minimum Weight', type: 'number', required: true },
+        { key: 'overloadAlert', label: 'Overload Alert', type: 'number', required: true },
+        { key: 'unit', label: 'Unit', type: 'text', required: true },
+      ];
+    case 'gas':
+    case 'gas_sensor':
+      return [
+        { key: 'gasType', label: 'Gas Type', type: 'text', required: true },
+        { key: 'warningThreshold', label: 'Warning Threshold', type: 'number', required: true },
+        { key: 'dangerThreshold', label: 'Danger Threshold', type: 'number', required: true },
+        { key: 'unit', label: 'Unit', type: 'text', required: true },
+      ];
+    default:
+      return [];
+  }
+};
+
+const getDefaultTypeSpecificValue = (sensorType: string, key: string) => {
+  if (key !== 'unit') {
+    return '';
+  }
+
+  switch (sensorType.toLowerCase()) {
+    case 'ultrasonic':
+      return 'cm';
+    case 'load':
+    case 'load_cell':
+      return 'kg';
+    case 'gas':
+    case 'gas_sensor':
+      return 'ppm';
+    default:
+      return '';
+  }
+};
+
 const USE_CASE_OPTIONS: Array<{ value: UseCaseOption; label: string; description: string }> = [
   { value: 'generic_monitoring', label: 'General Monitoring', description: 'A simple reading-first setup.' },
   { value: 'climate_monitoring', label: 'Climate Monitoring', description: 'Best for temperature and humidity conditions.' },
@@ -183,6 +262,7 @@ const getDefaultUseCaseForSensorType = (sensorType: string): UseCaseOption => {
     case 'load':
     case 'load_cell':
       return 'load_monitoring';
+    case 'gas':
     case 'gas_sensor':
     case 'air_quality':
       return 'safety_monitoring';
@@ -211,6 +291,7 @@ const getAllowedUseCasesForSensorType = (sensorType: string): UseCaseOption[] =>
     case 'load':
     case 'load_cell':
       return ['generic_monitoring', 'load_monitoring'];
+    case 'gas':
     case 'gas_sensor':
     case 'air_quality':
       return ['generic_monitoring', 'safety_monitoring'];
@@ -272,7 +353,11 @@ const getAllowedProfilesForUseCase = (
 };
 
 const SensorConfig: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+  const { id, controllerId, sensorId } = useParams<{
+    id?: string;
+    controllerId?: string;
+    sensorId?: string;
+  }>();
   const navigate = useNavigate();
   const location = useLocation();
   const navigationState = (location.state || null) as SensorConfigNavigationState | null;
@@ -297,6 +382,7 @@ const SensorConfig: React.FC = () => {
   const [presentationProfile, setPresentationProfile] = useState<PresentationProfileOption>('single_trend');
   const [primaryMetric, setPrimaryMetric] = useState('');
   const [metricThresholds, setMetricThresholds] = useState<Record<string, MetricThresholdInput>>({});
+  const [typeSpecificValues, setTypeSpecificValues] = useState<Record<string, string>>({});
   const [reportsPerDay, setReportsPerDay] = useState('24');
   const [readingFlowType, setReadingFlowType] = useState<'CONSTANT_PER_DAY' | 'TRIGGER'>('CONSTANT_PER_DAY');
   const [validationStatus, setValidationStatus] = useState('');
@@ -304,8 +390,15 @@ const SensorConfig: React.FC = () => {
   const [pageError, setPageError] = useState<string | null>(null);
   const [aiDraftSummary, setAiDraftSummary] = useState<AiDraftSummary | null>(null);
   const initializedSensorIdRef = useRef<string | null>(null);
+  const activeSensorId = sensorId || id || navigationState?.sensorId || '';
+  const activeControllerId = controllerId || navigationState?.controllerId || sensor?.controller_id || '';
+  const isHardwareRoute = Boolean(controllerId && sensorId);
 
   const sensorMetrics = useMemo(() => getSensorMetrics(sensor?.type || ''), [sensor?.type]);
+  const typeSpecificFields = useMemo(
+    () => getTypeSpecificFieldsForSensorType(sensor?.type || navigationState?.sensorType || ''),
+    [sensor?.type, navigationState?.sensorType]
+  );
   const allowedUseCases = useMemo(
     () => getAllowedUseCasesForSensorType(sensor?.type || ''),
     [sensor?.type]
@@ -324,6 +417,11 @@ const SensorConfig: React.FC = () => {
   const handleBack = () => {
     if ((window.history.state?.idx ?? 0) > 0) {
       navigate(-1);
+      return;
+    }
+
+    if (isHardwareRoute && activeControllerId) {
+      navigate(`/hardware/${activeControllerId}/sensors`);
       return;
     }
 
@@ -347,15 +445,34 @@ const SensorConfig: React.FC = () => {
     });
   }, [sensorMetrics]);
 
+  useEffect(() => {
+    if (typeSpecificFields.length === 0) {
+      setTypeSpecificValues({});
+      return;
+    }
+
+    setTypeSpecificValues((current) => {
+      const next: Record<string, string> = {};
+      for (const field of typeSpecificFields) {
+        next[field.key] =
+          current[field.key] ??
+          getDefaultTypeSpecificValue(sensor?.type || navigationState?.sensorType || '', field.key);
+      }
+      return next;
+    });
+  }, [typeSpecificFields, sensor?.type, navigationState?.sensorType]);
+
   const loadSensor = useCallback(async () => {
-    if (!id) return;
+    if (!activeSensorId) return;
 
     try {
       setPageError(null);
-      const sensorData = await getSensor(id);
+      const sensorData = isHardwareRoute || activeControllerId
+        ? await getHardwareSensor(activeSensorId, activeControllerId)
+        : await getSensor(activeSensorId);
       setSensor(sensorData);
 
-      if (initializedSensorIdRef.current !== id) {
+      if (initializedSensorIdRef.current !== activeSensorId) {
         setPurpose(sensorData.purpose || '');
         setFriendlyName(sensorData.active_config?.friendly_name || sensorData.name || '');
         setDomain(sensorData.context?.domain || '');
@@ -401,20 +518,34 @@ const SensorConfig: React.FC = () => {
           setMetricThresholds(nextMetricThresholds);
         }
 
+        const hardwareConfig = ((sensorData.active_config as any)?.hardware_config || {}) as Record<string, unknown>;
+        const hardwareFields = getTypeSpecificFieldsForSensorType(sensorData.type || '');
+        if (hardwareFields.length > 0) {
+          setTypeSpecificValues(
+            Object.fromEntries(
+              hardwareFields.map((field) => [
+                field.key,
+                hardwareConfig[field.key]?.toString() ||
+                  getDefaultTypeSpecificValue(sensorData.type || '', field.key),
+              ])
+            )
+          );
+        }
+
         setSetupMode(navigationState?.preferredSetupMode || (sensorData.purpose ? 'ai_assisted' : 'manual'));
-        initializedSensorIdRef.current = id;
+        initializedSensorIdRef.current = activeSensorId;
       }
     } catch (error) {
       console.error('Error loading sensor:', error);
-      setPageError('Failed to load sensor data.');
+      setPageError('Sensor not found');
     } finally {
       setLoading(false);
     }
-  }, [id, navigationState?.preferredSetupMode]);
+  }, [activeSensorId, activeControllerId, isHardwareRoute, navigationState?.preferredSetupMode]);
 
   useEffect(() => {
     initializedSensorIdRef.current = null;
-  }, [id]);
+  }, [activeSensorId]);
 
   useEffect(() => {
     if (allowedUseCases.length === 0) {
@@ -439,10 +570,10 @@ const SensorConfig: React.FC = () => {
   }, [allowedPresentationProfiles, presentationProfile]);
 
   useEffect(() => {
-    if (id) {
+    if (activeSensorId) {
       loadSensor();
     }
-  }, [id, loadSensor]);
+  }, [activeSensorId, loadSensor]);
 
   const buildContextPayload = (): SensorContext | undefined => {
     const historicalDays = toPositiveIntOrUndefined(historicalWindowDays);
@@ -480,7 +611,7 @@ const SensorConfig: React.FC = () => {
   };
 
   const handleAISuggest = async () => {
-    if (!id || !purpose.trim()) {
+    if (!activeSensorId || !purpose.trim()) {
       setPageError('Add a short purpose before asking AI for setup help.');
       return;
     }
@@ -493,7 +624,7 @@ const SensorConfig: React.FC = () => {
         context: buildContextPayload(),
       };
 
-      const response = await getAISuggestedConfig(id, request);
+      const response = await getAISuggestedConfig(activeSensorId, request);
       const config = response.validated_config || response.suggested_config;
 
       setFriendlyName(config.friendly_name);
@@ -542,13 +673,55 @@ const SensorConfig: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!id || !sensor) {
+    if (!activeSensorId || !sensor) {
       return;
     }
 
     if (!friendlyName.trim()) {
       setPageError('Please enter a sensor name before saving.');
       return;
+    }
+
+    if (readingFlowType !== 'TRIGGER' && !toPositiveIntOrUndefined(reportsPerDay)) {
+      setPageError('Reports per day is required.');
+      return;
+    }
+
+    if (isHardwareRoute) {
+      const missingMetric = sensorMetrics.find((metric) => {
+        const values = metricThresholds[metric.key] || emptyMetricThresholdInput();
+        if (values.mode === 'min') {
+          return !values.min.trim();
+        }
+        if (values.mode === 'max') {
+          return !values.max.trim();
+        }
+        return !values.min.trim() || !values.max.trim();
+      });
+
+      if (missingMetric) {
+        setPageError(`${missingMetric.label} threshold values are required.`);
+        return;
+      }
+
+      const missingField = typeSpecificFields.find(
+        (field) => field.required && !typeSpecificValues[field.key]?.trim()
+      );
+      if (missingField) {
+        setPageError(`${missingField.label} is required.`);
+        return;
+      }
+
+      const invalidNumberField = typeSpecificFields.find(
+        (field) =>
+          field.type === 'number' &&
+          typeSpecificValues[field.key]?.trim() &&
+          toNumberOrUndefined(typeSpecificValues[field.key]) === undefined
+      );
+      if (invalidNumberField) {
+        setPageError(`${invalidNumberField.label} must be a number.`);
+        return;
+      }
     }
 
     setSaving(true);
@@ -594,7 +767,70 @@ const SensorConfig: React.FC = () => {
         },
       };
 
-      const response = await saveSensorConfig(id, {
+      if (isHardwareRoute && activeControllerId) {
+        const flattenedMetricConfig = Object.entries(metricThresholdPayload).reduce<Record<string, unknown>>(
+          (acc, [metricKey, threshold]) => {
+            if (threshold.min !== undefined) {
+              acc[toCamelCaseThresholdKey(metricKey, 'min')] = threshold.min;
+            }
+            if (threshold.max !== undefined) {
+              acc[toCamelCaseThresholdKey(metricKey, 'max')] = threshold.max;
+            }
+            if (threshold.warning_min !== undefined) {
+              acc[toCamelCaseThresholdKey(metricKey, 'warningMin')] = threshold.warning_min;
+            }
+            if (threshold.warning_max !== undefined) {
+              acc[toCamelCaseThresholdKey(metricKey, 'warningMax')] = threshold.warning_max;
+            }
+            return acc;
+          },
+          {}
+        );
+        const typeSpecificConfig = Object.fromEntries(
+          typeSpecificFields.map((field) => [
+            field.key,
+            field.type === 'number'
+              ? toNumberOrUndefined(typeSpecificValues[field.key])
+              : typeSpecificValues[field.key]?.trim(),
+          ])
+        );
+        const hardwareConfig = {
+          ...flattenedMetricConfig,
+          ...typeSpecificConfig,
+          readingFlowType,
+          reportsPerDay: reports,
+          estimatedBatteryLifeDays,
+        };
+        const appConfig = {
+          ...config,
+          hardware_config: hardwareConfig,
+        } as SensorConfigPayload;
+
+        await saveHardwareSensorConfiguration({
+          controllerId: activeControllerId,
+          sensorId: activeSensorId,
+          sensorType: sensor.type,
+          sensorName: friendlyName.trim(),
+          usedFor: getOptionLabel(USE_CASE_OPTIONS, useCase),
+          dashboardView: getOptionLabel(PRESENTATION_PROFILE_OPTIONS, presentationProfile),
+          config: hardwareConfig,
+          appConfig,
+        });
+
+        navigate(`/hardware/${activeControllerId}/sensors`, {
+          replace: true,
+          state: {
+            configurationSaved: true,
+            configuredSensorId: sensor.id,
+            configuredSensorName: friendlyName.trim(),
+            validationWarnings: [],
+            observationMessage: 'Configuration activated successfully',
+          },
+        });
+        return;
+      }
+
+      const response = await saveSensorConfig(activeSensorId, {
         purpose: purpose.trim(),
         context: isAiAssisted ? buildContextPayload() : undefined,
         config,
@@ -628,7 +864,10 @@ const SensorConfig: React.FC = () => {
         state: successState,
       });
     } catch (error: any) {
-      setPageError(error.response?.data?.message || 'Failed to save configuration.');
+      setPageError(
+        error.response?.data?.message ||
+          (isHardwareRoute ? 'Configuration save failed' : 'Failed to save configuration.')
+      );
     } finally {
       setSaving(false);
     }
@@ -1135,6 +1374,33 @@ const SensorConfig: React.FC = () => {
               </Grid>
             </Box>
           ))}
+
+          {typeSpecificFields.length > 0 && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Sensor Details
+              </Typography>
+              <Grid container spacing={2}>
+                {typeSpecificFields.map((field) => (
+                  <Grid item xs={12} md={6} key={field.key}>
+                    <TextField
+                      fullWidth
+                      label={`${field.label}${field.required ? ' *' : ''}`}
+                      type={field.type}
+                      value={typeSpecificValues[field.key] || ''}
+                      onChange={(e) =>
+                        setTypeSpecificValues((current) => ({
+                          ...current,
+                          [field.key]: e.target.value,
+                        }))
+                      }
+                      required={field.required}
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+            </Box>
+          )}
 
           <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
             Reading & Power Settings

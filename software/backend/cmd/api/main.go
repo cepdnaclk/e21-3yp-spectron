@@ -39,7 +39,10 @@ func main() {
 
 	auth.SetJWTSecret(cfg.JWTSecret)
 
-	rawReadingsPublisher := iot.NewKafkaPublisher(cfg.Kafka.Brokers, cfg.Kafka.RawReadingsTopic)
+	rawReadingsPublisher, err := iot.NewKafkaPublisherWithConfig(cfg.Kafka)
+	if err != nil {
+		log.Fatalf("configure Kafka producer: %v", err)
+	}
 	defer rawReadingsPublisher.Close()
 	if len(cfg.Kafka.Brokers) == 0 {
 		log.Println("WARNING: Kafka is not configured. POST /api/iot/upload will return 503 until KAFKA_BROKERS is set.")

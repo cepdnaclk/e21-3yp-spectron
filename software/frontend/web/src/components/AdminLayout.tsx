@@ -1,34 +1,42 @@
 import React from 'react';
-import { Link as RouterLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { Link as RouterLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Typography,
+  Avatar,
   BottomNavigation,
   BottomNavigationAction,
   Box,
-  Avatar,
-  Stack,
+  Button,
   ButtonBase,
+  IconButton,
+  Stack,
+  Tooltip,
+  Typography,
   useMediaQuery,
   useTheme,
 } from '@mui/material';
 import {
-  Hub as ChipIcon,
+  AdminPanelSettings,
   Dashboard,
-  Notifications,
-  AccountCircle,
-  Spa,
-  Groups,
+  DevicesOther,
+  HealthAndSafety,
+  History,
+  Key,
+  Logout,
+  People,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 
-const baseRoutes = [
-  { label: 'Controllers', path: '/controllers', icon: <ChipIcon /> },
-  { label: 'Monitoring', path: '/monitoring', icon: <Dashboard /> },
-  { label: 'Alerts', path: '/alerts', icon: <Notifications /> },
+const adminRoutes = [
+  { label: 'Dashboard', mobileLabel: 'Home', path: '/admin', icon: <Dashboard /> },
+  { label: 'Devices', mobileLabel: 'Devices', path: '/admin/devices', icon: <DevicesOther /> },
+  { label: 'Pairing Tokens', mobileLabel: 'Tokens', path: '/admin/pairing', icon: <Key /> },
+  { label: 'Users', mobileLabel: 'Users', path: '/admin/users', icon: <People /> },
+  { label: 'System Health', mobileLabel: 'Health', path: '/admin/system', icon: <HealthAndSafety /> },
+  { label: 'Audit', mobileLabel: 'Audit', path: '/admin/audit', icon: <History /> },
 ];
 
 const getInitials = (name?: string) => {
-  const source = (name || 'Spectron User').trim();
+  const source = (name || 'Admin').trim();
   const parts = source.split(/\s+/).filter(Boolean);
   if (parts.length >= 2) {
     return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
@@ -36,39 +44,46 @@ const getInitials = (name?: string) => {
   return source.slice(0, 2).toUpperCase();
 };
 
-const Layout: React.FC = () => {
+const getActiveIndex = (path: string) => {
+  const index = adminRoutes
+    .slice()
+    .reverse()
+    .findIndex((route) => {
+      if (route.path === '/admin') {
+        return path === '/admin';
+      }
+      return path === route.path || path.startsWith(`${route.path}/`);
+    });
+
+  if (index < 0) {
+    return 0;
+  }
+
+  return adminRoutes.length - 1 - index;
+};
+
+const AdminLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
   const [value, setValue] = React.useState(0);
-  const displayName = user?.name || 'Spectron User';
-  const userInitials = getInitials(user?.name);
-  const accountRole = user?.accounts?.[0]?.role || 'VIEWER';
-  const routes = React.useMemo(
-    () => [
-      ...baseRoutes,
-      ...(accountRole === 'OWNER' ? [{ label: 'Team', path: '/team', icon: <Groups /> }] : []),
-      { label: 'Profile', path: '/profile', icon: <AccountCircle /> },
-    ],
-    [accountRole]
-  );
+  const displayName = user?.name || user?.email || 'Admin';
+  const userInitials = getInitials(displayName);
 
   React.useEffect(() => {
-    const path = location.pathname;
-    if (path.startsWith('/controllers')) setValue(0);
-    else if (path.startsWith('/monitoring')) setValue(1);
-    else if (path.startsWith('/alerts')) setValue(2);
-    else {
-      const currentIndex = routes.findIndex((route) => path.startsWith(route.path));
-      setValue(currentIndex >= 0 ? currentIndex : 0);
-    }
-  }, [location, routes]);
+    setValue(getActiveIndex(location.pathname));
+  }, [location.pathname]);
 
   const handleChange = (_event: React.SyntheticEvent, newValue: number) => {
     setValue(newValue);
-    navigate(routes[newValue].path);
+    navigate(adminRoutes[newValue].path);
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/admin/signin', { replace: true });
   };
 
   return (
@@ -77,14 +92,14 @@ const Layout: React.FC = () => {
         display: 'flex',
         minHeight: '100vh',
         background:
-          'radial-gradient(circle at 5% 0%, rgba(235, 79, 18, 0.12), transparent 30rem), linear-gradient(135deg, #faf0ea 0%, #fff8ed 48%, #edf4df 100%)',
+          'radial-gradient(circle at 5% 0%, rgba(235, 79, 18, 0.1), transparent 30rem), linear-gradient(135deg, #f7f2ea 0%, #fffdf8 52%, #eef4e5 100%)',
       }}
     >
       {isDesktop && (
         <Box
           component="aside"
           sx={{
-            width: 268,
+            width: 286,
             p: 2,
             position: 'fixed',
             inset: '0 auto 0 0',
@@ -94,7 +109,7 @@ const Layout: React.FC = () => {
             sx={{
               height: '100%',
               bgcolor: 'transparent',
-              borderRight: '1px solid rgba(60, 57, 17, 0.1)',
+              borderRight: '1px solid rgba(60, 57, 17, 0.12)',
               borderRadius: 0,
               p: 2,
               boxShadow: 'none',
@@ -103,21 +118,21 @@ const Layout: React.FC = () => {
             }}
           >
             <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 4 }}>
-              <Avatar sx={{ bgcolor: 'secondary.main', color: 'secondary.contrastText' }}>
-                <Spa />
+              <Avatar sx={{ bgcolor: 'primary.dark', color: 'primary.contrastText' }}>
+                <AdminPanelSettings />
               </Avatar>
               <Box>
                 <Typography variant="h6" sx={{ lineHeight: 1 }}>
-                  Spectron
+                  Spectron Admin
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  Smart monitoring
+                  Device operations
                 </Typography>
               </Box>
             </Stack>
 
             <Stack spacing={1}>
-              {routes.map((item, index) => (
+              {adminRoutes.map((item, index) => (
                 <ButtonBase
                   key={item.path}
                   component={RouterLink}
@@ -159,25 +174,13 @@ const Layout: React.FC = () => {
                 borderRadius: 0,
                 bgcolor: 'transparent',
                 borderTop: '1px solid rgba(60, 57, 17, 0.1)',
-                display: 'block',
-                textAlign: 'left',
-                color: 'inherit',
-                textDecoration: 'none',
               }}
             >
               <Typography variant="caption" color="text.secondary">
                 Signed in as
               </Typography>
-              <ButtonBase
-                onClick={() => {
-                  setValue(routes.findIndex((route) => route.path === '/profile'));
-                  navigate('/profile');
-                }}
-                sx={{ display: 'flex', width: '100%', justifyContent: 'flex-start', mt: 1, borderRadius: 2 }}
-              >
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ width: '100%' }}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1, minWidth: 0 }}>
                 <Avatar
-                  src={user?.avatar_url || undefined}
                   sx={{
                     width: 34,
                     height: 34,
@@ -188,11 +191,25 @@ const Layout: React.FC = () => {
                 >
                   {userInitials}
                 </Avatar>
-                <Typography variant="body2" noWrap fontWeight={800}>
-                  {displayName}
-                </Typography>
+                <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                  <Typography variant="body2" noWrap fontWeight={800}>
+                    {displayName}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    System admin
+                  </Typography>
+                </Box>
               </Stack>
-              </ButtonBase>
+              <Button
+                fullWidth
+                variant="outlined"
+                color="primary"
+                startIcon={<Logout />}
+                onClick={handleLogout}
+                sx={{ mt: 2 }}
+              >
+                Logout
+              </Button>
             </Box>
           </Box>
         </Box>
@@ -203,14 +220,14 @@ const Layout: React.FC = () => {
         sx={{
           flexGrow: 1,
           width: '100%',
-          ml: { md: '268px' },
-          pb: { xs: 10, md: 4 },
+          ml: { md: '286px' },
+          pb: { xs: 11, md: 4 },
         }}
       >
         <Box
           component="header"
           sx={{
-            px: { xs: 2, md: 4 },
+            px: { xs: 2, md: 3 },
             pt: { xs: 2, md: 3 },
             pb: { xs: 1, md: 0 },
             display: 'flex',
@@ -219,15 +236,31 @@ const Layout: React.FC = () => {
           }}
         >
           {!isDesktop && (
-            <Stack direction="row" spacing={1.2} alignItems="center">
-              <Avatar sx={{ bgcolor: 'secondary.main', width: 38, height: 38 }}>
-                <Spa />
-              </Avatar>
-              <Typography variant="h6">Spectron</Typography>
-            </Stack>
+            <>
+              <Stack direction="row" spacing={1.2} alignItems="center" sx={{ minWidth: 0 }}>
+                <Avatar sx={{ bgcolor: 'primary.dark', width: 38, height: 38 }}>
+                  <AdminPanelSettings />
+                </Avatar>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="h6" noWrap>
+                    Spectron Admin
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Device operations
+                  </Typography>
+                </Box>
+              </Stack>
+              <Tooltip title="Logout">
+                <IconButton aria-label="Logout" onClick={handleLogout} color="primary">
+                  <Logout />
+                </IconButton>
+              </Tooltip>
+            </>
           )}
         </Box>
-        <Outlet />
+        <Box sx={{ px: { xs: 2, md: 3 }, py: { xs: 1, md: 3 } }}>
+          <Outlet />
+        </Box>
       </Box>
 
       {!isDesktop && (
@@ -243,12 +276,22 @@ const Layout: React.FC = () => {
             borderRadius: 2,
             border: '1px solid rgba(60, 57, 17, 0.12)',
             boxShadow: 'none',
-            overflow: 'hidden',
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            justifyContent: 'flex-start',
             zIndex: 20,
+            '& .MuiBottomNavigationAction-root': {
+              minWidth: 78,
+              px: 0.5,
+            },
+            '& .MuiBottomNavigationAction-label': {
+              fontSize: 11,
+              whiteSpace: 'nowrap',
+            },
           }}
         >
-          {routes.map((item) => (
-            <BottomNavigationAction key={item.path} label={item.label} icon={item.icon} />
+          {adminRoutes.map((item) => (
+            <BottomNavigationAction key={item.path} label={item.mobileLabel} icon={item.icon} />
           ))}
         </BottomNavigation>
       )}
@@ -256,4 +299,4 @@ const Layout: React.FC = () => {
   );
 };
 
-export default Layout;
+export default AdminLayout;

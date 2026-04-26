@@ -32,7 +32,9 @@ const SENSOR_METRIC_MAP: Record<string, SensorMetric[]> = {
     { key: 'humidity', label: 'Humidity' },
   ],
   ultrasonic: [{ key: 'fill_level', label: 'Fill Level' }],
+  load: [{ key: 'weight', label: 'Weight' }],
   load_cell: [{ key: 'weight', label: 'Weight' }],
+  gas: [{ key: 'gas_level', label: 'Gas Level' }],
   gas_sensor: [{ key: 'gas_level', label: 'Gas Level' }],
   air_quality: [{ key: 'aqi', label: 'Air Quality Index' }],
 };

@@ -12,13 +12,22 @@ import {
   Alert,
   Stack,
   IconButton,
+  Snackbar,
 } from '@mui/material';
 import { ArrowBack, Settings, DeviceThermostat, Place, Memory, Tune } from '@mui/icons-material';
-import { getController, Controller } from '../../services/controllerService';
-import { getSensors, Sensor } from '../../services/sensorService';
+import { Controller } from '../../services/controllerService';
+import { Sensor } from '../../services/sensorService';
+import {
+  HardwarePairingSensor,
+  getHardwareController,
+  getHardwareSensors,
+} from '../../services/hardwarePairingService';
 import { ControllerDashboardSkeleton } from '../../components/LoadingSkeletons';
 
 type DashboardNavigationState = {
+  controllerId?: string;
+  sensors?: HardwarePairingSensor[];
+  paired?: boolean;
   configurationSaved?: boolean;
   configuredSensorId?: string;
   configuredSensorName?: string;
@@ -27,7 +36,7 @@ type DashboardNavigationState = {
 };
 
 const ControllerDashboard: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+  const { id, controllerId } = useParams<{ id?: string; controllerId?: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const [controller, setController] = useState<Controller | null>(null);
@@ -35,6 +44,9 @@ const ControllerDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const navigationState = (location.state || null) as DashboardNavigationState | null;
   const [saveNotice, setSaveNotice] = useState<DashboardNavigationState | null>(navigationState);
+  const [toastOpen, setToastOpen] = useState(Boolean(navigationState?.configurationSaved));
+  const activeControllerId = controllerId || id || navigationState?.controllerId || '';
+  const isHardwareRoute = Boolean(controllerId);
 
   const handleBack = () => {
     if ((window.history.state?.idx ?? 0) > 0) {
@@ -46,26 +58,31 @@ const ControllerDashboard: React.FC = () => {
   };
 
   const loadData = useCallback(async () => {
-    if (!id) return;
+    if (!activeControllerId) {
+      setLoading(false);
+      return;
+    }
+
     try {
+      setLoading(true);
       const [controllerData, sensorsData] = await Promise.all([
-        getController(id),
-        getSensors(id),
+        getHardwareController(activeControllerId),
+        getHardwareSensors(activeControllerId),
       ]);
       setController(controllerData);
-      setSensors(sensorsData);
+      setSensors(Array.isArray(sensorsData) ? sensorsData : []);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [activeControllerId]);
 
   useEffect(() => {
-    if (id) {
+    if (activeControllerId) {
       loadData();
     }
-  }, [id, loadData]);
+  }, [activeControllerId, loadData]);
 
   useEffect(() => {
     if (!navigationState?.configurationSaved) {
@@ -73,6 +90,7 @@ const ControllerDashboard: React.FC = () => {
     }
 
     setSaveNotice(navigationState);
+    setToastOpen(true);
     navigate(location.pathname, { replace: true, state: null });
   }, [location.pathname, navigate, navigationState]);
 
@@ -175,6 +193,16 @@ const ControllerDashboard: React.FC = () => {
           )}
         </Alert>
       )}
+      <Snackbar
+        open={toastOpen}
+        autoHideDuration={3600}
+        onClose={() => setToastOpen(false)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Alert severity="success" onClose={() => setToastOpen(false)}>
+          {saveNotice?.observationMessage || 'Configuration activated successfully'}
+        </Alert>
+      </Snackbar>
 
       <Card
         sx={{
@@ -311,7 +339,25 @@ const ControllerDashboard: React.FC = () => {
                         startIcon={sensor.config_active ? <Tune /> : <Settings />}
                         size="small"
                         sx={{ mt: 2 }}
-                        onClick={() => navigate(`/sensors/${sensor.id}/config`)}
+                        onClick={() =>
+                          navigate(
+                            isHardwareRoute
+                              ? `/hardware/${activeControllerId}/sensors/${sensor.id}/configure`
+                              : `/sensors/${sensor.id}/config`,
+                            {
+                              state: {
+                                controllerId: activeControllerId,
+                                sensorId: sensor.id,
+                                sensorType: sensor.type,
+                                sensorName: sensor.name || `${sensor.type} Sensor`,
+                                configured: Boolean(sensor.config_active),
+                                returnTo: isHardwareRoute
+                                  ? `/hardware/${activeControllerId}/sensors`
+                                  : `/controllers/${activeControllerId}`,
+                              },
+                            }
+                          )
+                        }
                       >
                         {sensor.config_active ? 'Review Configuration' : 'Configure Later'}
                       </Button>

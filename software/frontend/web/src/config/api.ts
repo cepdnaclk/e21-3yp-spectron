@@ -3,6 +3,7 @@ export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8
 export const API_ENDPOINTS = {
   AUTH: {
     LOGIN: '/auth/login',
+    ADMIN_LOGIN: '/auth/admin/login',
     REGISTER: '/auth/register',
     ME: '/auth/me',
     CHANGE_PASSWORD: '/auth/change-password',
@@ -29,5 +30,9 @@ export const API_ENDPOINTS = {
   ALERTS: {
     LIST: '/alerts',
     ACK: (id: string) => `/alerts/${id}/ack`,
+  },
+  USERS: {
+    LIST: '/users',
+    CREATE_VIEWER: '/users/viewers',
   },
 };

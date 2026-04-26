@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+
+	kafkasecurity "spectron-backend/internal/kafka"
 )
 
 const DefaultDevJWTSecret = "dev-only-change-me"
@@ -20,11 +22,7 @@ type Config struct {
 	MQTT           MQTTConfig
 }
 
-type KafkaConfig struct {
-	Brokers          []string
-	RawReadingsTopic string
-	ConsumerGroup    string
-}
+type KafkaConfig = kafkasecurity.KafkaConfig
 
 type MQTTConfig struct {
 	Enabled            bool
@@ -52,6 +50,7 @@ func Load() (*Config, error) {
 	jwtSecret := getenv("JWT_SECRET", DefaultDevJWTSecret)
 	allowedOrigins := parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS"))
 	kafkaBrokers := parseCSV(os.Getenv("KAFKA_BROKERS"))
+	kafkaClientID := getenv("KAFKA_CLIENT_ID", "spectron-backend")
 	kafkaTopic := getenv("KAFKA_RAW_READINGS_TOPIC", "spectron.raw-readings")
 	kafkaConsumerGroup := getenv("KAFKA_CONSUMER_GROUP", "spectron-readings-consumer")
 	mqttQoS, err := parseQoS(getenv("MQTT_QOS", "1"))
@@ -70,9 +69,16 @@ func Load() (*Config, error) {
 		JWTSecret:      jwtSecret,
 		AllowedOrigins: allowedOrigins,
 		Kafka: KafkaConfig{
-			Brokers:          kafkaBrokers,
-			RawReadingsTopic: kafkaTopic,
-			ConsumerGroup:    kafkaConsumerGroup,
+			Brokers:            kafkaBrokers,
+			RawReadingsTopic:   kafkaTopic,
+			ConsumerGroup:      kafkaConsumerGroup,
+			ClientID:           kafkaClientID,
+			TLSEnabled:         parseBool(getenv("KAFKA_TLS_ENABLED", "false")),
+			MTLSEnabled:        parseBool(getenv("KAFKA_MTLS_ENABLED", "false")),
+			CACertPath:         getenv("KAFKA_CA_CERT_PATH", "./certs/ca.pem"),
+			ClientCertPath:     getenv("KAFKA_CLIENT_CERT_PATH", "./certs/client.pem"),
+			ClientKeyPath:      getenv("KAFKA_CLIENT_KEY_PATH", "./certs/client-key.pem"),
+			InsecureSkipVerify: parseBool(getenv("KAFKA_INSECURE_SKIP_VERIFY", "false")),
 		},
 		MQTT: MQTTConfig{
 			Enabled:            parseBool(getenv("MQTT_BRIDGE_ENABLED", "false")),
@@ -124,8 +130,10 @@ func parseAllowedOrigins(raw string) []string {
 		return []string{
 			"http://localhost:3000",
 			"http://localhost:3001",
+			"http://localhost:3002",
 			"http://127.0.0.1:3000",
 			"http://127.0.0.1:3001",
+			"http://127.0.0.1:3002",
 		}
 	}
 
@@ -143,8 +151,10 @@ func parseAllowedOrigins(raw string) []string {
 		return []string{
 			"http://localhost:3000",
 			"http://localhost:3001",
+			"http://localhost:3002",
 			"http://127.0.0.1:3000",
 			"http://127.0.0.1:3001",
+			"http://127.0.0.1:3002",
 		}
 	}
 

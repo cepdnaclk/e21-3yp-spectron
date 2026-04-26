@@ -11,6 +11,7 @@ export interface RegisterRequest {
   password: string;
   phone?: string;
   name?: string;
+  organizationName?: string;
 }
 
 export interface AuthResponse {
@@ -21,7 +22,11 @@ export interface AuthResponse {
     name?: string;
     phone?: string;
     avatar_url?: string;
+    account_type?: 'USER' | 'ADMIN';
+    status?: 'ACTIVE' | 'PENDING_APPROVAL' | 'REJECTED' | 'DISABLED';
   };
+  status?: 'ACTIVE' | 'PENDING_APPROVAL' | 'REJECTED' | 'DISABLED';
+  message?: string;
 }
 
 export interface User {
@@ -30,6 +35,8 @@ export interface User {
   name?: string;
   phone?: string;
   avatar_url?: string;
+  account_type?: 'USER' | 'ADMIN';
+  status?: 'ACTIVE' | 'PENDING_APPROVAL' | 'REJECTED' | 'DISABLED';
   accounts: Array<{
     id: string;
     name: string;
@@ -46,6 +53,8 @@ type MeResponse =
         name?: string;
         phone?: string;
         avatar_url?: string;
+        account_type?: 'USER' | 'ADMIN';
+        status?: 'ACTIVE' | 'PENDING_APPROVAL' | 'REJECTED' | 'DISABLED';
       };
       accounts?: Array<{
         id: string;
@@ -62,6 +71,8 @@ const normalizeUser = (data: MeResponse): User => {
       name: data.user.name,
       phone: data.user.phone,
       avatar_url: data.user.avatar_url,
+      account_type: data.user.account_type,
+      status: data.user.status,
       accounts: (data.accounts || []).map((account) => ({
         ...account,
         role: account.role || 'VIEWER',
@@ -80,13 +91,21 @@ const normalizeUser = (data: MeResponse): User => {
 
 export const login = async (credentials: LoginRequest): Promise<AuthResponse> => {
   const response = await api.post<AuthResponse>(API_ENDPOINTS.AUTH.LOGIN, credentials);
-  setToken(response.data.token);
+  setToken(response.data.token, 'user');
+  return response.data;
+};
+
+export const adminLogin = async (credentials: LoginRequest): Promise<AuthResponse> => {
+  const response = await api.post<AuthResponse>(API_ENDPOINTS.AUTH.ADMIN_LOGIN, credentials);
+  setToken(response.data.token, 'admin');
   return response.data;
 };
 
 export const register = async (data: RegisterRequest): Promise<AuthResponse> => {
   const response = await api.post<AuthResponse>(API_ENDPOINTS.AUTH.REGISTER, data);
-  setToken(response.data.token);
+  if (response.data.token) {
+    setToken(response.data.token, 'user');
+  }
   return response.data;
 };
 
@@ -129,5 +148,32 @@ export const changePassword = async (data: ChangePasswordRequest): Promise<void>
 
 export const deleteAccount = async (data: DeleteAccountRequest): Promise<void> => {
   await api.delete(API_ENDPOINTS.AUTH.ME, { data });
-  removeToken();
+  removeToken('user');
+};
+
+export interface AccountUser {
+  id: string;
+  email: string;
+  name?: string;
+  phone?: string;
+  status: 'ACTIVE' | 'PENDING_APPROVAL' | 'REJECTED' | 'DISABLED';
+  created_at: string;
+  role: 'OWNER' | 'ADMIN' | 'VIEWER';
+}
+
+export interface CreateViewerRequest {
+  email: string;
+  password: string;
+  name?: string;
+  phone?: string;
+}
+
+export const getAccountUsers = async (): Promise<AccountUser[]> => {
+  const response = await api.get<{ users?: AccountUser[] }>(API_ENDPOINTS.USERS.LIST);
+  return response.data.users || [];
+};
+
+export const createViewer = async (data: CreateViewerRequest): Promise<User> => {
+  const response = await api.post<User>(API_ENDPOINTS.USERS.CREATE_VIEWER, data);
+  return normalizeUser(response.data);
 };
