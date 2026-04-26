@@ -34,6 +34,20 @@ const statusColor = (status: AdminOwner['status']) => {
   return 'default';
 };
 
+const compactButtonSx = {
+  minHeight: 36,
+  px: 1.5,
+  py: 0.5,
+  borderRadius: 2,
+  transition: 'transform 160ms ease, background-color 160ms ease, border-color 160ms ease',
+  '&:hover': {
+    transform: 'translateY(-1px)',
+  },
+  '&:active': {
+    transform: 'translateY(0)',
+  },
+};
+
 const AdminUsers: React.FC = () => {
   const [owners, setOwners] = useState<AdminOwner[]>([]);
   const [loading, setLoading] = useState(false);
@@ -110,7 +124,13 @@ const AdminUsers: React.FC = () => {
 
   return (
     <Box>
-      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} sx={{ mb: 3 }}>
+      <Stack
+        direction={{ xs: 'column', md: 'row' }}
+        justifyContent="space-between"
+        alignItems={{ xs: 'stretch', md: 'center' }}
+        spacing={2}
+        sx={{ mb: 3 }}
+      >
         <Box>
           <Typography variant="overline" color="secondary" fontWeight={800}>
             Owner Accounts
@@ -122,7 +142,13 @@ const AdminUsers: React.FC = () => {
             Approve owner signup requests or create owner credentials directly.
           </Typography>
         </Box>
-        <Button startIcon={<Refresh />} variant="outlined" onClick={loadOwners} disabled={loading}>
+        <Button
+          startIcon={<Refresh />}
+          variant="outlined"
+          onClick={loadOwners}
+          disabled={loading}
+          sx={{ ...compactButtonSx, alignSelf: { xs: 'stretch', md: 'center' } }}
+        >
           Refresh
         </Button>
       </Stack>
@@ -181,7 +207,7 @@ const AdminUsers: React.FC = () => {
                 <TextField fullWidth label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
               </Grid>
               <Grid item xs={12} md={6} sx={{ display: 'flex', alignItems: 'flex-end' }}>
-                <Button type="submit" variant="contained" color="secondary" disabled={saving} fullWidth>
+                <Button type="submit" variant="contained" color="secondary" disabled={saving} fullWidth sx={compactButtonSx}>
                   Create Owner
                 </Button>
               </Grid>
@@ -222,12 +248,12 @@ const AdminUsers: React.FC = () => {
                     <TableCell align="right">
                       <Stack direction="row" spacing={1} justifyContent="flex-end">
                         {owner.status !== 'ACTIVE' && (
-                          <Button size="small" startIcon={<CheckCircle />} onClick={() => updateOwnerStatus(owner, 'approve')}>
+                          <Button size="small" startIcon={<CheckCircle />} onClick={() => updateOwnerStatus(owner, 'approve')} sx={compactButtonSx}>
                             Approve
                           </Button>
                         )}
                         {owner.status === 'PENDING_APPROVAL' && (
-                          <Button size="small" color="error" startIcon={<Block />} onClick={() => updateOwnerStatus(owner, 'reject')}>
+                          <Button size="small" color="error" startIcon={<Block />} onClick={() => updateOwnerStatus(owner, 'reject')} sx={compactButtonSx}>
                             Reject
                           </Button>
                         )}

@@ -20,7 +20,6 @@ import { AuthGateSkeleton } from './components/LoadingSkeletons';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminDevices from './pages/admin/AdminDevices';
 import AdminAddDevice from './pages/admin/AdminAddDevice';
-import AdminPairingTokens from './pages/admin/AdminPairingTokens';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminSystem from './pages/admin/AdminSystem';
 import AdminAudit from './pages/admin/AdminAudit';
@@ -297,7 +296,7 @@ function AppRoutes() {
         <Route index element={<AdminDashboard />} />
         <Route path="devices" element={<AdminDevices />} />
         <Route path="devices/new" element={<AdminAddDevice />} />
-        <Route path="pairing" element={<AdminPairingTokens />} />
+        <Route path="pairing" element={<Navigate to="/admin/devices" replace />} />
         <Route path="users" element={<AdminUsers />} />
         <Route path="system" element={<AdminSystem />} />
         <Route path="audit" element={<AdminAudit />} />

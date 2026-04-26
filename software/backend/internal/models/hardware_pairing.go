@@ -3,6 +3,7 @@ package models
 import "encoding/json"
 
 type HardwarePairRequest struct {
+	ControllerID               string `json:"controllerId,omitempty"`
 	PairingTokenOrControllerID string `json:"pairingTokenOrControllerId"`
 	QRToken                    string `json:"qr_token,omitempty"`
 }
@@ -79,9 +80,6 @@ type AdminOverviewResponse struct {
 	PairedDevices       int `json:"pairedDevices"`
 	OnlineDevices       int `json:"onlineDevices"`
 	OfflineDevices      int `json:"offlineDevices"`
-	ActiveTokens        int `json:"activeTokens"`
-	UsedTokens          int `json:"usedTokens"`
-	ExpiredTokens       int `json:"expiredTokens"`
 	ConfiguredSensors   int `json:"configuredSensors"`
 	UnconfiguredSensors int `json:"unconfiguredSensors"`
 }
@@ -95,9 +93,6 @@ type AdminDeviceResponse struct {
 	OwnerEmail        string `json:"ownerEmail,omitempty"`
 	SensorCount       int    `json:"sensorCount"`
 	ConfiguredSensors int    `json:"configuredSensors"`
-	TokenStatus       string `json:"tokenStatus"`
-	TokenExpiresAt    string `json:"tokenExpiresAt,omitempty"`
-	TokenUsedAt       string `json:"tokenUsedAt,omitempty"`
 	LastSeen          string `json:"lastSeen,omitempty"`
 	UpdatedAt         string `json:"updatedAt,omitempty"`
 }
@@ -110,14 +105,13 @@ type AdminCreateDeviceRequest struct {
 	ControllerID         string `json:"controllerId"`
 	Name                 string `json:"name"`
 	Location             string `json:"location"`
-	TokenExpiryHours     int    `json:"tokenExpiryHours"`
 	CreateDefaultSensors bool   `json:"createDefaultSensors"`
 }
 
 type AdminCreateDeviceResponse struct {
-	Device       AdminDeviceResponse `json:"device"`
-	PairingToken string              `json:"pairingToken"`
-	PairingURL   string              `json:"pairingUrl"`
+	Device    AdminDeviceResponse `json:"device"`
+	QRPayload string              `json:"qrPayload"`
+	ClaimURL  string              `json:"claimUrl"`
 }
 
 type AdminGeneratePairingTokenRequest struct {

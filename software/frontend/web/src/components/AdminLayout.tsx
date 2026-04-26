@@ -20,7 +20,6 @@ import {
   DevicesOther,
   HealthAndSafety,
   History,
-  Key,
   Logout,
   People,
 } from '@mui/icons-material';
@@ -29,7 +28,6 @@ import { useAuth } from '../contexts/AuthContext';
 const adminRoutes = [
   { label: 'Dashboard', mobileLabel: 'Home', path: '/admin', icon: <Dashboard /> },
   { label: 'Devices', mobileLabel: 'Devices', path: '/admin/devices', icon: <DevicesOther /> },
-  { label: 'Pairing Tokens', mobileLabel: 'Tokens', path: '/admin/pairing', icon: <Key /> },
   { label: 'Users', mobileLabel: 'Users', path: '/admin/users', icon: <People /> },
   { label: 'System Health', mobileLabel: 'Health', path: '/admin/system', icon: <HealthAndSafety /> },
   { label: 'Audit', mobileLabel: 'Audit', path: '/admin/audit', icon: <History /> },

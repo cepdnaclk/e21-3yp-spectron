@@ -6,9 +6,6 @@ export interface AdminOverview {
   pairedDevices: number;
   onlineDevices: number;
   offlineDevices: number;
-  activeTokens: number;
-  usedTokens: number;
-  expiredTokens: number;
   configuredSensors: number;
   unconfiguredSensors: number;
 }
@@ -22,9 +19,6 @@ export interface AdminDevice {
   ownerEmail?: string;
   sensorCount: number;
   configuredSensors: number;
-  tokenStatus: string;
-  tokenExpiresAt?: string;
-  tokenUsedAt?: string;
   lastSeen?: string;
   updatedAt?: string;
 }
@@ -33,29 +27,13 @@ export interface CreateAdminDeviceRequest {
   controllerId?: string;
   name: string;
   location?: string;
-  tokenExpiryHours: number;
   createDefaultSensors: boolean;
 }
 
 export interface CreateAdminDeviceResponse {
   device: AdminDevice;
-  pairingToken: string;
-  pairingUrl: string;
-}
-
-export interface AdminPairingToken {
-  controllerId: string;
-  status: string;
-  expiresAt: string;
-  usedAt?: string;
-  createdAt: string;
-}
-
-export interface AdminGeneratedToken {
-  controllerId: string;
-  pairingToken: string;
-  pairingUrl: string;
-  expiresAt: string;
+  qrPayload: string;
+  claimUrl: string;
 }
 
 export interface AdminUser {
@@ -108,22 +86,6 @@ export const createAdminDevice = async (
   request: CreateAdminDeviceRequest
 ): Promise<CreateAdminDeviceResponse> => {
   const response = await api.post<CreateAdminDeviceResponse>('/api/admin/devices', request);
-  return response.data;
-};
-
-export const getAdminPairingTokens = async (): Promise<AdminPairingToken[]> => {
-  const response = await api.get<{ tokens?: AdminPairingToken[] }>('/api/admin/pairing-tokens');
-  return response.data.tokens || [];
-};
-
-export const generateAdminPairingToken = async (
-  controllerId: string,
-  tokenExpiryHours = 24
-): Promise<AdminGeneratedToken> => {
-  const response = await api.post<AdminGeneratedToken>(
-    `/api/admin/devices/${encodeURIComponent(controllerId)}/pairing-token`,
-    { tokenExpiryHours }
-  );
   return response.data;
 };
 
