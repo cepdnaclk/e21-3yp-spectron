@@ -49,7 +49,10 @@ func main() {
 
 	brokerURL := normalizeBrokerURL(cfg.MQTT.BrokerURL)
 
-	publisher := iot.NewKafkaPublisher(cfg.Kafka.Brokers, cfg.Kafka.RawReadingsTopic)
+	publisher, err := iot.NewKafkaPublisherWithConfig(cfg.Kafka)
+	if err != nil {
+		log.Fatalf("configure Kafka producer: %v", err)
+	}
 	defer publisher.Close()
 
 	tlsConfig, err := buildTLSConfig(cfg.MQTT, brokerURL)

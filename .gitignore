@@ -4,7 +4,12 @@
 
 backups/
 **/backups/
+certs/
 *.sql
 !software/backend/internal/db/migrations/*.sql
 *.sql.enc
 *.key
+*.pem
+*.crt
+*.p12
+*.jks
