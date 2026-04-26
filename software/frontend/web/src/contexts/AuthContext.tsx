@@ -1,25 +1,28 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { getCurrentUser, login as loginService, register as registerService, logout as logoutService, User, LoginRequest, RegisterRequest } from '../services/authService';
+import { getCurrentUser, login as loginService, adminLogin as adminLoginService, register as registerService, logout as logoutService, User, LoginRequest, RegisterRequest } from '../services/authService';
 import { getToken } from '../services/api';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (credentials: LoginRequest) => Promise<void>;
-  register: (data: RegisterRequest) => Promise<void>;
+  login: (credentials: LoginRequest) => Promise<User>;
+  adminLogin: (credentials: LoginRequest) => Promise<User>;
+  register: (data: RegisterRequest) => Promise<User>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const mapAuthUserToUser = (authUser: { id: string; email: string; name?: string; phone?: string; avatar_url?: string }): User => {
+const mapAuthUserToUser = (authUser: { id: string; email: string; name?: string; phone?: string; avatar_url?: string; account_type?: 'USER' | 'ADMIN'; status?: 'ACTIVE' | 'PENDING_APPROVAL' | 'REJECTED' | 'DISABLED' }): User => {
   return {
     id: authUser.id,
     email: authUser.email,
     name: authUser.name,
     phone: authUser.phone,
     avatar_url: authUser.avatar_url,
+    account_type: authUser.account_type,
+    status: authUser.status,
     accounts: [],
   };
 };
@@ -51,12 +54,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (credentials: LoginRequest) => {
     const auth = await loginService(credentials);
-    setUser(mapAuthUserToUser(auth.user));
+    try {
+      const currentUser = await getCurrentUser();
+      setUser(currentUser);
+      return currentUser;
+    } catch {
+      const mappedUser = mapAuthUserToUser(auth.user);
+      setUser(mappedUser);
+      return mappedUser;
+    }
+  };
+
+  const adminLogin = async (credentials: LoginRequest) => {
+    const auth = await adminLoginService(credentials);
+    try {
+      const currentUser = await getCurrentUser();
+      setUser(currentUser);
+      return currentUser;
+    } catch {
+      const mappedUser = mapAuthUserToUser(auth.user);
+      setUser(mappedUser);
+      return mappedUser;
+    }
   };
 
   const register = async (data: RegisterRequest) => {
     const auth = await registerService(data);
-    setUser(mapAuthUserToUser(auth.user));
+    if (!auth.token) {
+      setUser(null);
+      return mapAuthUserToUser(auth.user);
+    }
+    try {
+      const currentUser = await getCurrentUser();
+      setUser(currentUser);
+      return currentUser;
+    } catch {
+      const mappedUser = mapAuthUserToUser(auth.user);
+      setUser(mappedUser);
+      return mappedUser;
+    }
   };
 
   const logout = async () => {
@@ -74,7 +110,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, adminLogin, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

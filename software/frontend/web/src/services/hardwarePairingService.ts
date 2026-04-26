@@ -67,6 +67,7 @@ export const savePairedHardware = (pairing: HardwarePairingResponse) => {
   const state = readStore();
   state[pairing.controllerId] = {
     ...pairing,
+    sensors: Array.isArray(pairing.sensors) ? pairing.sensors : [],
     updatedAt: new Date().toISOString(),
   };
   writeStore(state);
@@ -307,7 +308,8 @@ export const getHardwareController = async (controllerId: string): Promise<Contr
 export const getHardwareSensors = async (controllerId: string): Promise<Sensor[]> => {
   const stored = getStoredHardware(controllerId);
   if (stored) {
-    return stored.sensors.map((sensor) => toAppSensor(controllerId, sensor));
+    const storedSensors = Array.isArray(stored.sensors) ? stored.sensors : [];
+    return storedSensors.map((sensor) => toAppSensor(controllerId, sensor));
   }
 
   return getSensors(controllerId);
@@ -316,7 +318,7 @@ export const getHardwareSensors = async (controllerId: string): Promise<Sensor[]
 export const getHardwareSensor = async (sensorId: string, controllerId?: string): Promise<Sensor> => {
   if (controllerId) {
     const stored = getStoredHardware(controllerId);
-    const sensor = stored?.sensors.find((item) => item.id === sensorId);
+    const sensor = (Array.isArray(stored?.sensors) ? stored?.sensors : [])?.find((item) => item.id === sensorId);
     if (sensor) {
       return toAppSensor(controllerId, sensor);
     }
@@ -345,7 +347,8 @@ export const saveHardwareSensorConfiguration = async (
 
   const state = readStore();
   const current = state[request.controllerId] || mockPairingResponse(request.controllerId);
-  const nextSensors = current.sensors.map((sensor) =>
+  const currentSensors = Array.isArray(current.sensors) ? current.sensors : [];
+  const nextSensors = currentSensors.map((sensor) =>
     sensor.id === request.sensorId
       ? {
           ...sensor,

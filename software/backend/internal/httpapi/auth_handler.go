@@ -5,7 +5,9 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -22,10 +24,11 @@ func NewAuthHandler(db *pgxpool.Pool) *AuthHandler {
 }
 
 type RegisterRequest struct {
-	Email    string  `json:"email"`
-	Password string  `json:"password"`
-	Phone    *string `json:"phone,omitempty"`
-	Name     *string `json:"name,omitempty"`
+	Email            string  `json:"email"`
+	Password         string  `json:"password"`
+	Phone            *string `json:"phone,omitempty"`
+	Name             *string `json:"name,omitempty"`
+	OrganizationName *string `json:"organizationName,omitempty"`
 }
 
 type LoginRequest struct {
@@ -34,17 +37,21 @@ type LoginRequest struct {
 }
 
 type AuthResponse struct {
-	Token string      `json:"token"`
-	User  models.User `json:"user"`
+	Token   string      `json:"token,omitempty"`
+	User    models.User `json:"user"`
+	Status  string      `json:"status,omitempty"`
+	Message string      `json:"message,omitempty"`
 }
 
 type CurrentUserResponse struct {
-	ID        uuid.UUID                  `json:"id"`
-	Email     string                     `json:"email"`
-	Name      *string                    `json:"name,omitempty"`
-	Phone     *string                    `json:"phone,omitempty"`
-	AvatarURL *string                    `json:"avatar_url,omitempty"`
-	Accounts  []CurrentUserAccountAccess `json:"accounts"`
+	ID          uuid.UUID                  `json:"id"`
+	Email       string                     `json:"email"`
+	Name        *string                    `json:"name,omitempty"`
+	Phone       *string                    `json:"phone,omitempty"`
+	AvatarURL   *string                    `json:"avatar_url,omitempty"`
+	AccountType string                     `json:"account_type"`
+	Status      string                     `json:"status"`
+	Accounts    []CurrentUserAccountAccess `json:"accounts"`
 }
 
 type UpdateProfileRequest struct {
@@ -60,6 +67,34 @@ type ChangePasswordRequest struct {
 
 type DeleteAccountRequest struct {
 	ConfirmEmail string `json:"confirm_email"`
+}
+
+type CreateOwnerRequest struct {
+	Email            string  `json:"email"`
+	Password         string  `json:"password"`
+	Name             *string `json:"name,omitempty"`
+	Phone            *string `json:"phone,omitempty"`
+	OrganizationName string  `json:"organizationName"`
+}
+
+type CreateViewerRequest struct {
+	Email    string  `json:"email"`
+	Password string  `json:"password"`
+	Name     *string `json:"name,omitempty"`
+	Phone    *string `json:"phone,omitempty"`
+}
+
+type AdminOwnerResponse struct {
+	ID               string `json:"id"`
+	Email            string `json:"email"`
+	Name             string `json:"name,omitempty"`
+	Phone            string `json:"phone,omitempty"`
+	Status           string `json:"status"`
+	AccountID        string `json:"accountId"`
+	OrganizationName string `json:"organizationName"`
+	ControllerCount  int    `json:"controllerCount"`
+	ViewerCount      int    `json:"viewerCount"`
+	CreatedAt        string `json:"createdAt"`
 }
 
 type CurrentUserAccountAccess struct {
@@ -94,11 +129,18 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	userID := uuid.New()
 	accountID := uuid.New()
 
-	// Create user
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if email == "" || len(req.Password) < 6 {
+		http.Error(w, "email and a password of at least 6 characters are required", http.StatusBadRequest)
+		return
+	}
+
+	// Create a pending owner request. The account exists, but login is blocked
+	// until a system admin approves the user.
 	_, err = tx.Exec(r.Context(), `
-		INSERT INTO users (id, email, password_hash, phone, name)
-		VALUES ($1, $2, $3, $4, $5)
-	`, userID, req.Email, hashedPassword, req.Phone, req.Name)
+		INSERT INTO users (id, email, password_hash, phone, name, account_type, status)
+		VALUES ($1, $2, $3, $4, $5, 'USER', 'PENDING_APPROVAL')
+	`, userID, email, hashedPassword, req.Phone, req.Name)
 	if err != nil {
 		log.Printf("Failed to create user: %v", err)
 		// Check if it's a duplicate email error
@@ -111,9 +153,11 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create account
-	accountName := req.Email
-	if req.Name != nil {
-		accountName = *req.Name
+	accountName := email
+	if req.OrganizationName != nil && strings.TrimSpace(*req.OrganizationName) != "" {
+		accountName = strings.TrimSpace(*req.OrganizationName)
+	} else if req.Name != nil && strings.TrimSpace(*req.Name) != "" {
+		accountName = strings.TrimSpace(*req.Name)
 	}
 	_, err = tx.Exec(r.Context(), `
 		INSERT INTO accounts (id, name)
@@ -142,27 +186,31 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate token
-	token, err := auth.GenerateToken(userID, accountID, req.Email)
-	if err != nil {
-		http.Error(w, "failed to generate token", http.StatusInternalServerError)
-		return
-	}
-
 	user := models.User{
-		ID:    userID,
-		Email: req.Email,
-		Name:  req.Name,
-		Phone: req.Phone,
+		ID:          userID,
+		Email:       email,
+		Name:        req.Name,
+		Phone:       req.Phone,
+		AccountType: "USER",
+		Status:      "PENDING_APPROVAL",
 	}
 
 	json.NewEncoder(w).Encode(AuthResponse{
-		Token: token,
-		User:  user,
+		User:    user,
+		Status:  "PENDING_APPROVAL",
+		Message: "Signup request submitted. A system admin must approve this owner account before login.",
 	})
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	h.loginWithAccountType(w, r, "USER")
+}
+
+func (h *AuthHandler) AdminLogin(w http.ResponseWriter, r *http.Request) {
+	h.loginWithAccountType(w, r, "ADMIN")
+}
+
+func (h *AuthHandler) loginWithAccountType(w http.ResponseWriter, r *http.Request, accountType string) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
@@ -175,16 +223,36 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var phone *string
 	var name *string
 	var avatarURL *string
+	var status string
 
 	err := h.db.QueryRow(r.Context(), `
-		SELECT u.id, u.password_hash, u.phone, u.name, u.avatar_url, am.account_id
+		SELECT u.id, u.password_hash, u.phone, u.name, u.avatar_url, u.status, am.account_id
 		FROM users u
 		JOIN account_memberships am ON u.id = am.user_id
-		WHERE u.email = $1 AND am.role = 'OWNER'
+		WHERE u.email = $1
+		  AND u.account_type = $2
+		  AND (
+		      ($2 = 'ADMIN' AND am.role IN ('OWNER', 'ADMIN'))
+		      OR ($2 = 'USER' AND am.role IN ('OWNER', 'ADMIN', 'VIEWER'))
+		  )
 		LIMIT 1
-	`, req.Email).Scan(&userID, &passwordHash, &phone, &name, &avatarURL, &accountID)
+	`, strings.ToLower(strings.TrimSpace(req.Email)), accountType).Scan(&userID, &passwordHash, &phone, &name, &avatarURL, &status, &accountID)
 	if err != nil {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	if status != "ACTIVE" {
+		switch status {
+		case "PENDING_APPROVAL":
+			http.Error(w, "account pending admin approval", http.StatusForbidden)
+		case "REJECTED":
+			http.Error(w, "account request was rejected", http.StatusForbidden)
+		case "DISABLED":
+			http.Error(w, "account disabled", http.StatusForbidden)
+		default:
+			http.Error(w, "account is not active", http.StatusForbidden)
+		}
 		return
 	}
 
@@ -201,11 +269,13 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := models.User{
-		ID:        userID,
-		Email:     req.Email,
-		Name:      name,
-		Phone:     phone,
-		AvatarURL: avatarURL,
+		ID:          userID,
+		Email:       req.Email,
+		Name:        name,
+		Phone:       phone,
+		AvatarURL:   avatarURL,
+		AccountType: accountType,
+		Status:      status,
 	}
 
 	json.NewEncoder(w).Encode(AuthResponse{
@@ -221,10 +291,10 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	var accounts []CurrentUserAccountAccess
 
 	err := h.db.QueryRow(r.Context(), `
-		SELECT id, email, name, phone, avatar_url, created_at
+		SELECT id, email, name, phone, avatar_url, account_type, status, created_at
 		FROM users
 		WHERE id = $1
-	`, userID).Scan(&user.ID, &user.Email, &user.Name, &user.Phone, &user.AvatarURL, &user.CreatedAt)
+	`, userID).Scan(&user.ID, &user.Email, &user.Name, &user.Phone, &user.AvatarURL, &user.AccountType, &user.Status, &user.CreatedAt)
 	if err != nil {
 		http.Error(w, "user not found", http.StatusNotFound)
 		return
@@ -251,12 +321,14 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := CurrentUserResponse{
-		ID:        user.ID,
-		Email:     user.Email,
-		Name:      user.Name,
-		Phone:     user.Phone,
-		AvatarURL: user.AvatarURL,
-		Accounts:  accounts,
+		ID:          user.ID,
+		Email:       user.Email,
+		Name:        user.Name,
+		Phone:       user.Phone,
+		AvatarURL:   user.AvatarURL,
+		AccountType: user.AccountType,
+		Status:      user.Status,
+		Accounts:    accounts,
 	}
 
 	json.NewEncoder(w).Encode(response)
@@ -476,7 +548,7 @@ func (h *AuthHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 
 	// Get all users in the same account
 	rows, err := h.db.Query(r.Context(), `
-		SELECT DISTINCT u.id, u.email, u.phone, u.created_at, am.role
+		SELECT DISTINCT u.id, u.email, u.name, u.phone, u.status, u.created_at, am.role
 		FROM users u
 		JOIN account_memberships am ON u.id = am.user_id
 		WHERE am.account_id = $1
@@ -491,7 +563,9 @@ func (h *AuthHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	type UserResponse struct {
 		ID        uuid.UUID `json:"id"`
 		Email     string    `json:"email"`
+		Name      *string   `json:"name,omitempty"`
 		Phone     *string   `json:"phone,omitempty"`
+		Status    string    `json:"status"`
 		CreatedAt string    `json:"created_at"`
 		Role      string    `json:"role"`
 	}
@@ -500,7 +574,7 @@ func (h *AuthHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var u UserResponse
 		var createdAt string
-		err := rows.Scan(&u.ID, &u.Email, &u.Phone, &createdAt, &u.Role)
+		err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Phone, &u.Status, &createdAt, &u.Role)
 		if err != nil {
 			continue
 		}
@@ -511,5 +585,247 @@ func (h *AuthHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"users": users,
 		"count": len(users),
+	})
+}
+
+func (h *AuthHandler) CreateViewer(w http.ResponseWriter, r *http.Request) {
+	accountID := GetAccountID(r).(uuid.UUID)
+
+	var req CreateViewerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if email == "" || len(req.Password) < 6 {
+		http.Error(w, "email and a password of at least 6 characters are required", http.StatusBadRequest)
+		return
+	}
+
+	hashedPassword, err := auth.HashPassword(req.Password)
+	if err != nil {
+		http.Error(w, "failed to hash password", http.StatusInternalServerError)
+		return
+	}
+
+	tx, err := h.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	userID := uuid.New()
+	_, err = tx.Exec(r.Context(), `
+		INSERT INTO users (id, email, password_hash, phone, name, account_type, status)
+		VALUES ($1, $2, $3, $4, $5, 'USER', 'ACTIVE')
+	`, userID, email, hashedPassword, req.Phone, req.Name)
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+			http.Error(w, "email already registered", http.StatusConflict)
+		} else {
+			http.Error(w, "failed to create viewer", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	_, err = tx.Exec(r.Context(), `
+		INSERT INTO account_memberships (account_id, user_id, role)
+		VALUES ($1, $2, 'VIEWER')
+	`, accountID, userID)
+	if err != nil {
+		http.Error(w, "failed to add viewer to account", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to create viewer", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(models.User{
+		ID:          userID,
+		Email:       email,
+		Name:        req.Name,
+		Phone:       req.Phone,
+		AccountType: "USER",
+		Status:      "ACTIVE",
+	})
+}
+
+func (h *AuthHandler) AdminListOwners(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.db.Query(r.Context(), `
+		SELECT
+			u.id,
+			u.email,
+			COALESCE(u.name, ''),
+			COALESCE(u.phone, ''),
+			u.status,
+			a.id,
+			a.name,
+			u.created_at,
+			COUNT(DISTINCT c.id)::int,
+			COUNT(DISTINCT viewer.user_id)::int
+		FROM account_memberships owner_membership
+		JOIN users u ON u.id = owner_membership.user_id
+		JOIN accounts a ON a.id = owner_membership.account_id
+		LEFT JOIN controllers c ON c.account_id = a.id AND c.owner_user_id IS NOT NULL
+		LEFT JOIN account_memberships viewer ON viewer.account_id = a.id AND viewer.role = 'VIEWER'
+		WHERE u.account_type = 'USER' AND owner_membership.role = 'OWNER'
+		GROUP BY u.id, u.email, u.name, u.phone, u.status, a.id, a.name, u.created_at
+		ORDER BY
+			CASE u.status WHEN 'PENDING_APPROVAL' THEN 0 WHEN 'ACTIVE' THEN 1 ELSE 2 END,
+			u.created_at DESC
+	`)
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	owners := make([]AdminOwnerResponse, 0)
+	for rows.Next() {
+		var owner AdminOwnerResponse
+		var id uuid.UUID
+		var accountID uuid.UUID
+		var createdAt time.Time
+		if err := rows.Scan(
+			&id,
+			&owner.Email,
+			&owner.Name,
+			&owner.Phone,
+			&owner.Status,
+			&accountID,
+			&owner.OrganizationName,
+			&createdAt,
+			&owner.ControllerCount,
+			&owner.ViewerCount,
+		); err != nil {
+			continue
+		}
+		owner.ID = id.String()
+		owner.AccountID = accountID.String()
+		owner.CreatedAt = createdAt.Format(time.RFC3339)
+		owners = append(owners, owner)
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"owners": owners})
+}
+
+func (h *AuthHandler) AdminCreateOwner(w http.ResponseWriter, r *http.Request) {
+	var req CreateOwnerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	orgName := strings.TrimSpace(req.OrganizationName)
+	if orgName == "" && req.Name != nil {
+		orgName = strings.TrimSpace(*req.Name)
+	}
+	if orgName == "" {
+		orgName = email
+	}
+	if email == "" || len(req.Password) < 6 {
+		http.Error(w, "email and a password of at least 6 characters are required", http.StatusBadRequest)
+		return
+	}
+
+	hashedPassword, err := auth.HashPassword(req.Password)
+	if err != nil {
+		http.Error(w, "failed to hash password", http.StatusInternalServerError)
+		return
+	}
+
+	tx, err := h.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	userID := uuid.New()
+	accountID := uuid.New()
+	_, err = tx.Exec(r.Context(), `
+		INSERT INTO users (id, email, password_hash, phone, name, account_type, status)
+		VALUES ($1, $2, $3, $4, $5, 'USER', 'ACTIVE')
+	`, userID, email, hashedPassword, req.Phone, req.Name)
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+			http.Error(w, "email already registered", http.StatusConflict)
+		} else {
+			http.Error(w, "failed to create owner", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if _, err = tx.Exec(r.Context(), `INSERT INTO accounts (id, name) VALUES ($1, $2)`, accountID, orgName); err != nil {
+		http.Error(w, "failed to create account", http.StatusInternalServerError)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `
+		INSERT INTO account_memberships (account_id, user_id, role)
+		VALUES ($1, $2, 'OWNER')
+	`, accountID, userID); err != nil {
+		http.Error(w, "failed to create owner membership", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to create owner", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(AdminOwnerResponse{
+		ID:               userID.String(),
+		Email:            email,
+		Status:           "ACTIVE",
+		AccountID:        accountID.String(),
+		OrganizationName: orgName,
+		CreatedAt:        time.Now().Format(time.RFC3339),
+	})
+}
+
+func (h *AuthHandler) AdminApproveOwner(w http.ResponseWriter, r *http.Request) {
+	h.adminSetOwnerStatus(w, r, "ACTIVE")
+}
+
+func (h *AuthHandler) AdminRejectOwner(w http.ResponseWriter, r *http.Request) {
+	h.adminSetOwnerStatus(w, r, "REJECTED")
+}
+
+func (h *AuthHandler) adminSetOwnerStatus(w http.ResponseWriter, r *http.Request, status string) {
+	userIDParam := strings.TrimSpace(chi.URLParam(r, "userId"))
+	userID, err := uuid.Parse(userIDParam)
+	if err != nil {
+		http.Error(w, "invalid owner id", http.StatusBadRequest)
+		return
+	}
+
+	command, err := h.db.Exec(r.Context(), `
+		UPDATE users u
+		SET status = $2
+		WHERE u.id = $1
+		  AND u.account_type = 'USER'
+		  AND EXISTS (
+		      SELECT 1
+		      FROM account_memberships am
+		      WHERE am.user_id = u.id AND am.role = 'OWNER'
+		  )
+	`, userID, status)
+	if err != nil {
+		http.Error(w, "failed to update owner", http.StatusInternalServerError)
+		return
+	}
+	if command.RowsAffected() == 0 {
+		http.Error(w, "owner not found", http.StatusNotFound)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{
+		"id":     userID.String(),
+		"status": status,
 	})
 }

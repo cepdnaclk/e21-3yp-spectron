@@ -72,3 +72,92 @@ type DemoCreateControllerResponse struct {
 	PairingToken string `json:"pairingToken"`
 	PairingURL   string `json:"pairingUrl"`
 }
+
+type AdminOverviewResponse struct {
+	TotalDevices        int `json:"totalDevices"`
+	UnclaimedDevices    int `json:"unclaimedDevices"`
+	PairedDevices       int `json:"pairedDevices"`
+	OnlineDevices       int `json:"onlineDevices"`
+	OfflineDevices      int `json:"offlineDevices"`
+	ActiveTokens        int `json:"activeTokens"`
+	UsedTokens          int `json:"usedTokens"`
+	ExpiredTokens       int `json:"expiredTokens"`
+	ConfiguredSensors   int `json:"configuredSensors"`
+	UnconfiguredSensors int `json:"unconfiguredSensors"`
+}
+
+type AdminDeviceResponse struct {
+	ID                string `json:"id"`
+	ControllerID      string `json:"controllerId"`
+	Name              string `json:"name"`
+	Location          string `json:"location,omitempty"`
+	Status            string `json:"status"`
+	OwnerEmail        string `json:"ownerEmail,omitempty"`
+	SensorCount       int    `json:"sensorCount"`
+	ConfiguredSensors int    `json:"configuredSensors"`
+	TokenStatus       string `json:"tokenStatus"`
+	TokenExpiresAt    string `json:"tokenExpiresAt,omitempty"`
+	TokenUsedAt       string `json:"tokenUsedAt,omitempty"`
+	LastSeen          string `json:"lastSeen,omitempty"`
+	UpdatedAt         string `json:"updatedAt,omitempty"`
+}
+
+type AdminDevicesResponse struct {
+	Devices []AdminDeviceResponse `json:"devices"`
+}
+
+type AdminCreateDeviceRequest struct {
+	ControllerID         string `json:"controllerId"`
+	Name                 string `json:"name"`
+	Location             string `json:"location"`
+	TokenExpiryHours     int    `json:"tokenExpiryHours"`
+	CreateDefaultSensors bool   `json:"createDefaultSensors"`
+}
+
+type AdminCreateDeviceResponse struct {
+	Device       AdminDeviceResponse `json:"device"`
+	PairingToken string              `json:"pairingToken"`
+	PairingURL   string              `json:"pairingUrl"`
+}
+
+type AdminGeneratePairingTokenRequest struct {
+	TokenExpiryHours int `json:"tokenExpiryHours"`
+}
+
+type AdminGeneratePairingTokenResponse struct {
+	ControllerID string `json:"controllerId"`
+	PairingToken string `json:"pairingToken"`
+	PairingURL   string `json:"pairingUrl"`
+	ExpiresAt    string `json:"expiresAt"`
+}
+
+type AdminPairingTokenResponse struct {
+	ControllerID string `json:"controllerId"`
+	Status       string `json:"status"`
+	ExpiresAt    string `json:"expiresAt"`
+	UsedAt       string `json:"usedAt,omitempty"`
+	CreatedAt    string `json:"createdAt"`
+}
+
+type AdminPairingTokensResponse struct {
+	Tokens []AdminPairingTokenResponse `json:"tokens"`
+}
+
+type AdminUserResponse struct {
+	ID              string `json:"id"`
+	Email           string `json:"email"`
+	Name            string `json:"name,omitempty"`
+	Role            string `json:"role"`
+	ControllerCount int    `json:"controllerCount"`
+	CreatedAt       string `json:"createdAt"`
+}
+
+type AdminUsersResponse struct {
+	Users []AdminUserResponse `json:"users"`
+}
+
+type AdminSystemHealthResponse struct {
+	APIStatus      string `json:"apiStatus"`
+	DatabaseStatus string `json:"databaseStatus"`
+	ServerTime     string `json:"serverTime"`
+}

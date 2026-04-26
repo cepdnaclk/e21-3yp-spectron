@@ -11,6 +11,7 @@ import {
   Stack,
   IconButton,
   InputAdornment,
+  Fade,
 } from '@mui/material';
 import { PersonAddAlt, Spa, Visibility, VisibilityOff } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
@@ -25,12 +26,33 @@ const SignUp: React.FC = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
+  const [organizationName, setOrganizationName] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [showError, setShowError] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  React.useEffect(() => {
+    if (!error) return;
+    setShowError(true);
+    const timeout = window.setTimeout(() => setShowError(false), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [error]);
+
+  React.useEffect(() => {
+    if (!success) return;
+    setShowSuccess(true);
+    const timeout = window.setTimeout(() => setShowSuccess(false), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [success]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
+    setShowError(false);
+    setShowSuccess(false);
 
     if (password !== confirmPassword) {
       setError('Passwords do not match');
@@ -45,8 +67,15 @@ const SignUp: React.FC = () => {
     setLoading(true);
 
     try {
-      await register({ email, password, phone: phone || undefined, name: name || undefined });
-      navigate('/controllers');
+      await register({
+        email,
+        password,
+        phone: phone || undefined,
+        name: name || undefined,
+        organizationName: organizationName || undefined,
+      });
+      setSuccess('Signup request submitted. You can log in after the system admin approves your owner account.');
+      setTimeout(() => navigate('/signin'), 1800);
     } catch (err: any) {
       const responseData = err?.response?.data;
       const message =
@@ -86,7 +115,7 @@ const SignUp: React.FC = () => {
           <Box sx={{ position: 'relative', maxWidth: 520 }}>
             <Typography variant="h4">Build a clearer sensing workspace.</Typography>
             <Typography sx={{ mt: 1.5, color: 'rgba(255, 253, 248, 0.76)' }}>
-              Create your account, pair controllers, and turn field readings into useful decisions.
+            Request an owner account. Once approved, you can pair controllers and invite viewers.
             </Typography>
           </Box>
           <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative', color: '#e1c7a3' }}>
@@ -100,18 +129,36 @@ const SignUp: React.FC = () => {
             Create Account
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-            Sign up to get started with Spectron.
+            Submit an owner account request for admin approval.
           </Typography>
 
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          {error && (
+            <Fade in={showError} timeout={450} onExited={() => setError('')}>
+              <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
+            </Fade>
+          )}
+          {success && (
+            <Fade in={showSuccess} timeout={450} onExited={() => setSuccess('')}>
+              <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>
+            </Fade>
+          )}
 
           <Box component="form" onSubmit={handleSubmit}>
             <TextField
               fullWidth
-              label="Name (Optional)"
+              label="Name"
               placeholder="Your full name"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              margin="normal"
+              disabled={loading}
+            />
+            <TextField
+              fullWidth
+              label="Organization"
+              placeholder="Your lab, school, or company"
+              value={organizationName}
+              onChange={(e) => setOrganizationName(e.target.value)}
               margin="normal"
               disabled={loading}
             />

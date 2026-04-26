@@ -4,6 +4,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import SignIn from './pages/auth/SignIn';
+import AdminSignIn from './pages/auth/AdminSignIn';
 import SignUp from './pages/auth/SignUp';
 import Controllers from './pages/main/Controllers';
 import PairController from './pages/main/PairController';
@@ -12,8 +13,17 @@ import SensorConfig from './pages/main/SensorConfig';
 import Monitoring from './pages/main/Monitoring';
 import Alerts from './pages/main/Alerts';
 import Profile from './pages/main/Profile';
+import Team from './pages/main/Team';
 import Layout from './components/Layout';
+import AdminLayout from './components/AdminLayout';
 import { AuthGateSkeleton } from './components/LoadingSkeletons';
+import AdminDashboard from './pages/admin/AdminDashboard';
+import AdminDevices from './pages/admin/AdminDevices';
+import AdminAddDevice from './pages/admin/AdminAddDevice';
+import AdminPairingTokens from './pages/admin/AdminPairingTokens';
+import AdminUsers from './pages/admin/AdminUsers';
+import AdminSystem from './pages/admin/AdminSystem';
+import AdminAudit from './pages/admin/AdminAudit';
 
 const theme = createTheme({
   palette: {
@@ -220,18 +230,41 @@ const theme = createTheme({
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  
+
   if (loading) {
     return <AuthGateSkeleton />;
   }
-  
-  return user ? <>{children}</> : <Navigate to="/signin" />;
+
+  if (!user || user.account_type === 'ADMIN') {
+    return <Navigate to="/signin" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+const hasAdminAccess = (user: ReturnType<typeof useAuth>['user']) => {
+  return user?.account_type === 'ADMIN';
+};
+
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <AuthGateSkeleton />;
+  }
+
+  if (!user) {
+    return <Navigate to="/admin/signin" />;
+  }
+
+  return hasAdminAccess(user) ? <>{children}</> : <Navigate to="/controllers" replace />;
 }
 
 function AppRoutes() {
   return (
     <Routes>
       <Route path="/signin" element={<SignIn />} />
+      <Route path="/admin/signin" element={<AdminSignIn />} />
       <Route path="/signup" element={<SignUp />} />
       <Route
         path="/"
@@ -250,7 +283,24 @@ function AppRoutes() {
         <Route path="sensors/:id/config" element={<SensorConfig />} />
         <Route path="monitoring" element={<Monitoring />} />
         <Route path="alerts" element={<Alerts />} />
+        <Route path="team" element={<Team />} />
         <Route path="profile" element={<Profile />} />
+      </Route>
+      <Route
+        path="/admin"
+        element={
+          <AdminRoute>
+            <AdminLayout />
+          </AdminRoute>
+        }
+      >
+        <Route index element={<AdminDashboard />} />
+        <Route path="devices" element={<AdminDevices />} />
+        <Route path="devices/new" element={<AdminAddDevice />} />
+        <Route path="pairing" element={<AdminPairingTokens />} />
+        <Route path="users" element={<AdminUsers />} />
+        <Route path="system" element={<AdminSystem />} />
+        <Route path="audit" element={<AdminAudit />} />
       </Route>
     </Routes>
   );

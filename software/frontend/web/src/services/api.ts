@@ -9,23 +9,40 @@ const api: AxiosInstance = axios.create({
   },
 });
 
-const TOKEN_KEY = 'spectron_auth_token';
+type AuthScope = 'user' | 'admin';
 
-export const getToken = (): string | null => {
-  return localStorage.getItem(TOKEN_KEY);
+const LEGACY_TOKEN_KEY = 'spectron_auth_token';
+const USER_TOKEN_KEY = 'spectron_user_auth_token';
+const ADMIN_TOKEN_KEY = 'spectron_admin_auth_token';
+
+const tokenKeyForScope = (scope: AuthScope) => {
+  return scope === 'admin' ? ADMIN_TOKEN_KEY : USER_TOKEN_KEY;
 };
 
-export const setToken = (token: string): void => {
-  localStorage.setItem(TOKEN_KEY, token);
+const inferAuthScope = (requestUrl = ''): AuthScope => {
+  if (requestUrl.includes('/auth/admin') || requestUrl.includes('/api/admin')) {
+    return 'admin';
+  }
+  return window.location.pathname.startsWith('/admin') ? 'admin' : 'user';
 };
 
-export const removeToken = (): void => {
-  localStorage.removeItem(TOKEN_KEY);
+export const getToken = (scope: AuthScope = inferAuthScope()): string | null => {
+  return localStorage.getItem(tokenKeyForScope(scope));
+};
+
+export const setToken = (token: string, scope: AuthScope = inferAuthScope()): void => {
+  localStorage.setItem(tokenKeyForScope(scope), token);
+  localStorage.removeItem(LEGACY_TOKEN_KEY);
+};
+
+export const removeToken = (scope: AuthScope = inferAuthScope()): void => {
+  localStorage.removeItem(tokenKeyForScope(scope));
+  localStorage.removeItem(LEGACY_TOKEN_KEY);
 };
 
 api.interceptors.request.use(
   (config) => {
-    const token = getToken();
+    const token = getToken(inferAuthScope(config.url || ''));
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -40,8 +57,18 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error.response?.status === 401) {
-      removeToken();
-      window.location.href = '/signin';
+      const requestUrl = error.config?.url || '';
+      const requestScope = inferAuthScope(requestUrl);
+      removeToken(requestScope);
+      const currentPath = window.location.pathname;
+      const isAuthRequest =
+        requestUrl.includes('/auth/login') ||
+        requestUrl.includes('/auth/admin/login') ||
+        requestUrl.includes('/auth/register');
+
+      if (!isAuthRequest) {
+        window.location.href = currentPath.startsWith('/admin') ? '/admin/signin' : '/signin';
+      }
     }
     return Promise.reject(error);
   }

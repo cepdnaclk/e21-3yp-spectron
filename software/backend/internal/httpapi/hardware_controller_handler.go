@@ -48,6 +48,378 @@ type hardwareSensorRecord struct {
 	configured bool
 }
 
+func (h *ControllerHandler) requireAccountAdmin(ctx context.Context, userID uuid.UUID, accountID uuid.UUID) error {
+	var accountType string
+	if err := h.db.QueryRow(ctx, `
+		SELECT account_type
+		FROM users
+		WHERE id = $1
+	`, userID).Scan(&accountType); err != nil || accountType != "ADMIN" {
+		return apiError{status: http.StatusForbidden, message: "admin account required"}
+	}
+
+	var role string
+	err := h.db.QueryRow(ctx, `
+		SELECT role
+		FROM account_memberships
+		WHERE user_id = $1 AND account_id = $2
+	`, userID, accountID).Scan(&role)
+	if err != nil {
+		return apiError{status: http.StatusForbidden, message: "admin access required"}
+	}
+	if role != "OWNER" && role != "ADMIN" {
+		return apiError{status: http.StatusForbidden, message: "admin access required"}
+	}
+	return nil
+}
+
+func (h *ControllerHandler) AdminOverviewAPI(w http.ResponseWriter, r *http.Request) {
+	userID := GetUserID(r).(uuid.UUID)
+	accountID := GetAccountID(r).(uuid.UUID)
+	if err := h.requireAccountAdmin(r.Context(), userID, accountID); err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	var response models.AdminOverviewResponse
+	err := h.db.QueryRow(r.Context(), `
+		SELECT
+			COUNT(*)::int,
+			COUNT(*) FILTER (WHERE owner_user_id IS NULL)::int,
+			COUNT(*) FILTER (WHERE owner_user_id IS NOT NULL)::int,
+			COUNT(*) FILTER (WHERE UPPER(status) IN ('ONLINE', 'PAIRED'))::int,
+			COUNT(*) FILTER (WHERE UPPER(status) IN ('OFFLINE', 'ERROR'))::int
+		FROM controllers
+	`).Scan(
+		&response.TotalDevices,
+		&response.UnclaimedDevices,
+		&response.PairedDevices,
+		&response.OnlineDevices,
+		&response.OfflineDevices,
+	)
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	_ = h.db.QueryRow(r.Context(), `
+		SELECT
+			COUNT(*) FILTER (WHERE used_at IS NULL AND expires_at > NOW())::int,
+			COUNT(*) FILTER (WHERE used_at IS NOT NULL)::int,
+			COUNT(*) FILTER (WHERE used_at IS NULL AND expires_at <= NOW())::int
+		FROM controller_pairing_tokens t
+		JOIN controllers c ON c.id = t.controller_id
+	`).Scan(&response.ActiveTokens, &response.UsedTokens, &response.ExpiredTokens)
+
+	_ = h.db.QueryRow(r.Context(), `
+		SELECT
+			COUNT(*) FILTER (WHERE cs.configured = true)::int,
+			COUNT(*) FILTER (WHERE cs.configured = false)::int
+		FROM controller_sensors cs
+		JOIN controllers c ON c.id = cs.controller_id
+	`).Scan(&response.ConfiguredSensors, &response.UnconfiguredSensors)
+
+	json.NewEncoder(w).Encode(response)
+}
+
+func (h *ControllerHandler) AdminDevicesAPI(w http.ResponseWriter, r *http.Request) {
+	userID := GetUserID(r).(uuid.UUID)
+	accountID := GetAccountID(r).(uuid.UUID)
+	if err := h.requireAccountAdmin(r.Context(), userID, accountID); err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	devices, err := h.loadAdminDevices(r.Context())
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(models.AdminDevicesResponse{Devices: devices})
+}
+
+func (h *ControllerHandler) AdminCreateDeviceAPI(w http.ResponseWriter, r *http.Request) {
+	userID := GetUserID(r).(uuid.UUID)
+	accountID := GetAccountID(r).(uuid.UUID)
+	if err := h.requireAccountAdmin(r.Context(), userID, accountID); err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	var req models.AdminCreateDeviceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	controllerUID := strings.ToUpper(strings.TrimSpace(req.ControllerID))
+	if controllerUID == "" {
+		controllerUID = "CTRL-" + randomCode(6)
+	}
+	if !strings.HasPrefix(controllerUID, "CTRL-") {
+		http.Error(w, "controllerId must start with CTRL-", http.StatusBadRequest)
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = "Main Controller"
+	}
+	location := strings.TrimSpace(req.Location)
+	expiryHours := req.TokenExpiryHours
+	if expiryHours <= 0 {
+		expiryHours = 24
+	}
+	if expiryHours > 720 {
+		expiryHours = 720
+	}
+
+	pairingToken := "PAIR-" + randomCode(6)
+	expiresAt := time.Now().Add(time.Duration(expiryHours) * time.Hour)
+
+	tx, err := h.db.BeginTx(r.Context(), pgx.TxOptions{})
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	var controllerID uuid.UUID
+	err = tx.QueryRow(r.Context(), `
+		INSERT INTO controllers (
+			id,
+			account_id,
+			hw_id,
+			controller_uid,
+			name,
+			location,
+			status,
+			created_at,
+			updated_at
+		)
+		VALUES ($1, $2, $3, $3, $4, $5, 'unclaimed', NOW(), NOW())
+		ON CONFLICT (hw_id) DO UPDATE
+		SET controller_uid = EXCLUDED.controller_uid,
+		    name = EXCLUDED.name,
+		    location = EXCLUDED.location,
+		    account_id = CASE
+		        WHEN controllers.owner_user_id IS NULL THEN EXCLUDED.account_id
+		        ELSE controllers.account_id
+		    END,
+		    status = CASE
+		        WHEN controllers.owner_user_id IS NULL THEN 'unclaimed'
+		        ELSE controllers.status
+		    END,
+		    updated_at = NOW()
+		RETURNING id
+	`, uuid.New(), accountID, controllerUID, name, nullableString(location)).Scan(&controllerID)
+	if err != nil {
+		http.Error(w, "failed to create device", http.StatusInternalServerError)
+		return
+	}
+
+	if req.CreateDefaultSensors {
+		if err := h.ensureDefaultHardwareSensors(r.Context(), tx, controllerID, controllerUID); err != nil {
+			http.Error(w, "failed to create default sensors", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	_, err = tx.Exec(r.Context(), `
+		INSERT INTO controller_pairing_tokens (id, controller_id, token_hash, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, NOW())
+	`, uuid.New(), controllerID, hashPairingToken(pairingToken), expiresAt)
+	if err != nil {
+		http.Error(w, "failed to create pairing token", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to commit device", http.StatusInternalServerError)
+		return
+	}
+
+	devices, err := h.loadAdminDevices(r.Context())
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	var created models.AdminDeviceResponse
+	for _, device := range devices {
+		if strings.EqualFold(device.ControllerID, controllerUID) {
+			created = device
+			break
+		}
+	}
+
+	json.NewEncoder(w).Encode(models.AdminCreateDeviceResponse{
+		Device:       created,
+		PairingToken: pairingToken,
+		PairingURL:   "/controllers/pair?code=" + pairingToken,
+	})
+}
+
+func (h *ControllerHandler) AdminPairingTokensAPI(w http.ResponseWriter, r *http.Request) {
+	userID := GetUserID(r).(uuid.UUID)
+	accountID := GetAccountID(r).(uuid.UUID)
+	if err := h.requireAccountAdmin(r.Context(), userID, accountID); err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	rows, err := h.db.Query(r.Context(), `
+		SELECT
+			COALESCE(c.controller_uid, c.hw_id),
+			CASE
+				WHEN t.used_at IS NOT NULL THEN 'used'
+				WHEN t.expires_at <= NOW() THEN 'expired'
+				ELSE 'active'
+			END,
+			t.expires_at,
+			t.used_at,
+			t.created_at
+		FROM controller_pairing_tokens t
+		JOIN controllers c ON c.id = t.controller_id
+		ORDER BY t.created_at DESC
+		LIMIT 100
+	`)
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	tokens := make([]models.AdminPairingTokenResponse, 0)
+	for rows.Next() {
+		var token models.AdminPairingTokenResponse
+		var expiresAt time.Time
+		var usedAt *time.Time
+		var createdAt time.Time
+		if err := rows.Scan(&token.ControllerID, &token.Status, &expiresAt, &usedAt, &createdAt); err != nil {
+			continue
+		}
+		token.ExpiresAt = expiresAt.Format(time.RFC3339)
+		token.CreatedAt = createdAt.Format(time.RFC3339)
+		if usedAt != nil {
+			token.UsedAt = usedAt.Format(time.RFC3339)
+		}
+		tokens = append(tokens, token)
+	}
+
+	json.NewEncoder(w).Encode(models.AdminPairingTokensResponse{Tokens: tokens})
+}
+
+func (h *ControllerHandler) AdminGeneratePairingTokenAPI(w http.ResponseWriter, r *http.Request) {
+	userID := GetUserID(r).(uuid.UUID)
+	accountID := GetAccountID(r).(uuid.UUID)
+	if err := h.requireAccountAdmin(r.Context(), userID, accountID); err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	controllerParam := strings.TrimSpace(chi.URLParam(r, "controllerId"))
+	var req models.AdminGeneratePairingTokenRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	expiryHours := req.TokenExpiryHours
+	if expiryHours <= 0 {
+		expiryHours = 24
+	}
+	if expiryHours > 720 {
+		expiryHours = 720
+	}
+
+	controller, err := h.lookupAdminController(r.Context(), controllerParam)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	pairingToken := "PAIR-" + randomCode(6)
+	expiresAt := time.Now().Add(time.Duration(expiryHours) * time.Hour)
+	_, err = h.db.Exec(r.Context(), `
+		INSERT INTO controller_pairing_tokens (id, controller_id, token_hash, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, NOW())
+	`, uuid.New(), controller.id, hashPairingToken(pairingToken), expiresAt)
+	if err != nil {
+		http.Error(w, "failed to create pairing token", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(models.AdminGeneratePairingTokenResponse{
+		ControllerID: controller.uid,
+		PairingToken: pairingToken,
+		PairingURL:   "/controllers/pair?code=" + pairingToken,
+		ExpiresAt:    expiresAt.Format(time.RFC3339),
+	})
+}
+
+func (h *ControllerHandler) AdminUsersAPI(w http.ResponseWriter, r *http.Request) {
+	userID := GetUserID(r).(uuid.UUID)
+	accountID := GetAccountID(r).(uuid.UUID)
+	if err := h.requireAccountAdmin(r.Context(), userID, accountID); err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	rows, err := h.db.Query(r.Context(), `
+		SELECT
+			u.id,
+			u.email,
+			COALESCE(u.name, ''),
+			am.role,
+			u.created_at,
+			COUNT(c.id)::int
+		FROM account_memberships am
+		JOIN users u ON u.id = am.user_id
+		LEFT JOIN controllers c ON c.owner_user_id = u.id AND c.account_id = am.account_id
+		WHERE am.account_id = $1
+		GROUP BY u.id, u.email, u.name, am.role, u.created_at
+		ORDER BY u.created_at DESC
+	`, accountID)
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	users := make([]models.AdminUserResponse, 0)
+	for rows.Next() {
+		var user models.AdminUserResponse
+		var id uuid.UUID
+		var createdAt time.Time
+		if err := rows.Scan(&id, &user.Email, &user.Name, &user.Role, &createdAt, &user.ControllerCount); err != nil {
+			continue
+		}
+		user.ID = id.String()
+		user.CreatedAt = createdAt.Format(time.RFC3339)
+		users = append(users, user)
+	}
+
+	json.NewEncoder(w).Encode(models.AdminUsersResponse{Users: users})
+}
+
+func (h *ControllerHandler) AdminSystemHealthAPI(w http.ResponseWriter, r *http.Request) {
+	userID := GetUserID(r).(uuid.UUID)
+	accountID := GetAccountID(r).(uuid.UUID)
+	if err := h.requireAccountAdmin(r.Context(), userID, accountID); err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	response := models.AdminSystemHealthResponse{
+		APIStatus:      "ok",
+		DatabaseStatus: "ok",
+		ServerTime:     time.Now().Format(time.RFC3339),
+	}
+	if err := h.db.Ping(r.Context()); err != nil {
+		response.DatabaseStatus = "error"
+	}
+	json.NewEncoder(w).Encode(response)
+}
+
 func (h *ControllerHandler) PairAPI(w http.ResponseWriter, r *http.Request) {
 	userID := GetUserID(r).(uuid.UUID)
 	accountID := GetAccountID(r).(uuid.UUID)
@@ -94,14 +466,15 @@ func (h *ControllerHandler) PairAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ControllerHandler) MyControllersAPI(w http.ResponseWriter, r *http.Request) {
-	userID := GetUserID(r).(uuid.UUID)
+	accountID := GetAccountID(r).(uuid.UUID)
 
 	rows, err := h.db.Query(r.Context(), `
 		SELECT id, COALESCE(controller_uid, hw_id), COALESCE(name, 'Main Controller'), status
 		FROM controllers
-		WHERE owner_user_id = $1
+		WHERE account_id = $1
+		  AND owner_user_id IS NOT NULL
 		ORDER BY updated_at DESC, created_at DESC
-	`, userID)
+	`, accountID)
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
@@ -136,10 +509,10 @@ func (h *ControllerHandler) MyControllersAPI(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *ControllerHandler) ControllerSensorsAPI(w http.ResponseWriter, r *http.Request) {
-	userID := GetUserID(r).(uuid.UUID)
+	accountID := GetAccountID(r).(uuid.UUID)
 	controllerParam := strings.TrimSpace(chi.URLParam(r, "controllerId"))
 
-	controller, err := h.lookupOwnedHardwareController(r.Context(), userID, controllerParam)
+	controller, err := h.lookupAccountHardwareController(r.Context(), accountID, controllerParam)
 	if err != nil {
 		writeAPIError(w, err)
 		return
@@ -158,11 +531,11 @@ func (h *ControllerHandler) ControllerSensorsAPI(w http.ResponseWriter, r *http.
 }
 
 func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.Request) {
-	userID := GetUserID(r).(uuid.UUID)
+	accountID := GetAccountID(r).(uuid.UUID)
 	controllerParam := strings.TrimSpace(chi.URLParam(r, "controllerId"))
 	sensorParam := strings.TrimSpace(chi.URLParam(r, "sensorId"))
 
-	controller, err := h.lookupOwnedHardwareController(r.Context(), userID, controllerParam)
+	controller, err := h.lookupAccountHardwareController(r.Context(), accountID, controllerParam)
 	if err != nil {
 		writeAPIError(w, err)
 		return
@@ -256,11 +629,11 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 }
 
 func (h *ControllerHandler) GetSensorConfigAPI(w http.ResponseWriter, r *http.Request) {
-	userID := GetUserID(r).(uuid.UUID)
+	accountID := GetAccountID(r).(uuid.UUID)
 	controllerParam := strings.TrimSpace(chi.URLParam(r, "controllerId"))
 	sensorParam := strings.TrimSpace(chi.URLParam(r, "sensorId"))
 
-	controller, err := h.lookupOwnedHardwareController(r.Context(), userID, controllerParam)
+	controller, err := h.lookupAccountHardwareController(r.Context(), accountID, controllerParam)
 	if err != nil {
 		writeAPIError(w, err)
 		return
@@ -555,6 +928,31 @@ func (h *ControllerHandler) lookupOwnedHardwareController(ctx context.Context, u
 	return record, nil
 }
 
+func (h *ControllerHandler) lookupAccountHardwareController(ctx context.Context, accountID uuid.UUID, identifier string) (hardwareControllerRecord, error) {
+	if strings.TrimSpace(identifier) == "" {
+		return hardwareControllerRecord{}, apiError{status: http.StatusBadRequest, message: "controller ID required"}
+	}
+
+	record, err := scanHardwareController(h.db.QueryRow(ctx, `
+		SELECT id,
+		       COALESCE(controller_uid, hw_id),
+		       COALESCE(name, 'Main Controller'),
+		       status,
+		       COALESCE(owner_user_id::text, '')
+		FROM controllers
+		WHERE account_id = $1
+		  AND (UPPER(COALESCE(controller_uid, hw_id)) = UPPER($2) OR id::text = $2)
+	`, accountID, strings.TrimSpace(identifier)))
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return hardwareControllerRecord{}, apiError{status: http.StatusNotFound, message: "controller not found"}
+		}
+		return hardwareControllerRecord{}, err
+	}
+
+	return record, nil
+}
+
 func (h *ControllerHandler) lookupHardwareSensor(ctx context.Context, controllerID uuid.UUID, sensorIdentifier string) (hardwareSensorRecord, error) {
 	if strings.TrimSpace(sensorIdentifier) == "" {
 		return hardwareSensorRecord{}, apiError{status: http.StatusBadRequest, message: "sensor ID required"}
@@ -798,6 +1196,125 @@ func writeAPIError(w http.ResponseWriter, err error) {
 		return
 	}
 	http.Error(w, "database error", http.StatusInternalServerError)
+}
+
+func nullableString(value string) interface{} {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return trimmed
+}
+
+func (h *ControllerHandler) lookupAdminController(ctx context.Context, identifier string) (hardwareControllerRecord, error) {
+	if strings.TrimSpace(identifier) == "" {
+		return hardwareControllerRecord{}, apiError{status: http.StatusBadRequest, message: "controller ID required"}
+	}
+
+	record, err := scanHardwareController(h.db.QueryRow(ctx, `
+		SELECT id,
+		       COALESCE(controller_uid, hw_id),
+		       COALESCE(name, 'Main Controller'),
+		       status,
+		       COALESCE(owner_user_id::text, '')
+		FROM controllers
+		WHERE UPPER(COALESCE(controller_uid, hw_id)) = UPPER($1)
+		   OR id::text = $1
+	`, strings.TrimSpace(identifier)))
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return hardwareControllerRecord{}, apiError{status: http.StatusNotFound, message: "controller not found"}
+		}
+		return hardwareControllerRecord{}, err
+	}
+
+	return record, nil
+}
+
+func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.AdminDeviceResponse, error) {
+	rows, err := h.db.Query(ctx, `
+		SELECT
+			c.id,
+			COALESCE(c.controller_uid, c.hw_id),
+			COALESCE(c.name, 'Main Controller'),
+			COALESCE(c.location, ''),
+			c.status,
+			COALESCE(u.email, ''),
+			COUNT(cs.id)::int,
+			COUNT(cs.id) FILTER (WHERE cs.configured = true)::int,
+			COALESCE(
+				CASE
+					WHEN latest_token.used_at IS NOT NULL THEN 'used'
+					WHEN latest_token.expires_at <= NOW() THEN 'expired'
+					WHEN latest_token.expires_at IS NOT NULL THEN 'active'
+					ELSE 'none'
+				END,
+				'none'
+			),
+			latest_token.expires_at,
+			latest_token.used_at,
+			c.last_seen,
+			c.updated_at
+		FROM controllers c
+		LEFT JOIN users u ON u.id = c.owner_user_id
+		LEFT JOIN controller_sensors cs ON cs.controller_id = c.id
+		LEFT JOIN LATERAL (
+			SELECT expires_at, used_at
+			FROM controller_pairing_tokens t
+			WHERE t.controller_id = c.id
+			ORDER BY t.created_at DESC
+			LIMIT 1
+		) latest_token ON true
+		GROUP BY c.id, c.controller_uid, c.hw_id, c.name, c.location, c.status, u.email, latest_token.expires_at, latest_token.used_at, c.last_seen, c.updated_at
+		ORDER BY c.updated_at DESC, c.created_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	devices := make([]models.AdminDeviceResponse, 0)
+	for rows.Next() {
+		var device models.AdminDeviceResponse
+		var id uuid.UUID
+		var tokenExpiresAt *time.Time
+		var tokenUsedAt *time.Time
+		var lastSeen *time.Time
+		var updatedAt *time.Time
+		if err := rows.Scan(
+			&id,
+			&device.ControllerID,
+			&device.Name,
+			&device.Location,
+			&device.Status,
+			&device.OwnerEmail,
+			&device.SensorCount,
+			&device.ConfiguredSensors,
+			&device.TokenStatus,
+			&tokenExpiresAt,
+			&tokenUsedAt,
+			&lastSeen,
+			&updatedAt,
+		); err != nil {
+			return nil, err
+		}
+		device.ID = id.String()
+		if tokenExpiresAt != nil {
+			device.TokenExpiresAt = tokenExpiresAt.Format(time.RFC3339)
+		}
+		if tokenUsedAt != nil {
+			device.TokenUsedAt = tokenUsedAt.Format(time.RFC3339)
+		}
+		if lastSeen != nil {
+			device.LastSeen = lastSeen.Format(time.RFC3339)
+		}
+		if updatedAt != nil {
+			device.UpdatedAt = updatedAt.Format(time.RFC3339)
+		}
+		devices = append(devices, device)
+	}
+
+	return devices, rows.Err()
 }
 
 func randomCode(length int) string {

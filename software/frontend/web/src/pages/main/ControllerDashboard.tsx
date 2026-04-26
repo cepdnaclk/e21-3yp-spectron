@@ -70,7 +70,7 @@ const ControllerDashboard: React.FC = () => {
         getHardwareSensors(activeControllerId),
       ]);
       setController(controllerData);
-      setSensors(sensorsData);
+      setSensors(Array.isArray(sensorsData) ? sensorsData : []);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
