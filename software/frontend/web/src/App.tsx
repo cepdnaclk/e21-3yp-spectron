@@ -245,6 +245,8 @@ function AppRoutes() {
         <Route path="controllers" element={<Controllers />} />
         <Route path="controllers/pair" element={<PairController />} />
         <Route path="controllers/:id" element={<ControllerDashboard />} />
+        <Route path="hardware/:controllerId/sensors" element={<ControllerDashboard />} />
+        <Route path="hardware/:controllerId/sensors/:sensorId/configure" element={<SensorConfig />} />
         <Route path="sensors/:id/config" element={<SensorConfig />} />
         <Route path="monitoring" element={<Monitoring />} />
         <Route path="alerts" element={<Alerts />} />

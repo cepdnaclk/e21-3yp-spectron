@@ -8,55 +8,22 @@ import {
   Button,
   Box,
   Alert,
-  CircularProgress,
   Stack,
 } from '@mui/material';
-import { CameraAlt, QrCodeScanner, CheckCircle } from '@mui/icons-material';
-import { pairController, Controller } from '../../services/controllerService';
+import { CameraAlt, QrCodeScanner } from '@mui/icons-material';
+import { Html5Qrcode } from 'html5-qrcode';
+import {
+  extractPairingToken,
+  pairHardwareController,
+} from '../../services/hardwarePairingService';
 
-const normalizeControllerToken = (value: string): string => {
-  const raw = (value || '').trim();
-  if (!raw) {
-    return '';
-  }
-
-  const directMatch = raw.match(/CTRL-[A-Z0-9-]+/i);
-  if (directMatch) {
-    return directMatch[0].toUpperCase();
-  }
-
-  try {
-    const url = new URL(raw);
-    const fromQuery =
-      url.searchParams.get('id') ||
-      url.searchParams.get('qr') ||
-      url.searchParams.get('qr_token') ||
-      url.searchParams.get('hw_id') ||
-      '';
-
-    if (fromQuery) {
-      return normalizeControllerToken(fromQuery);
-    }
-
-    const fromPath = url.pathname.split('/').filter(Boolean).pop() || '';
-    if (fromPath) {
-      return normalizeControllerToken(fromPath);
-    }
-  } catch {
-    // Not a URL - use raw token fallback below.
-  }
-
-  return raw.toUpperCase();
-};
+const SCANNER_REGION_ID = 'spectron-controller-qr-reader';
 
 const PairController: React.FC = () => {
   const navigate = useNavigate();
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const scanRafRef = useRef<number | null>(null);
-  const detectorRef = useRef<any>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const scanHandledRef = useRef(false);
   const [qrToken, setQrToken] = useState('');
-  const [pairedController, setPairedController] = useState<Controller | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [scanInfo, setScanInfo] = useState('');
@@ -64,10 +31,12 @@ const PairController: React.FC = () => {
   const [isCameraRunning, setIsCameraRunning] = useState(false);
 
   useEffect(() => {
-    const barcodeDetector = (window as any).BarcodeDetector;
-    setIsScannerSupported(Boolean(barcodeDetector));
-    if (barcodeDetector) {
-      detectorRef.current = new barcodeDetector({ formats: ['qr_code'] });
+    setIsScannerSupported(Boolean(navigator.mediaDevices?.getUserMedia));
+
+    const tokenFromUrl = extractPairingToken(window.location.href);
+    if (tokenFromUrl) {
+      setQrToken(tokenFromUrl);
+      setScanInfo(`QR token loaded: ${tokenFromUrl}`);
     }
 
     return () => {
@@ -75,69 +44,67 @@ const PairController: React.FC = () => {
     };
   }, []);
 
-  const stopCamera = () => {
-    if (scanRafRef.current) {
-      cancelAnimationFrame(scanRafRef.current);
-      scanRafRef.current = null;
-    }
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-
-    setIsCameraRunning(false);
-  };
-
-  const scanFrame = async () => {
-    if (!videoRef.current || !detectorRef.current || !isCameraRunning) {
-      return;
-    }
-
-    try {
-      const barcodes = await detectorRef.current.detect(videoRef.current);
-      if (barcodes.length > 0) {
-        const value = normalizeControllerToken((barcodes[0].rawValue || '').trim());
-        if (value) {
-          setQrToken(value);
-          setScanInfo(`Scanned QR ID: ${value}`);
-          stopCamera();
-          return;
+  const stopCamera = async () => {
+    const scanner = scannerRef.current;
+    if (scanner) {
+      try {
+        if (scanner.isScanning) {
+          await scanner.stop();
         }
+        scanner.clear();
+      } catch {
+        // The scanner may already be stopped by the browser or by a completed scan.
       }
-    } catch (scanError) {
-      setError('Scanner is running but could not read the QR code yet. Try better lighting.');
     }
 
-    scanRafRef.current = requestAnimationFrame(scanFrame);
+    scannerRef.current = null;
+    scanHandledRef.current = false;
+    setIsCameraRunning(false);
   };
 
   const startCamera = async () => {
     setError('');
-    setScanInfo('');
+    setScanInfo('Scanning...');
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('Camera access is not available in this browser. Enter the controller ID manually.');
+      return;
+    }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'environment',
-        },
-        audio: false,
-      });
-
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-
+      await stopCamera();
       setIsCameraRunning(true);
-      scanRafRef.current = requestAnimationFrame(scanFrame);
+      scanHandledRef.current = false;
+
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+      const scanner = new Html5Qrcode(SCANNER_REGION_ID);
+      scannerRef.current = scanner;
+
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 240, height: 240 } },
+        async (decodedText) => {
+          if (scanHandledRef.current) {
+            return;
+          }
+
+          const value = extractPairingToken(decodedText || '');
+          if (!value) {
+            setError('Invalid QR code');
+            return;
+          }
+
+          scanHandledRef.current = true;
+          setQrToken(value);
+          setScanInfo(`Scanned QR token: ${value}`);
+          await stopCamera();
+        },
+        () => undefined
+      );
     } catch (cameraError) {
-      setError('Unable to access camera. You can still enter the controller ID manually.');
+      await stopCamera();
+      setError('Camera permission denied or camera scanner unavailable. Enter the controller ID manually.');
     }
   };
 
@@ -145,35 +112,34 @@ const PairController: React.FC = () => {
     event.preventDefault();
     setError('');
 
-    const normalizedToken = normalizeControllerToken(qrToken);
+    const normalizedToken = extractPairingToken(qrToken);
 
     if (!normalizedToken) {
-      setError('Please scan or enter a valid QR controller ID.');
+      setError(qrToken.trim() ? 'Invalid QR code' : 'Controller ID required');
       return;
     }
 
     setLoading(true);
     try {
-      const controller = await pairController({ qr_token: normalizedToken });
+      const pairing = await pairHardwareController(normalizedToken);
       setQrToken(normalizedToken);
-      setPairedController(controller);
+      navigate(`/hardware/${pairing.controllerId}/sensors`, {
+        state: {
+          controllerId: pairing.controllerId,
+          sensors: pairing.sensors,
+          paired: true,
+        },
+      });
     } catch (err: any) {
       const responseData = err?.response?.data;
       const message =
         typeof responseData === 'string'
           ? responseData
-          : responseData?.message || 'Failed to pair controller. Please try again.';
+          : responseData?.message || err?.message || 'Pairing failed';
       setError(message);
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleConfigure = () => {
-    if (!pairedController) {
-      return;
-    }
-    navigate(`/controllers/${pairedController.id}`);
   };
 
   return (
@@ -200,84 +166,64 @@ const PairController: React.FC = () => {
           </Alert>
         )}
 
-        {!pairedController ? (
-          <Box component="form" onSubmit={handlePair} sx={{ mt: 3, pt: 3, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
-            {isScannerSupported ? (
-              <Box sx={{ mb: 2 }}>
-                {!isCameraRunning ? (
-                  <Button variant="outlined" fullWidth onClick={startCamera} startIcon={<CameraAlt />}>
-                    Start Camera Scanner
-                  </Button>
-                ) : (
-                  <Button variant="outlined" color="secondary" fullWidth onClick={stopCamera} startIcon={<CameraAlt />}>
-                    Stop Camera Scanner
-                  </Button>
-                )}
-                <Box
-                  sx={{
-                    mt: 1,
-                    borderRadius: 2,
-                    overflow: 'hidden',
-                    border: '1.5px solid',
-                    borderColor: 'divider',
-                    bgcolor: '#262411',
-                    display: isCameraRunning ? 'block' : 'none',
-                  }}
-                >
-                  <video ref={videoRef} style={{ width: '100%', maxHeight: 280 }} muted playsInline />
-                </Box>
+        <Box component="form" onSubmit={handlePair} sx={{ mt: 3, pt: 3, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
+          {isScannerSupported ? (
+            <Box sx={{ mb: 2 }}>
+              {!isCameraRunning ? (
+                <Button type="button" variant="outlined" fullWidth onClick={startCamera} startIcon={<CameraAlt />}>
+                  Start Camera Scanner
+                </Button>
+              ) : (
+                <Button type="button" variant="outlined" color="secondary" fullWidth onClick={stopCamera} startIcon={<CameraAlt />}>
+                  Stop Camera Scanner
+                </Button>
+              )}
+              <Box
+                sx={{
+                  mt: 1,
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                  border: '1.5px solid',
+                  borderColor: 'divider',
+                  bgcolor: '#262411',
+                  display: isCameraRunning ? 'block' : 'none',
+                }}
+              >
+                <Box id={SCANNER_REGION_ID} sx={{ width: '100%', maxHeight: 280 }} />
               </Box>
-            ) : (
-              <Alert severity="info" sx={{ mb: 2 }}>
-                Camera QR scanning is not supported in this browser. Enter the controller ID manually.
-              </Alert>
-            )}
-
-            {scanInfo && (
-              <Alert severity="success" sx={{ mb: 2 }}>
-                {scanInfo}
-              </Alert>
-            )}
-
-            <TextField
-              fullWidth
-              label="Pairing Token or Controller ID"
-              value={qrToken}
-              onChange={(e) => setQrToken(e.target.value)}
-              placeholder="e.g., PAIR-7X4P2L or CTRL-8F2A19"
-              disabled={loading}
-              required
-            />
-            <Button
-              type="submit"
-              variant="contained"
-              color="secondary"
-              fullWidth
-              sx={{ mt: 2 }}
-              disabled={loading}
-            >
-              {loading ? <CircularProgress size={24} /> : 'Pair Controller'}
-            </Button>
-          </Box>
-        ) : (
-          <Box sx={{ mt: 3, pt: 3, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
-            <Alert severity="success" sx={{ mb: 2 }}>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <CheckCircle fontSize="small" />
-                <span>Controller paired successfully.</span>
-              </Stack>
+            </Box>
+          ) : (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Camera QR scanning is not available in this browser. Enter the controller ID manually if the scanner is unavailable.
             </Alert>
-            <Typography variant="body1" sx={{ mb: 1 }}>
-              Next step: fix the controller and sensors in place, then power them on.
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Once powered, click Configure to view this controller and set up connected sensors.
-            </Typography>
-            <Button variant="contained" color="secondary" fullWidth onClick={handleConfigure}>
-              Configure
-            </Button>
-          </Box>
-        )}
+          )}
+
+          {scanInfo && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              {scanInfo}
+            </Alert>
+          )}
+
+          <TextField
+            fullWidth
+            label="Pairing Token or Controller ID"
+            value={qrToken}
+            onChange={(e) => setQrToken(e.target.value)}
+            placeholder="e.g., PAIR-7X4P2L or CTRL-8F2A19"
+            disabled={loading}
+            required
+          />
+          <Button
+            type="submit"
+            variant="contained"
+            color="secondary"
+            fullWidth
+            sx={{ mt: 2 }}
+            disabled={loading}
+          >
+            {loading ? 'Pairing...' : 'Pair Controller'}
+          </Button>
+        </Box>
       </Paper>
     </Container>
   );
