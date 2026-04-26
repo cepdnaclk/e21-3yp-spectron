@@ -123,7 +123,11 @@ func (h *ControllerHandler) Pair(w http.ResponseWriter, r *http.Request) {
 
 	hwID := strings.TrimSpace(req.QRToken)
 	if hwID == "" {
-		http.Error(w, "invalid controller qr id", http.StatusBadRequest)
+		http.Error(w, "Controller ID required.", http.StatusBadRequest)
+		return
+	}
+	if !strings.HasPrefix(strings.ToUpper(hwID), "CTRL-") {
+		http.Error(w, "Scan the controller QR code or enter a controller ID.", http.StatusBadRequest)
 		return
 	}
 

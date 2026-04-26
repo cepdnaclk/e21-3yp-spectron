@@ -29,7 +29,9 @@ export interface HardwarePairingSensor {
 }
 
 export interface HardwarePairingResponse {
+  id?: string;
   controllerId: string;
+  routeId?: string;
   status: string;
   sensors: HardwarePairingSensor[];
 }
@@ -150,14 +152,18 @@ const normalizePairingResponse = (data: any, fallbackControllerId: string): Hard
     : [];
 
   return {
+    id: data?.id,
     controllerId,
+    routeId: data?.id || controllerId,
     status: data?.status || 'paired',
     sensors,
   };
 };
 
 const mockPairingResponse = (controllerId: string): HardwarePairingResponse => ({
+  id: controllerId.toUpperCase(),
   controllerId: controllerId.toUpperCase(),
+  routeId: controllerId.toUpperCase(),
   status: 'OFFLINE',
   sensors: [],
 });
@@ -249,6 +255,28 @@ export const getHardwareController = async (controllerId: string): Promise<Contr
       status: normalizeControllerStatus(stored.status),
       created_at: stored.updatedAt,
     };
+  }
+
+  if (/^CTRL-/i.test(controllerId)) {
+    const response = await api.get<{ controllers?: Array<{
+      controllerId: string;
+      name?: string;
+      status?: string;
+    }> }>('/api/controllers/my');
+    const controller = (response.data.controllers || []).find((item) =>
+      item.controllerId.toUpperCase() === controllerId.toUpperCase()
+    );
+
+    if (controller) {
+      return {
+        id: controller.controllerId,
+        account_id: '',
+        hw_id: controller.controllerId,
+        name: controller.name,
+        status: normalizeControllerStatus(controller.status),
+        created_at: '',
+      };
+    }
   }
 
   const response = await api.get<Controller>(`/controllers/${controllerId}`);

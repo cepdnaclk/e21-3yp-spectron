@@ -452,6 +452,7 @@ func (h *ControllerHandler) PairAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(models.HardwarePairResponse{
+		ID:           controller.id.String(),
 		ControllerID: controller.uid,
 		Status:       "paired",
 		Sensors:      sensors,

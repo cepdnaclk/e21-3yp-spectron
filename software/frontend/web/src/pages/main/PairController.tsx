@@ -122,10 +122,12 @@ const PairController: React.FC = () => {
     setLoading(true);
     try {
       const pairing = await pairHardwareController(normalizedControllerId);
+      const routeId = pairing.routeId || pairing.id || pairing.controllerId;
       setControllerCode(normalizedControllerId);
-      navigate(`/controllers/${pairing.controllerId}`, {
+      navigate(`/controllers/${routeId}`, {
         state: {
           controllerId: pairing.controllerId,
+          routeId,
           sensors: pairing.sensors,
           paired: true,
         },
