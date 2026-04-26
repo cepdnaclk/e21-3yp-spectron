@@ -28,16 +28,18 @@ func EnsureMockController(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 
 	_, err = pool.Exec(ctx, `
-		INSERT INTO controllers (id, account_id, hw_id, name, purpose, location, qr_code, status, last_seen, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'OFFLINE', $8, $9)
+		INSERT INTO controllers (id, account_id, hw_id, controller_uid, name, purpose, location, qr_code, status, last_seen, created_at, updated_at)
+		VALUES ($1, $2, $3, $3, $4, $5, $6, $7, 'OFFLINE', $8, $9, $9)
 		ON CONFLICT (hw_id) DO UPDATE
 		SET account_id = EXCLUDED.account_id,
+		    controller_uid = EXCLUDED.controller_uid,
 		    name = EXCLUDED.name,
 		    purpose = EXCLUDED.purpose,
 		    location = EXCLUDED.location,
 		    qr_code = EXCLUDED.qr_code,
 		    status = EXCLUDED.status,
-		    last_seen = EXCLUDED.last_seen
+		    last_seen = EXCLUDED.last_seen,
+		    updated_at = EXCLUDED.updated_at
 	`,
 		MockControllerID,
 		MockAccountID,

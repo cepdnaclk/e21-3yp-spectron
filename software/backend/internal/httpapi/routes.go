@@ -16,8 +16,10 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		allowedOrigins = []string{
 			"http://localhost:3000",
 			"http://localhost:3001",
+			"http://localhost:3002",
 			"http://127.0.0.1:3000",
 			"http://127.0.0.1:3001",
+			"http://127.0.0.1:3002",
 		}
 	}
 
@@ -59,6 +61,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 	r.Post("/auth/login", authHandler.Login)
 	r.Post("/api/iot/discover", ingestHandler.Discover)
 	r.Post("/api/iot/upload", ingestHandler.Upload)
+	r.Post("/api/controllers/demo/create", controllerHandler.DemoCreateControllerAPI)
 
 	// Protected routes
 	r.Route("/", func(r chi.Router) {
@@ -77,6 +80,14 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 			r.Post("/pair", controllerHandler.Pair)
 			r.Get("/{id}", controllerHandler.Get)
 			r.Patch("/{id}", controllerHandler.Update)
+		})
+
+		r.Route("/api/controllers", func(r chi.Router) {
+			r.Post("/pair", controllerHandler.PairAPI)
+			r.Get("/my", controllerHandler.MyControllersAPI)
+			r.Get("/{controllerId}/sensors", controllerHandler.ControllerSensorsAPI)
+			r.Post("/{controllerId}/sensors/{sensorId}/config", controllerHandler.SaveSensorConfigAPI)
+			r.Get("/{controllerId}/sensors/{sensorId}/config", controllerHandler.GetSensorConfigAPI)
 		})
 
 		// Sensors
