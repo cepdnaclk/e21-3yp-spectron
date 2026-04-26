@@ -12,6 +12,7 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_sleep.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_now.h"
@@ -30,9 +31,11 @@ static const char *TAG = "BASE_PAYLOAD";
 // Discovery/module handshake still runs every 2 seconds
 #define DISCOVERY_PERIOD_MS         2000
 
-// Sensor data sending period: 1 minute
-#define DEFAULT_SAMPLE_PERIOD_MS    60000
+// Sensor data sending period defaults to 5 minutes for lower idle power.
+#define DEFAULT_SAMPLE_PERIOD_MS    300000
 #define MIN_SAMPLE_PERIOD_MS        60000
+#define WAKE_SESSION_TIMEOUT_MS     30000
+#define TX_FLUSH_DELAY_MS           1000
 
 #define I2C_PORT                    I2C_NUM_0
 #define DEFAULT_I2C_SDA_GPIO        6
@@ -53,6 +56,7 @@ static const char *TAG = "BASE_PAYLOAD";
 
 static bool g_base_acked = false;
 static bool g_module_acked = false;
+static bool g_config_received = false;
 
 static uint8_t g_ctrl_mac[6] = {0};
 
@@ -128,15 +132,13 @@ static esp_err_t nvs_read_module_meta(void)
         strlcpy(g_sensor_name, "UNKNOWN", sizeof(g_sensor_name));
     }
 
-    /*
-     * Read old NVS value first, but then force 1-minute sending.
-     * This prevents old stored values such as 2000 ms or 5000 ms from being used.
-     */
     if (nvs_get_u32(nvs, NVS_KEY_SAMPLE_MS, &g_sample_period_ms) != ESP_OK) {
         g_sample_period_ms = DEFAULT_SAMPLE_PERIOD_MS;
     }
 
-    g_sample_period_ms = DEFAULT_SAMPLE_PERIOD_MS;
+    if (g_sample_period_ms < MIN_SAMPLE_PERIOD_MS) {
+        g_sample_period_ms = MIN_SAMPLE_PERIOD_MS;
+    }
 
     if (nvs_get_i16(nvs, NVS_KEY_TEMP_HI, &g_temp_hi_x100) != ESP_OK) {
         g_temp_hi_x100 = 3500;
@@ -480,10 +482,28 @@ static void send_config_ack(uint32_t acked_seq, uint8_t status, const char *deta
     }
 }
 
-static void send_sensor_data(void)
+static void enter_timed_deep_sleep(const char *reason, uint32_t sleep_ms)
+{
+    if (sleep_ms < MIN_SAMPLE_PERIOD_MS) {
+        sleep_ms = MIN_SAMPLE_PERIOD_MS;
+    }
+
+    ESP_LOGI(TAG,
+             "Entering deep sleep for %lu ms (%s)",
+             (unsigned long)sleep_ms,
+             reason ? reason : "scheduled");
+
+    esp_now_deinit();
+    esp_wifi_stop();
+    i2c_driver_delete(I2C_PORT);
+    esp_sleep_enable_timer_wakeup((uint64_t)sleep_ms * 1000ULL);
+    esp_deep_sleep_start();
+}
+
+static bool send_sensor_data(void)
 {
     if (!g_module_acked) {
-        return;
+        return false;
     }
 
     float t = 0.0f;
@@ -495,7 +515,7 @@ static void send_sensor_data(void)
         ESP_LOGW(TAG,
                  "Skipping data send due to sensor read failure: %s",
                  esp_err_to_name(ret));
-        return;
+        return false;
     }
 
     mproto_sht30_data_t pl = {
@@ -527,6 +547,7 @@ static void send_sensor_data(void)
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "send_sensor_data failed: %s", esp_err_to_name(err));
+        return false;
     } else {
         ESP_LOGI(TAG,
                  "SENSOR_DATA sent seq=%lu temp=%.2f hum=%.2f alerts=0x%02X next_send_after=%lu_ms",
@@ -535,6 +556,7 @@ static void send_sensor_data(void)
                  h,
                  pl.alert_flags,
                  (unsigned long)g_sample_period_ms);
+        return true;
     }
 }
 
@@ -605,11 +627,10 @@ static void on_data_recv(const esp_now_recv_info_t *recv_info, const uint8_t *da
 
                 memcpy(&pl, f.payload, sizeof(pl));
 
-                /*
-                 * Force 1-minute sensor sending.
-                 * For now, ignore sample_period_ms from controller.
-                 */
-                g_sample_period_ms = DEFAULT_SAMPLE_PERIOD_MS;
+                g_sample_period_ms = pl.sample_period_ms;
+                if (g_sample_period_ms < MIN_SAMPLE_PERIOD_MS) {
+                    g_sample_period_ms = MIN_SAMPLE_PERIOD_MS;
+                }
 
                 g_temp_hi_x100 = pl.temp_threshold_hi_x100;
                 g_hum_hi_x100 = pl.humidity_threshold_hi_x100;
@@ -622,8 +643,9 @@ static void on_data_recv(const esp_now_recv_info_t *recv_info, const uint8_t *da
                              esp_err_to_name(err));
                     send_config_ack(f.seq_num, ACK_STATUS_APPLY_FAIL, "nvs_fail");
                 } else {
+                    g_config_received = true;
                     ESP_LOGI(TAG,
-                             "CONFIG applied fixed_period=%lu temp_hi=%.2f hum_hi=%.2f",
+                             "CONFIG applied period=%lu temp_hi=%.2f hum_hi=%.2f",
                              (unsigned long)g_sample_period_ms,
                              g_temp_hi_x100 / 100.0f,
                              g_hum_hi_x100 / 100.0f);
@@ -669,21 +691,29 @@ void app_main(void)
              g_sensor_name,
              (unsigned long)g_sample_period_ms);
 
+    uint32_t wake_session_started_ms = esp_log_timestamp();
+
     while (1) {
+        if ((esp_log_timestamp() - wake_session_started_ms) >= WAKE_SESSION_TIMEOUT_MS) {
+            ESP_LOGW(TAG, "Wake session timed out before reading was sent");
+            enter_timed_deep_sleep("session_timeout", g_sample_period_ms);
+        }
+
         if (!g_base_acked) {
             send_base_hello();
             vTaskDelay(pdMS_TO_TICKS(DISCOVERY_PERIOD_MS));
         } else if (!g_module_acked) {
             send_module_info();
             vTaskDelay(pdMS_TO_TICKS(DISCOVERY_PERIOD_MS));
+        } else if (!g_config_received) {
+            send_module_info();
+            vTaskDelay(pdMS_TO_TICKS(DISCOVERY_PERIOD_MS));
         } else {
-            send_sensor_data();
-
-            /*
-             * Final delay between SENSOR_DATA packets.
-             * This is fixed to 60000 ms = 1 minute.
-             */
-            vTaskDelay(pdMS_TO_TICKS(g_sample_period_ms));
+            if (send_sensor_data()) {
+                vTaskDelay(pdMS_TO_TICKS(TX_FLUSH_DELAY_MS));
+                enter_timed_deep_sleep("sample_sent", g_sample_period_ms);
+            }
+            vTaskDelay(pdMS_TO_TICKS(DISCOVERY_PERIOD_MS));
         }
     }
 }

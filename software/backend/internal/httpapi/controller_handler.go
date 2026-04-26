@@ -148,8 +148,19 @@ func (h *ControllerHandler) Pair(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			http.Error(w, "controller not found", http.StatusBadRequest)
-			return
+			controllerID = uuid.New()
+			defaultName := fmt.Sprintf("Controller %s", hwID)
+			now := time.Now().UTC()
+			_, err = h.db.Exec(r.Context(), `
+				INSERT INTO controllers (id, account_id, hw_id, name, qr_code, status, last_seen, created_at, min_reporting_interval_sec)
+				VALUES ($1, $2, $3, $4, $5, 'PENDING_CONFIG', NULL, $6, $7)
+			`, controllerID, accountID, hwID, defaultName, hwID, now, 300)
+			if err != nil {
+				http.Error(w, "failed to register controller", http.StatusInternalServerError)
+				return
+			}
+
+			goto pairController
 		}
 		http.Error(w, "failed to find controller", http.StatusInternalServerError)
 		return
@@ -158,7 +169,9 @@ func (h *ControllerHandler) Pair(w http.ResponseWriter, r *http.Request) {
 pairController:
 	_, err = h.db.Exec(r.Context(), `
 		UPDATE controllers
-		SET account_id = $1, status = 'PENDING_CONFIG'
+		SET account_id = $1,
+		    status = 'PENDING_CONFIG',
+		    min_reporting_interval_sec = LEAST(min_reporting_interval_sec, 300)
 		WHERE id = $2
 	`, accountID, controllerID)
 	if err != nil {
@@ -215,7 +228,9 @@ func (h *ControllerHandler) resolveControllerForPairing(r *http.Request, account
 
 		_, err = tx.Exec(r.Context(), `
 			UPDATE controllers
-			SET account_id = $1, status = 'PENDING_CONFIG'
+			SET account_id = $1,
+			    status = 'PENDING_CONFIG',
+			    min_reporting_interval_sec = LEAST(min_reporting_interval_sec, 300)
 			WHERE id = $2
 		`, accountID, controllerID)
 		if err != nil {
@@ -243,7 +258,9 @@ func (h *ControllerHandler) resolveControllerForPairing(r *http.Request, account
 
 	_, err = tx.Exec(r.Context(), `
 		UPDATE controllers
-		SET account_id = $1, status = 'PENDING_CONFIG'
+		SET account_id = $1,
+		    status = 'PENDING_CONFIG',
+		    min_reporting_interval_sec = LEAST(min_reporting_interval_sec, 300)
 		WHERE id = $2
 	`, accountID, controllerID)
 	if err != nil {

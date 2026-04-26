@@ -316,7 +316,7 @@ Rules:
   use_case (string, optional),
   presentation_profile (string, optional),
   primary_metric (string, optional),
-  report_interval_per_day (integer 1-144),
+  report_interval_per_day (integer 1-288),
   thresholds (object with optional min,max,warning_min,warning_max numbers),
   metric_thresholds (object map where each key has same threshold shape),
   explanation (string).
@@ -405,8 +405,8 @@ Rules:
 	if suggestion.ReportIntervalPerDay < 1 {
 		suggestion.ReportIntervalPerDay = 1
 	}
-	if suggestion.ReportIntervalPerDay > 144 {
-		suggestion.ReportIntervalPerDay = 144
+	if suggestion.ReportIntervalPerDay > 288 {
+		suggestion.ReportIntervalPerDay = 288
 	}
 
 	if strings.TrimSpace(suggestion.FriendlyName) == "" {
@@ -610,8 +610,8 @@ func (h *SensorHandler) generateAISuggestion(sensorType string, req models.AISug
 	if reportsPerDay < 1 {
 		reportsPerDay = 1
 	}
-	if reportsPerDay > 144 {
-		reportsPerDay = 144 // Max 144 reports per day (every 10 minutes)
+	if reportsPerDay > 288 {
+		reportsPerDay = 288 // Max 288 reports per day (every 5 minutes)
 	}
 
 	// Generate friendly name from purpose

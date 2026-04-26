@@ -20,6 +20,12 @@ type SensorDiscoveryRequest struct {
 	Sensors  []SensorDiscovery `json:"sensors"`
 }
 
+type ConfigPullRequest struct {
+	DeviceID   string `json:"deviceId"`
+	SensorID   string `json:"sensorId,omitempty"`
+	SensorType string `json:"sensorType,omitempty"`
+}
+
 type SensorUpload struct {
 	ID    string  `json:"id"`
 	Type  string  `json:"type"`
@@ -31,6 +37,19 @@ type SensorDiscovery struct {
 	Type string `json:"type"`
 	Name string `json:"name,omitempty"`
 	Unit string `json:"unit,omitempty"`
+}
+
+type ConfigPullResponse struct {
+	OK                      bool       `json:"ok"`
+	DeviceID                string     `json:"deviceId"`
+	SensorID                string     `json:"sensorId,omitempty"`
+	SensorType              string     `json:"sensorType,omitempty"`
+	ConfigID                string     `json:"configId"`
+	HasActiveConfig         bool       `json:"hasActiveConfig"`
+	SamplePeriodMs          uint32     `json:"samplePeriodMs"`
+	TempThresholdHiX100     int16      `json:"tempThresholdHiX100"`
+	HumidityThresholdHiX100 uint16     `json:"humidityThresholdHiX100"`
+	ConfiguredAt            *time.Time `json:"configuredAt,omitempty"`
 }
 
 type RawReadingsEvent struct {
@@ -132,6 +151,14 @@ func ValidateSensorDiscoveryRequest(req SensorDiscoveryRequest) error {
 		if strings.TrimSpace(sensor.Type) == "" {
 			return fmt.Errorf("sensor type is required")
 		}
+	}
+
+	return nil
+}
+
+func ValidateConfigPullRequest(req ConfigPullRequest) error {
+	if strings.TrimSpace(req.DeviceID) == "" {
+		return fmt.Errorf("deviceId is required")
 	}
 
 	return nil
