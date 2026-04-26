@@ -61,6 +61,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 	r.Post("/auth/login", authHandler.Login)
 	r.Post("/auth/admin/login", authHandler.AdminLogin)
 	r.Post("/api/iot/discover", ingestHandler.Discover)
+	r.Post("/api/iot/config", ingestHandler.Config)
 	r.Post("/api/iot/upload", ingestHandler.Upload)
 
 	// Protected routes

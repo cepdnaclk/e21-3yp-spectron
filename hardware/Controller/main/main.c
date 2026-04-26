@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -35,13 +36,15 @@ static const char *TAG = "CTRL_REAL";
  * Hardcoded uplink identity
  * ========================================================= */
 #define DEVICE_ID_STR      "CTRL-REAL-001"
-#define SENSOR_ID_STR      "SEN-TH-001"
 #define SENSOR_TYPE_STR    "temperature_humidity"
+#define SENSOR_UID_SUFFIX  "-sensor-temp-01"
 
 #define TELEMETRY_HOST     "spectron-backend-env.eba-niaes6bi.ap-south-1.elasticbeanstalk.com"
+#define CONFIG_PATH        "/api/iot/config"
+#define DISCOVERY_PATH     "/api/iot/discover"
 #define TELEMETRY_PATH     "/api/iot/upload"
-#define TELEMETRY_URL      "http://" TELEMETRY_HOST TELEMETRY_PATH
-#define SEND_PERIOD_MS     30000
+#define IDLE_CHECK_MS      5000
+#define CONFIG_POLL_MS     15000
 #define SEND_RETRY_MS      5000
 #define HTTP_TIMEOUT_MS    30000
 #define HTTP_MAX_ATTEMPTS  3
@@ -52,7 +55,7 @@ static const char *TAG = "CTRL_REAL";
 #define WIFI_CHANNEL               1
 #define MAX_BASES                  8
 
-#define DEFAULT_CFG_SAMPLE_MS      2000
+#define DEFAULT_CFG_SAMPLE_MS      300000
 #define DEFAULT_TEMP_HI_X100       3500
 #define DEFAULT_HUM_HI_X100        8500
 
@@ -94,6 +97,15 @@ typedef struct {
     uint32_t last_seen_ms;
 } base_record_t;
 
+typedef struct {
+    bool valid;
+    bool has_active_config;
+    char config_id[64];
+    uint32_t sample_period_ms;
+    int16_t temp_threshold_hi_x100;
+    uint16_t humidity_threshold_hi_x100;
+} controller_sensor_config_t;
+
 static base_record_t g_bases[MAX_BASES];
 static uint32_t g_seq = 0;
 
@@ -104,6 +116,16 @@ static portMUX_TYPE g_temp_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool g_have_latest_temp = false;
 static float g_latest_temp_c = 0.0f;
 static uint32_t g_latest_temp_rx_ms = 0;
+
+static portMUX_TYPE g_sensor_meta_lock = portMUX_INITIALIZER_UNLOCKED;
+static bool g_have_sensor_meta = false;
+static bool g_sensor_configured = false;
+static bool g_backend_discovered = false;
+static uint8_t g_sensor_proto_type = SENSOR_TYPE_NONE;
+static char g_sensor_name[MPROTO_SENSOR_NAME_LEN] = "Temperature & Humidity Sensor";
+
+static portMUX_TYPE g_remote_cfg_lock = portMUX_INITIALIZER_UNLOCKED;
+static controller_sensor_config_t g_remote_cfg = {0};
 
 /* =========================================================
  * PPP / HTTP globals
@@ -131,8 +153,11 @@ static char g_tx_buf[160];
 static char g_http_resp[HTTP_RESP_BUF_SIZE];
 static char g_http_post_body[HTTP_POST_BUF_SIZE];
 static char g_telemetry_ip[16];
-static char g_telemetry_url[96];
 static bool g_have_telemetry_ip = false;
+static char g_sensor_uid[64];
+static bool g_sensor_uid_ready = false;
+
+static void send_config_set(const uint8_t *mac, uint32_t base_id, uint32_t sensor_id);
 
 typedef struct {
     char *buf;
@@ -184,11 +209,53 @@ static uint32_t ts_now_seconds(void)
     return (uint32_t)now;
 }
 
+static const char *get_backend_sensor_uid(void)
+{
+    if (g_sensor_uid_ready) {
+        return g_sensor_uid;
+    }
+
+    size_t used = 0;
+
+    memset(g_sensor_uid, 0, sizeof(g_sensor_uid));
+
+    for (const char *p = DEVICE_ID_STR; *p != '\0' && used < sizeof(g_sensor_uid) - 1; ++p) {
+        char ch = *p;
+
+        if (ch >= 'A' && ch <= 'Z') {
+            ch = (char)(ch - 'A' + 'a');
+        }
+
+        if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+            g_sensor_uid[used++] = ch;
+        }
+    }
+
+    while (used > 0 && g_sensor_uid[0] == '-') {
+        memmove(g_sensor_uid, g_sensor_uid + 1, used);
+        used--;
+    }
+    while (used > 0 && g_sensor_uid[used - 1] == '-') {
+        g_sensor_uid[--used] = '\0';
+    }
+
+    if (used == 0) {
+        strlcpy(g_sensor_uid, "sensor", sizeof(g_sensor_uid));
+        used = strlen(g_sensor_uid);
+    }
+
+    if (used < sizeof(g_sensor_uid) - 1) {
+        strlcat(g_sensor_uid, SENSOR_UID_SUFFIX, sizeof(g_sensor_uid));
+    }
+
+    g_sensor_uid_ready = true;
+    return g_sensor_uid;
+}
+
 static void clear_telemetry_endpoint_cache(void)
 {
     g_have_telemetry_ip = false;
     g_telemetry_ip[0] = '\0';
-    g_telemetry_url[0] = '\0';
 }
 
 static bool resolve_telemetry_endpoint(bool force_refresh)
@@ -223,11 +290,202 @@ static bool resolve_telemetry_endpoint(bool force_refresh)
 
     freeaddrinfo(res);
 
-    snprintf(g_telemetry_url, sizeof(g_telemetry_url), "http://%s%s", g_telemetry_ip, TELEMETRY_PATH);
     g_have_telemetry_ip = true;
 
     ESP_LOGI(TAG, "Telemetry host %s resolved to %s", TELEMETRY_HOST, g_telemetry_ip);
     return true;
+}
+
+static const char *sensor_type_to_backend_name(uint8_t sensor_type)
+{
+    switch (sensor_type) {
+        case SENSOR_TYPE_SHT30:
+            return SENSOR_TYPE_STR;
+        default:
+            return "unknown";
+    }
+}
+
+static const char *sensor_type_to_backend_unit(uint8_t sensor_type)
+{
+    switch (sensor_type) {
+        case SENSOR_TYPE_SHT30:
+            return "C/%RH";
+        default:
+            return "";
+    }
+}
+
+static const char *skip_json_ws(const char *p)
+{
+    while (p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) {
+        p++;
+    }
+    return p;
+}
+
+static const char *find_json_key_value(const char *json, const char *key)
+{
+    char pattern[48];
+
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+    const char *pos = strstr(json, pattern);
+    if (pos == NULL) {
+        return NULL;
+    }
+
+    pos = strchr(pos, ':');
+    if (pos == NULL) {
+        return NULL;
+    }
+
+    return skip_json_ws(pos + 1);
+}
+
+static bool json_extract_string(const char *json, const char *key, char *out, size_t out_len)
+{
+    const char *value = find_json_key_value(json, key);
+    if (value == NULL || *value != '\"') {
+        return false;
+    }
+
+    value++;
+    const char *end = strchr(value, '\"');
+    if (end == NULL) {
+        return false;
+    }
+
+    size_t len = (size_t)(end - value);
+    if (len >= out_len) {
+        len = out_len - 1;
+    }
+
+    memcpy(out, value, len);
+    out[len] = '\0';
+    return true;
+}
+
+static bool json_extract_long(const char *json, const char *key, long *out_value)
+{
+    const char *value = find_json_key_value(json, key);
+    char *end_ptr = NULL;
+
+    if (value == NULL) {
+        return false;
+    }
+
+    long parsed = strtol(value, &end_ptr, 10);
+    if (end_ptr == value) {
+        return false;
+    }
+
+    *out_value = parsed;
+    return true;
+}
+
+static void update_sensor_meta(const char *sensor_name, uint8_t sensor_type)
+{
+    portENTER_CRITICAL(&g_sensor_meta_lock);
+    if (sensor_name && sensor_name[0] != '\0') {
+        strlcpy(g_sensor_name, sensor_name, sizeof(g_sensor_name));
+    }
+    g_sensor_proto_type = sensor_type;
+    g_have_sensor_meta = true;
+    g_sensor_configured = false;
+    g_backend_discovered = false;
+    portEXIT_CRITICAL(&g_sensor_meta_lock);
+}
+
+static void mark_sensor_configured(bool configured)
+{
+    portENTER_CRITICAL(&g_sensor_meta_lock);
+    g_sensor_configured = configured;
+    if (!configured) {
+        g_backend_discovered = false;
+    }
+    portEXIT_CRITICAL(&g_sensor_meta_lock);
+}
+
+static void mark_backend_discovered(void)
+{
+    portENTER_CRITICAL(&g_sensor_meta_lock);
+    g_backend_discovered = true;
+    portEXIT_CRITICAL(&g_sensor_meta_lock);
+}
+
+static bool get_sensor_state_snapshot(char *sensor_name, size_t sensor_name_len, uint8_t *sensor_type, bool *configured, bool *discovered)
+{
+    bool have_sensor;
+
+    portENTER_CRITICAL(&g_sensor_meta_lock);
+    have_sensor = g_have_sensor_meta;
+    if (have_sensor) {
+        if (sensor_name && sensor_name_len > 0) {
+            strlcpy(sensor_name, g_sensor_name, sensor_name_len);
+        }
+        if (sensor_type) {
+            *sensor_type = g_sensor_proto_type;
+        }
+    }
+    if (configured) {
+        *configured = g_sensor_configured;
+    }
+    if (discovered) {
+        *discovered = g_backend_discovered;
+    }
+    portEXIT_CRITICAL(&g_sensor_meta_lock);
+
+    return have_sensor;
+}
+
+static void init_remote_config_defaults(void)
+{
+    portENTER_CRITICAL(&g_remote_cfg_lock);
+    memset(&g_remote_cfg, 0, sizeof(g_remote_cfg));
+    g_remote_cfg.valid = true;
+    g_remote_cfg.has_active_config = false;
+    g_remote_cfg.sample_period_ms = DEFAULT_CFG_SAMPLE_MS;
+    g_remote_cfg.temp_threshold_hi_x100 = DEFAULT_TEMP_HI_X100;
+    g_remote_cfg.humidity_threshold_hi_x100 = DEFAULT_HUM_HI_X100;
+    strlcpy(g_remote_cfg.config_id, "boot-default", sizeof(g_remote_cfg.config_id));
+    portEXIT_CRITICAL(&g_remote_cfg_lock);
+}
+
+static void get_remote_config_snapshot(controller_sensor_config_t *cfg)
+{
+    portENTER_CRITICAL(&g_remote_cfg_lock);
+    *cfg = g_remote_cfg;
+    portEXIT_CRITICAL(&g_remote_cfg_lock);
+}
+
+static bool update_remote_config(const char *config_id,
+                                 bool has_active_config,
+                                 uint32_t sample_period_ms,
+                                 int16_t temp_threshold_hi_x100,
+                                 uint16_t humidity_threshold_hi_x100)
+{
+    bool changed = false;
+
+    portENTER_CRITICAL(&g_remote_cfg_lock);
+
+    if (!g_remote_cfg.valid ||
+        g_remote_cfg.has_active_config != has_active_config ||
+        g_remote_cfg.sample_period_ms != sample_period_ms ||
+        g_remote_cfg.temp_threshold_hi_x100 != temp_threshold_hi_x100 ||
+        g_remote_cfg.humidity_threshold_hi_x100 != humidity_threshold_hi_x100 ||
+        strncmp(g_remote_cfg.config_id, config_id, sizeof(g_remote_cfg.config_id)) != 0) {
+        changed = true;
+        g_remote_cfg.valid = true;
+        g_remote_cfg.has_active_config = has_active_config;
+        g_remote_cfg.sample_period_ms = sample_period_ms;
+        g_remote_cfg.temp_threshold_hi_x100 = temp_threshold_hi_x100;
+        g_remote_cfg.humidity_threshold_hi_x100 = humidity_threshold_hi_x100;
+        strlcpy(g_remote_cfg.config_id, config_id, sizeof(g_remote_cfg.config_id));
+    }
+
+    portEXIT_CRITICAL(&g_remote_cfg_lock);
+
+    return changed;
 }
 
 static void print_mac(const char *label, const uint8_t *mac)
@@ -263,6 +521,17 @@ static int alloc_base_slot(const uint8_t *mac)
     }
 
     return -1;
+}
+
+static void push_config_to_known_bases(void)
+{
+    for (int i = 0; i < MAX_BASES; i++) {
+        if (!g_bases[i].in_use || g_bases[i].sensor_id == 0) {
+            continue;
+        }
+
+        send_config_set(g_bases[i].mac, g_bases[i].base_id, g_bases[i].sensor_id);
+    }
 }
 
 static void add_peer_if_needed(const uint8_t *mac)
@@ -638,7 +907,7 @@ static bool ppp_ensure_connected(void)
     return true;
 }
 
-static http_post_result_t http_post_json_once(const char *json_payload)
+static http_post_result_t http_post_json_once(const char *path, const char *json_payload)
 {
     memset(g_http_resp, 0, sizeof(g_http_resp));
 
@@ -648,9 +917,11 @@ static http_post_result_t http_post_json_once(const char *json_payload)
         .cur_len = 0
     };
 
-    const char *request_url = TELEMETRY_URL;
+    char request_url[128];
     if (resolve_telemetry_endpoint(false)) {
-        request_url = g_telemetry_url;
+        snprintf(request_url, sizeof(request_url), "http://%s%s", g_telemetry_ip, path);
+    } else {
+        snprintf(request_url, sizeof(request_url), "http://%s%s", TELEMETRY_HOST, path);
     }
 
     esp_http_client_config_t config = {
@@ -704,7 +975,7 @@ static http_post_result_t http_post_json_once(const char *json_payload)
     };
 }
 
-static bool http_post_json(const char *json_payload)
+static bool http_post_json(const char *path, const char *json_payload)
 {
     http_post_result_t result = {
         .err = ESP_FAIL,
@@ -712,7 +983,7 @@ static bool http_post_json(const char *json_payload)
     };
 
     for (int attempt = 1; attempt <= HTTP_MAX_ATTEMPTS; attempt++) {
-        result = http_post_json_once(json_payload);
+        result = http_post_json_once(path, json_payload);
         if (result.err == ESP_OK && result.status_code >= 200 && result.status_code < 300) {
             return true;
         }
@@ -742,8 +1013,34 @@ static bool http_post_json(const char *json_payload)
 /* =========================================================
  * JSON payload
  * ========================================================= */
+static int build_config_pull_json(char *buf, size_t buf_len)
+{
+    uint8_t sensor_type = SENSOR_TYPE_SHT30;
+
+    if (!get_sensor_state_snapshot(NULL, 0, &sensor_type, NULL, NULL)) {
+        sensor_type = SENSOR_TYPE_SHT30;
+    }
+
+    return snprintf(
+        buf, buf_len,
+        "{"
+          "\"deviceId\":\"" DEVICE_ID_STR "\","
+          "\"sensorId\":\"%s\","
+          "\"sensorType\":\"%s\""
+        "}",
+        get_backend_sensor_uid(),
+        sensor_type_to_backend_name(sensor_type)
+    );
+}
+
 static int build_payload_json(float temp_value, char *buf, size_t buf_len)
 {
+    uint8_t sensor_type = SENSOR_TYPE_SHT30;
+
+    if (!get_sensor_state_snapshot(NULL, 0, &sensor_type, NULL, NULL)) {
+        return -1;
+    }
+
     return snprintf(
         buf, buf_len,
         "{"
@@ -751,15 +1048,121 @@ static int build_payload_json(float temp_value, char *buf, size_t buf_len)
           "\"ts\":%lu,"
           "\"sensors\":["
             "{"
-              "\"id\":\"" SENSOR_ID_STR "\","
-              "\"type\":\"" SENSOR_TYPE_STR "\","
+              "\"id\":\"%s\","
+              "\"type\":\"%s\","
               "\"v\":%.1f"
             "}"
           "]"
         "}",
         (unsigned long)ts_now_seconds(),
+        get_backend_sensor_uid(),
+        sensor_type_to_backend_name(sensor_type),
         temp_value
     );
+}
+
+static int build_discovery_json(char *buf, size_t buf_len)
+{
+    char sensor_name[MPROTO_SENSOR_NAME_LEN];
+    uint8_t sensor_type = SENSOR_TYPE_NONE;
+
+    if (!get_sensor_state_snapshot(sensor_name, sizeof(sensor_name), &sensor_type, NULL, NULL)) {
+        return -1;
+    }
+
+    return snprintf(
+        buf, buf_len,
+        "{"
+          "\"deviceId\":\"" DEVICE_ID_STR "\","
+          "\"ts\":%lu,"
+          "\"sensors\":["
+            "{"
+              "\"id\":\"%s\","
+              "\"type\":\"%s\","
+              "\"name\":\"%s\","
+              "\"unit\":\"%s\""
+            "}"
+          "]"
+        "}",
+        (unsigned long)ts_now_seconds(),
+        get_backend_sensor_uid(),
+        sensor_type_to_backend_name(sensor_type),
+        sensor_name,
+        sensor_type_to_backend_unit(sensor_type)
+    );
+}
+
+static bool maybe_refresh_sensor_config(bool force_refresh)
+{
+    static uint32_t last_poll_ms = 0;
+    uint32_t now_ms = ms_now();
+
+    if (!force_refresh && last_poll_ms != 0 && (now_ms - last_poll_ms) < CONFIG_POLL_MS) {
+        return false;
+    }
+
+    last_poll_ms = now_ms;
+
+    if (build_config_pull_json(g_http_post_body, sizeof(g_http_post_body)) <= 0) {
+        return false;
+    }
+
+    ESP_LOGI(TAG, "Polling backend for current sensor config...");
+    if (!http_post_json(CONFIG_PATH, g_http_post_body)) {
+        ESP_LOGW(TAG, "Config pull failed; keeping cached device config");
+        return false;
+    }
+
+    char config_id[64] = {0};
+    long sample_period_ms = 0;
+    long temp_hi_x100 = 0;
+    long humidity_hi_x100 = 0;
+
+    if (!json_extract_string(g_http_resp, "configId", config_id, sizeof(config_id)) ||
+        !json_extract_long(g_http_resp, "samplePeriodMs", &sample_period_ms) ||
+        !json_extract_long(g_http_resp, "tempThresholdHiX100", &temp_hi_x100) ||
+        !json_extract_long(g_http_resp, "humidityThresholdHiX100", &humidity_hi_x100)) {
+        ESP_LOGW(TAG, "Config pull response missing required fields");
+        return false;
+    }
+
+    bool has_active_config = strstr(g_http_resp, "\"hasActiveConfig\":true") != NULL;
+    if (sample_period_ms <= 0) {
+        sample_period_ms = DEFAULT_CFG_SAMPLE_MS;
+    }
+    if (temp_hi_x100 == 0) {
+        temp_hi_x100 = DEFAULT_TEMP_HI_X100;
+    }
+    if (humidity_hi_x100 == 0) {
+        humidity_hi_x100 = DEFAULT_HUM_HI_X100;
+    }
+    if (config_id[0] == '\0') {
+        strlcpy(config_id, has_active_config ? "active-config" : "default-config", sizeof(config_id));
+    }
+
+    bool changed = update_remote_config(
+        config_id,
+        has_active_config,
+        (uint32_t)sample_period_ms,
+        (int16_t)temp_hi_x100,
+        (uint16_t)humidity_hi_x100
+    );
+
+    if (changed) {
+        ESP_LOGI(TAG,
+                 "Cached device config updated id=%s active=%u sample=%lu temp_hi=%.2f hum_hi=%.2f",
+                 config_id,
+                 has_active_config ? 1 : 0,
+                 (unsigned long)sample_period_ms,
+                 temp_hi_x100 / 100.0,
+                 humidity_hi_x100 / 100.0);
+        mark_sensor_configured(false);
+        if (g_espnow_started) {
+            push_config_to_known_bases();
+        }
+    }
+
+    return changed;
 }
 
 /* =========================================================
@@ -849,10 +1252,13 @@ static void send_module_ack(const uint8_t *mac, uint32_t base_id, uint32_t senso
 
 static void send_config_set(const uint8_t *mac, uint32_t base_id, uint32_t sensor_id)
 {
+    controller_sensor_config_t cfg;
+    get_remote_config_snapshot(&cfg);
+
     mproto_config_set_t pl = {
-        .sample_period_ms = DEFAULT_CFG_SAMPLE_MS,
-        .temp_threshold_hi_x100 = DEFAULT_TEMP_HI_X100,
-        .humidity_threshold_hi_x100 = DEFAULT_HUM_HI_X100,
+        .sample_period_ms = cfg.sample_period_ms,
+        .temp_threshold_hi_x100 = cfg.temp_threshold_hi_x100,
+        .humidity_threshold_hi_x100 = cfg.humidity_threshold_hi_x100,
         .apply_flags = 1
     };
 
@@ -867,6 +1273,13 @@ static void send_config_set(const uint8_t *mac, uint32_t base_id, uint32_t senso
     esp_err_t err = esp_now_send(mac, (uint8_t *)&f, sizeof(f));
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "send_config_set failed: %s", esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG,
+                 "CONFIG_SET sent sample=%lu temp_hi=%.2f hum_hi=%.2f cfg=%s",
+                 (unsigned long)pl.sample_period_ms,
+                 pl.temp_threshold_hi_x100 / 100.0f,
+                 pl.humidity_threshold_hi_x100 / 100.0f,
+                 cfg.config_id);
     }
 }
 
@@ -922,13 +1335,16 @@ static void handle_module_info(const uint8_t *mac, const mproto_frame_t *f)
     g_bases[idx].last_seen_ms = ms_now();
     g_bases[idx].module_acked = true;
 
+    mproto_module_info_t pl;
+    memcpy(&pl, f->payload, sizeof(pl));
+    update_sensor_meta(pl.sensor_name, f->sensor_type);
+
     ESP_LOGI(TAG, "MODULE_INFO base_id=%lu sensor_id=%lu sensor_type=%u",
              (unsigned long)f->base_id,
              (unsigned long)f->sensor_id,
              f->sensor_type);
 
     send_module_ack(mac, f->base_id, f->sensor_id);
-    send_config_set(mac, f->base_id, f->sensor_id);
 }
 
 static void handle_sensor_data(const uint8_t *mac, const mproto_frame_t *f)
@@ -981,6 +1397,8 @@ static void handle_config_ack(const mproto_frame_t *f)
              pl.acked_msg_type,
              pl.status,
              pl.detail);
+
+    mark_sensor_configured(pl.status == ACK_STATUS_OK);
 }
 
 static void on_data_recv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len)
@@ -1074,22 +1492,59 @@ static bool espnow_start_once(void)
  * ========================================================= */
 static void uploader_task(void *arg)
 {
+    uint32_t last_uploaded_rx_ms = 0;
+
     while (1) {
         if (!ppp_ensure_connected()) {
             ESP_LOGW(TAG, "PPP not ready; retrying...");
-            vTaskDelay(pdMS_TO_TICKS(5000));
-            continue;
-        }
-
-        if (!espnow_start_once()) {
-            ESP_LOGW(TAG, "ESP-NOW not ready yet; retrying...");
-            vTaskDelay(pdMS_TO_TICKS(5000));
+            vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
             continue;
         }
 
         if (!sync_time_once()) {
             ESP_LOGW(TAG, "Real time not ready yet; retrying...");
-            vTaskDelay(pdMS_TO_TICKS(5000));
+            vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
+            continue;
+        }
+
+        maybe_refresh_sensor_config(false);
+
+        if (!espnow_start_once()) {
+            ESP_LOGW(TAG, "ESP-NOW not ready yet; retrying...");
+            vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
+            continue;
+        }
+
+        bool sensor_configured = false;
+        bool backend_discovered = false;
+        if (!get_sensor_state_snapshot(NULL, 0, NULL, &sensor_configured, &backend_discovered)) {
+            ESP_LOGI(TAG, "No discovered sensor/module yet; waiting...");
+            vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
+            continue;
+        }
+
+        if (!sensor_configured) {
+            bool changed = maybe_refresh_sensor_config(true);
+            if (!changed) {
+                push_config_to_known_bases();
+            }
+            ESP_LOGI(TAG, "Sensor discovered locally, pushing controller config and waiting for CONFIG_ACK before backend discovery...");
+            vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
+            continue;
+        }
+
+        if (!backend_discovered) {
+            int discovery_len = build_discovery_json(g_http_post_body, sizeof(g_http_post_body));
+            if (discovery_len > 0) {
+                ESP_LOGI(TAG, "Sending controller/sensor discovery before telemetry upload...");
+                if (http_post_json(DISCOVERY_PATH, g_http_post_body)) {
+                    mark_backend_discovered();
+                    ESP_LOGI(TAG, "Backend discovery completed");
+                } else {
+                    ESP_LOGW(TAG, "Discovery POST failed");
+                }
+            }
+            vTaskDelay(pdMS_TO_TICKS(SEND_RETRY_MS));
             continue;
         }
 
@@ -1098,19 +1553,26 @@ static void uploader_task(void *arg)
 
         if (!get_latest_temp(&temp_value, &rx_ms)) {
             ESP_LOGI(TAG, "No temperature received yet; waiting...");
-            vTaskDelay(pdMS_TO_TICKS(5000));
+            vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
+            continue;
+        }
+
+        if (rx_ms == last_uploaded_rx_ms) {
+            vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
             continue;
         }
 
         int n = build_payload_json(temp_value, g_http_post_body, sizeof(g_http_post_body));
         if (n > 0) {
-            ESP_LOGI(TAG, "Sending latest temperature v=%.1f", temp_value);
-            if (!http_post_json(g_http_post_body)) {
+            ESP_LOGI(TAG, "Sending fresh temperature v=%.1f", temp_value);
+            if (!http_post_json(TELEMETRY_PATH, g_http_post_body)) {
                 ESP_LOGW(TAG, "POST failed");
+            } else {
+                last_uploaded_rx_ms = rx_ms;
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(SEND_PERIOD_MS));
+        vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
     }
 }
 
@@ -1124,6 +1586,7 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     s_event_group = xEventGroupCreate();
+    init_remote_config_defaults();
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -1142,8 +1605,9 @@ void app_main(void)
     ESP_LOGI(TAG, "Controller booted");
     ESP_LOGI(TAG, "Startup order: SIM800 PPP first, ESP-NOW second");
     ESP_LOGI(TAG, "Hardcoded deviceId=%s", DEVICE_ID_STR);
-    ESP_LOGI(TAG, "Hardcoded sensorId=%s", SENSOR_ID_STR);
-    ESP_LOGI(TAG, "Uploading only latest temperature every 30 seconds");
+    ESP_LOGI(TAG, "Derived sensorId=%s", get_backend_sensor_uid());
+    ESP_LOGI(TAG, "Sequence: local config ACK -> backend discovery -> telemetry upload");
+    ESP_LOGI(TAG, "Uploading only fresh temperature readings after sensor wake cycles");
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
