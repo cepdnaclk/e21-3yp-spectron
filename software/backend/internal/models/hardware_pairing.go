@@ -17,6 +17,7 @@ type HardwareSensorResponse struct {
 }
 
 type HardwarePairResponse struct {
+	ID           string                   `json:"id"`
 	ControllerID string                   `json:"controllerId"`
 	Status       string                   `json:"status"`
 	Sensors      []HardwareSensorResponse `json:"sensors"`
