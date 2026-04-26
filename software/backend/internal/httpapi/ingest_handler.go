@@ -264,13 +264,32 @@ func (h *IngestHandler) Config(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = h.db.QueryRow(r.Context(), `
+				SELECT
+					cs.type,
+					sc.id,
+					sc.updated_at,
+					sc.config_json
+				FROM controller_sensors cs
+				LEFT JOIN sensor_configurations sc
+					ON sc.sensor_id = cs.id
+				WHERE cs.controller_id = $1
+				  AND cs.sensor_uid = $2
+			`, controllerID, sensorID).Scan(&persistedSensorType, &configID, &configuredAt, &rawConfig)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				http.Error(w, "failed to load hardware sensor config", http.StatusInternalServerError)
+				return
+			}
+		}
+
 		if persistedSensorType != nil && strings.TrimSpace(*persistedSensorType) != "" {
 			resp.SensorType = strings.TrimSpace(*persistedSensorType)
 		}
 
 		if err == nil && len(rawConfig) > 0 && string(rawConfig) != "null" {
-			var activeConfig models.SensorConfig
-			if jsonErr := json.Unmarshal(rawConfig, &activeConfig); jsonErr != nil {
+			activeConfig, jsonErr := decodeDeviceSensorConfig(rawConfig)
+			if jsonErr != nil {
 				http.Error(w, "failed to decode active sensor config", http.StatusInternalServerError)
 				return
 			}
@@ -310,6 +329,99 @@ func buildDefaultDeviceConfigID(sensorID string, samplePeriodMs uint32, tempHiX1
 	}
 
 	return fmt.Sprintf("default:%s:%d:%d:%d", trimmedSensorID, samplePeriodMs, tempHiX100, humidityHiX100)
+}
+
+func decodeDeviceSensorConfig(rawConfig []byte) (models.SensorConfig, error) {
+	var activeConfig models.SensorConfig
+	if err := json.Unmarshal(rawConfig, &activeConfig); err == nil {
+		if activeConfig.ReportIntervalPerDay > 0 || len(activeConfig.MetricThresholds) > 0 || activeConfig.FriendlyName != "" {
+			return activeConfig, nil
+		}
+	}
+
+	var flat map[string]any
+	if err := json.Unmarshal(rawConfig, &flat); err != nil {
+		return models.SensorConfig{}, err
+	}
+
+	reportsPerDay := flatConfigInt(flat, "reportsPerDay", 0)
+	tempThreshold := models.ThresholdConfig{
+		Min:        flatConfigFloatPtr(flat, "temperatureMin"),
+		Max:        flatConfigFloatPtr(flat, "temperatureMax"),
+		WarningMin: flatConfigFloatPtr(flat, "temperatureWarningMin"),
+		WarningMax: flatConfigFloatPtr(flat, "temperatureWarningMax"),
+	}
+	humidityThreshold := models.ThresholdConfig{
+		Min:        flatConfigFloatPtr(flat, "humidityMin"),
+		Max:        flatConfigFloatPtr(flat, "humidityMax"),
+		WarningMin: flatConfigFloatPtr(flat, "humidityWarningMin"),
+		WarningMax: flatConfigFloatPtr(flat, "humidityWarningMax"),
+	}
+
+	return models.SensorConfig{
+		FriendlyName:         flatConfigString(flat, "friendlyName"),
+		UseCase:              flatConfigString(flat, "usedFor"),
+		PresentationProfile:  flatConfigString(flat, "dashboardView"),
+		PrimaryMetric:        "temperature",
+		Thresholds:           tempThreshold,
+		MetricThresholds:     map[string]models.ThresholdConfig{"temperature": tempThreshold, "humidity": humidityThreshold},
+		ReportIntervalPerDay: reportsPerDay,
+		PowerManagement: models.PowerManagementConfig{
+			BatteryLifeDays:   flatConfigInt(flat, "estimatedBatteryLifeDays", 0),
+			SamplingFrequency: reportsPerDay,
+		},
+	}, nil
+}
+
+func flatConfigString(config map[string]any, key string) string {
+	if value, ok := config[key].(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return ""
+}
+
+func flatConfigInt(config map[string]any, key string, fallback int) int {
+	if value, ok := config[key]; ok {
+		switch v := value.(type) {
+		case float64:
+			return int(v)
+		case float32:
+			return int(v)
+		case int:
+			return v
+		case int32:
+			return int(v)
+		case int64:
+			return int(v)
+		}
+	}
+	return fallback
+}
+
+func flatConfigFloatPtr(config map[string]any, key string) *float64 {
+	value, ok := config[key]
+	if !ok {
+		return nil
+	}
+	switch v := value.(type) {
+	case float64:
+		copy := v
+		return &copy
+	case float32:
+		copy := float64(v)
+		return &copy
+	case int:
+		copy := float64(v)
+		return &copy
+	case int32:
+		copy := float64(v)
+		return &copy
+	case int64:
+		copy := float64(v)
+		return &copy
+	default:
+		return nil
+	}
 }
 
 func effectiveSamplePeriodMs(reportsPerDay int, minIntervalSec int) uint32 {

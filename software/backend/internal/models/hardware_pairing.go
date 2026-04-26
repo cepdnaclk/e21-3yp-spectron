@@ -44,6 +44,7 @@ type SaveHardwareSensorConfigRequest struct {
 	UsedFor       string                 `json:"usedFor"`
 	DashboardView string                 `json:"dashboardView"`
 	Config        map[string]interface{} `json:"config"`
+	AppConfig     *SensorConfig          `json:"appConfig,omitempty"`
 }
 
 type SaveHardwareSensorConfigResponse struct {

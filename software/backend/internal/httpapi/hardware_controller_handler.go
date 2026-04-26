@@ -46,6 +46,19 @@ type hardwareSensorRecord struct {
 	sensorType string
 	status     string
 	configured bool
+	legacyID   *uuid.UUID
+}
+
+type legacySensorRecord struct {
+	id         uuid.UUID
+	hwID       string
+	name       string
+	sensorType string
+	status     string
+}
+
+type queryRower interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 func (h *ControllerHandler) requireAccountAdmin(ctx context.Context, userID uuid.UUID, accountID uuid.UUID) error {
@@ -637,6 +650,61 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	legacyConfig := buildLegacySensorConfig(req)
+	legacySensor, legacyErr := lookupLegacySensorRecord(r.Context(), tx, controller.id, sensorParam)
+	if errors.Is(legacyErr, pgx.ErrNoRows) && sensor.uid != "" && sensor.uid != sensorParam {
+		legacySensor, legacyErr = lookupLegacySensorRecord(r.Context(), tx, controller.id, sensor.uid)
+	}
+	if legacyErr == nil {
+		legacyConfigJSON, marshalErr := json.Marshal(legacyConfig)
+		if marshalErr != nil {
+			http.Error(w, "failed to encode device configuration", http.StatusInternalServerError)
+			return
+		}
+
+		_, err = tx.Exec(r.Context(), `
+			UPDATE sensors
+			SET name = COALESCE($1, name),
+			    purpose = COALESCE($2, purpose),
+			    type = $3
+			WHERE id = $4
+		`, nullableString(req.SensorName), nullableString(req.UsedFor), sensor.sensorType, legacySensor.id)
+		if err != nil {
+			http.Error(w, "failed to update discovered sensor", http.StatusInternalServerError)
+			return
+		}
+
+		_, err = tx.Exec(r.Context(), `
+			UPDATE sensor_configs
+			SET active = false
+			WHERE sensor_id = $1
+			  AND active = true
+		`, legacySensor.id)
+		if err != nil {
+			http.Error(w, "failed to deactivate old sensor config", http.StatusInternalServerError)
+			return
+		}
+
+		_, err = tx.Exec(r.Context(), `
+			INSERT INTO sensor_configs (
+				id,
+				sensor_id,
+				config_json,
+				active,
+				created_at,
+				purpose
+			)
+			VALUES ($1, $2, $3::jsonb, true, NOW(), $4)
+		`, uuid.New(), legacySensor.id, legacyConfigJSON, nullableString(req.UsedFor))
+		if err != nil {
+			http.Error(w, "failed to save device sensor config", http.StatusInternalServerError)
+			return
+		}
+	} else if !errors.Is(legacyErr, pgx.ErrNoRows) {
+		http.Error(w, "failed to resolve discovered sensor", http.StatusInternalServerError)
+		return
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		http.Error(w, "failed to commit configuration", http.StatusInternalServerError)
 		return
@@ -932,12 +1000,13 @@ func (h *ControllerHandler) lookupHardwareSensor(ctx context.Context, controller
 	}
 
 	var sensor hardwareSensorRecord
+	trimmedIdentifier := strings.TrimSpace(sensorIdentifier)
 	err := h.db.QueryRow(ctx, `
 		SELECT id, sensor_uid, name, type, status, configured
 		FROM controller_sensors
 		WHERE controller_id = $1
 		  AND (sensor_uid = $2 OR id::text = $2)
-	`, controllerID, strings.TrimSpace(sensorIdentifier)).Scan(
+	`, controllerID, trimmedIdentifier).Scan(
 		&sensor.id,
 		&sensor.uid,
 		&sensor.name,
@@ -947,7 +1016,11 @@ func (h *ControllerHandler) lookupHardwareSensor(ctx context.Context, controller
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return hardwareSensorRecord{}, apiError{status: http.StatusNotFound, message: "sensor not found"}
+			bridgedSensor, bridgeErr := h.ensureHardwareSensorForLegacy(ctx, controllerID, trimmedIdentifier)
+			if bridgeErr != nil {
+				return hardwareSensorRecord{}, bridgeErr
+			}
+			return bridgedSensor, nil
 		}
 		return hardwareSensorRecord{}, err
 	}
@@ -1075,6 +1148,172 @@ func defaultSensorUIDs(controllerUID string) []string {
 		prefix + "-sensor-temp-01",
 		prefix + "-sensor-ultra-01",
 	}
+}
+
+func (h *ControllerHandler) ensureHardwareSensorForLegacy(ctx context.Context, controllerID uuid.UUID, sensorIdentifier string) (hardwareSensorRecord, error) {
+	legacySensor, err := lookupLegacySensorRecord(ctx, h.db, controllerID, sensorIdentifier)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return hardwareSensorRecord{}, apiError{status: http.StatusNotFound, message: "sensor not found"}
+		}
+		return hardwareSensorRecord{}, err
+	}
+
+	name := strings.TrimSpace(legacySensor.name)
+	if name == "" {
+		name = defaultHardwareSensorName(legacySensor.sensorType, legacySensor.hwID)
+	}
+
+	status := hardwareSensorStatusFromLegacy(legacySensor.status)
+	sensorType := normalizeHardwareSensorType(legacySensor.sensorType)
+
+	var sensor hardwareSensorRecord
+	err = h.db.QueryRow(ctx, `
+		INSERT INTO controller_sensors (
+			id,
+			sensor_uid,
+			controller_id,
+			name,
+			type,
+			status,
+			configured,
+			created_at,
+			updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, false, NOW(), NOW())
+		ON CONFLICT (sensor_uid) DO UPDATE
+		SET name = EXCLUDED.name,
+		    type = EXCLUDED.type,
+		    status = EXCLUDED.status,
+		    updated_at = NOW()
+		WHERE controller_sensors.controller_id = EXCLUDED.controller_id
+		RETURNING id, sensor_uid, name, type, status, configured
+	`, uuid.New(), legacySensor.hwID, controllerID, name, sensorType, status).Scan(
+		&sensor.id,
+		&sensor.uid,
+		&sensor.name,
+		&sensor.sensorType,
+		&sensor.status,
+		&sensor.configured,
+	)
+	if err != nil {
+		return hardwareSensorRecord{}, err
+	}
+
+	sensor.legacyID = &legacySensor.id
+	return sensor, nil
+}
+
+func lookupLegacySensorRecord(ctx context.Context, q queryRower, controllerID uuid.UUID, sensorIdentifier string) (legacySensorRecord, error) {
+	var sensor legacySensorRecord
+	err := q.QueryRow(ctx, `
+		SELECT id, hw_id, COALESCE(name, ''), type, COALESCE(status, 'OK')
+		FROM sensors
+		WHERE controller_id = $1
+		  AND (id::text = $2 OR hw_id = $2)
+	`, controllerID, strings.TrimSpace(sensorIdentifier)).Scan(
+		&sensor.id,
+		&sensor.hwID,
+		&sensor.name,
+		&sensor.sensorType,
+		&sensor.status,
+	)
+	return sensor, err
+}
+
+func normalizeHardwareSensorType(sensorType string) string {
+	switch strings.ToLower(strings.TrimSpace(sensorType)) {
+	case "temperature_humidity", "temperature", "humidity", "ultrasonic", "load", "gas", "weight":
+		return strings.ToLower(strings.TrimSpace(sensorType))
+	default:
+		return "temperature_humidity"
+	}
+}
+
+func hardwareSensorStatusFromLegacy(status string) string {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "OK", "ONLINE", "LIVE":
+		return "live"
+	case "ERROR":
+		return "error"
+	default:
+		return "offline"
+	}
+}
+
+func defaultHardwareSensorName(sensorType string, sensorUID string) string {
+	switch normalizeHardwareSensorType(sensorType) {
+	case "temperature_humidity":
+		return "Temperature & Humidity Sensor"
+	case "ultrasonic":
+		return "Ultrasonic Sensor"
+	case "load":
+		return "Load Sensor"
+	case "gas":
+		return "Gas Sensor"
+	case "weight":
+		return "Weight Sensor"
+	case "temperature":
+		return "Temperature Sensor"
+	case "humidity":
+		return "Humidity Sensor"
+	default:
+		return "Sensor " + strings.TrimSpace(sensorUID)
+	}
+}
+
+func buildLegacySensorConfig(req models.SaveHardwareSensorConfigRequest) models.SensorConfig {
+	if req.AppConfig != nil {
+		cfg := *req.AppConfig
+		if strings.TrimSpace(cfg.FriendlyName) == "" {
+			cfg.FriendlyName = req.SensorName
+		}
+		return cfg
+	}
+
+	reportsPerDay := positiveIntOrDefault(req.Config["reportsPerDay"], 24)
+	estimatedBatteryLifeDays := positiveIntOrDefault(req.Config["estimatedBatteryLifeDays"], 77)
+	tempThreshold := models.ThresholdConfig{
+		Min:        numericPointer(req.Config["temperatureMin"]),
+		Max:        numericPointer(req.Config["temperatureMax"]),
+		WarningMin: numericPointer(req.Config["temperatureWarningMin"]),
+		WarningMax: numericPointer(req.Config["temperatureWarningMax"]),
+	}
+	humidityThreshold := models.ThresholdConfig{
+		Min:        numericPointer(req.Config["humidityMin"]),
+		Max:        numericPointer(req.Config["humidityMax"]),
+		WarningMin: numericPointer(req.Config["humidityWarningMin"]),
+		WarningMax: numericPointer(req.Config["humidityWarningMax"]),
+	}
+
+	return models.SensorConfig{
+		FriendlyName:         strings.TrimSpace(req.SensorName),
+		UseCase:              strings.TrimSpace(req.UsedFor),
+		PresentationProfile:  strings.TrimSpace(req.DashboardView),
+		PrimaryMetric:        "temperature",
+		Thresholds:           tempThreshold,
+		MetricThresholds:     map[string]models.ThresholdConfig{"temperature": tempThreshold, "humidity": humidityThreshold},
+		ReportIntervalPerDay: reportsPerDay,
+		PowerManagement: models.PowerManagementConfig{
+			BatteryLifeDays:   estimatedBatteryLifeDays,
+			SamplingFrequency: reportsPerDay,
+		},
+	}
+}
+
+func positiveIntOrDefault(value any, fallback int) int {
+	if number, ok := numericValue(value); ok && number > 0 {
+		return int(number)
+	}
+	return fallback
+}
+
+func numericPointer(value any) *float64 {
+	if number, ok := numericValue(value); ok {
+		v := number
+		return &v
+	}
+	return nil
 }
 
 func sanitizeUID(value string) string {

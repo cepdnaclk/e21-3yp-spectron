@@ -53,6 +53,7 @@ static const char *TAG = "BASE_PAYLOAD";
 #define NVS_KEY_I2C_SDA             "i2c_sda"
 #define NVS_KEY_I2C_SCL             "i2c_scl"
 #define NVS_KEY_I2C_ADDR            "i2c_addr"
+#define DEFAULT_SENSOR_NAME         "Temperature & Humidity Sensor"
 
 static bool g_base_acked = false;
 static bool g_module_acked = false;
@@ -129,7 +130,7 @@ static esp_err_t nvs_read_module_meta(void)
     }
 
     if (nvs_get_str(nvs, NVS_KEY_SENSOR_NAME, g_sensor_name, &name_len) != ESP_OK) {
-        strlcpy(g_sensor_name, "UNKNOWN", sizeof(g_sensor_name));
+        strlcpy(g_sensor_name, DEFAULT_SENSOR_NAME, sizeof(g_sensor_name));
     }
 
     if (nvs_get_u32(nvs, NVS_KEY_SAMPLE_MS, &g_sample_period_ms) != ESP_OK) {

@@ -38,6 +38,7 @@ static const char *TAG = "CTRL_REAL";
 #define DEVICE_ID_STR      "CTRL-REAL-001"
 #define SENSOR_TYPE_STR    "temperature_humidity"
 #define SENSOR_UID_SUFFIX  "-sensor-temp-01"
+#define SENSOR_NAME_STR    "Temperature & Humidity Sensor"
 
 #define TELEMETRY_HOST     "spectron-backend-env.eba-niaes6bi.ap-south-1.elasticbeanstalk.com"
 #define CONFIG_PATH        "/api/iot/config"
@@ -314,6 +315,15 @@ static const char *sensor_type_to_backend_unit(uint8_t sensor_type)
         default:
             return "";
     }
+}
+
+static const char *normalize_backend_sensor_name(const char *sensor_name)
+{
+    if (sensor_name == NULL || sensor_name[0] == '\0' || strcmp(sensor_name, "UNKNOWN") == 0) {
+        return SENSOR_NAME_STR;
+    }
+
+    return sensor_name;
 }
 
 static const char *skip_json_ws(const char *p)
@@ -1087,7 +1097,7 @@ static int build_discovery_json(char *buf, size_t buf_len)
         (unsigned long)ts_now_seconds(),
         get_backend_sensor_uid(),
         sensor_type_to_backend_name(sensor_type),
-        sensor_name,
+        normalize_backend_sensor_name(sensor_name),
         sensor_type_to_backend_unit(sensor_type)
     );
 }
