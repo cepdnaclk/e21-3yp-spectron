@@ -99,16 +99,16 @@ const Team: React.FC = () => {
           <Box component="form" onSubmit={handleCreateViewer}>
             <Grid container spacing={2}>
               <Grid item xs={12} md={6}>
-                <TextField fullWidth required label="Viewer email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                <TextField fullWidth required label="Viewer email" type="email" placeholder="viewer@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
               </Grid>
               <Grid item xs={12} md={6}>
-                <TextField fullWidth required label="Temporary password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+                <TextField fullWidth required label="Temporary password" type="password" placeholder="Create a temporary password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
               </Grid>
               <Grid item xs={12} md={6}>
-                <TextField fullWidth label="Viewer name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                <TextField fullWidth label="Viewer name" placeholder="Viewer name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               </Grid>
               <Grid item xs={12} md={6}>
-                <TextField fullWidth label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                <TextField fullWidth label="Phone" placeholder="+94 77 123 4567" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
               </Grid>
               <Grid item xs={12} md={6}>
                 <Button type="submit" variant="contained" color="secondary" disabled={saving} fullWidth>

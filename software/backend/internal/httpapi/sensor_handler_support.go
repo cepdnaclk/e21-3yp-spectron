@@ -128,6 +128,7 @@ func (h *SensorHandler) lookupSensorMetadata(ctx context.Context, sensorID uuid.
 		FROM sensors s
 		JOIN controllers c ON s.controller_id = c.id
 		WHERE s.id = $1 AND c.account_id = $2
+		  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
 	`, sensorID, accountID).Scan(
 		&metadata.SensorID,
 		&metadata.ControllerID,

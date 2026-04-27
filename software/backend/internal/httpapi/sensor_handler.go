@@ -42,7 +42,10 @@ func (h *SensorHandler) List(w http.ResponseWriter, r *http.Request) {
 	// Verify controller belongs to account
 	var controllerAccountID uuid.UUID
 	err = h.db.QueryRow(r.Context(), `
-		SELECT account_id FROM controllers WHERE id = $1
+		SELECT account_id
+		FROM controllers
+		WHERE id = $1
+		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
 	`, controllerID).Scan(&controllerAccountID)
 	if err != nil {
 		http.Error(w, "controller not found", http.StatusNotFound)
@@ -169,6 +172,7 @@ func (h *SensorHandler) Get(w http.ResponseWriter, r *http.Request) {
 			  AND sr.time >= active_config.created_at
 		) observation ON true
 		WHERE s.id = $1 AND c.account_id = $2
+		  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
 	`, sensorID, accountID))
 	if err != nil {
 		http.Error(w, "sensor not found", http.StatusNotFound)

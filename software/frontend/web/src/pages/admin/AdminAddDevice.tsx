@@ -45,7 +45,7 @@ const compactButtonSx = {
 const AdminAddDevice: React.FC = () => {
   const navigate = useNavigate();
   const [controllerId, setControllerId] = useState('');
-  const [name, setName] = useState('Main Controller');
+  const [name, setName] = useState('');
   const [location, setLocation] = useState('');
   const [createDefaultSensors, setCreateDefaultSensors] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -391,6 +391,7 @@ const AdminAddDevice: React.FC = () => {
             <TextField
               fullWidth
               label="Display Name"
+              placeholder="Main Controller"
               value={name}
               onChange={(e) => setName(e.target.value)}
               margin="normal"

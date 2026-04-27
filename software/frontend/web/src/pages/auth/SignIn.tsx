@@ -12,6 +12,7 @@ import {
   IconButton,
   InputAdornment,
   Fade,
+  CircularProgress,
 } from '@mui/material';
 import { AdminPanelSettings, Spa, Sensors, Visibility, VisibilityOff } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
@@ -146,10 +147,24 @@ const SignIn: React.FC = () => {
               fullWidth
               variant="contained"
               color="secondary"
-              sx={{ mt: 3, mb: 2 }}
+              sx={{
+                mt: 3,
+                mb: 2,
+                minHeight: 46,
+                '& .MuiCircularProgress-root': {
+                  color: 'inherit',
+                },
+              }}
               disabled={loading}
             >
-              Sign In
+              {loading ? (
+                <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
+                  <CircularProgress size={18} thickness={5} />
+                  <span>Signing in...</span>
+                </Stack>
+              ) : (
+                'Sign In'
+              )}
             </Button>
             <Typography align="center">
               Don't have an account? <Link to="/signup">Sign Up</Link>

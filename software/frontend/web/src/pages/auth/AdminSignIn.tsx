@@ -12,6 +12,7 @@ import {
   TextField,
   Typography,
   Fade,
+  CircularProgress,
 } from '@mui/material';
 import {
   AdminPanelSettings,
@@ -152,10 +153,24 @@ const AdminSignIn: React.FC = () => {
               fullWidth
               variant="contained"
               color="secondary"
-              sx={{ mt: 3, mb: 2 }}
+              sx={{
+                mt: 3,
+                mb: 2,
+                minHeight: 46,
+                '& .MuiCircularProgress-root': {
+                  color: 'inherit',
+                },
+              }}
               disabled={loading}
             >
-              {loading ? 'Signing in...' : 'Sign In to Admin Portal'}
+              {loading ? (
+                <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
+                  <CircularProgress size={18} thickness={5} />
+                  <span>Signing in...</span>
+                </Stack>
+              ) : (
+                'Sign In to Admin Portal'
+              )}
             </Button>
             <Typography align="center" variant="body2">
               User account? <Link to="/signin">Go to user login</Link>

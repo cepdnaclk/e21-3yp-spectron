@@ -480,6 +480,7 @@ func (h *ControllerHandler) MyControllersAPI(w http.ResponseWriter, r *http.Requ
 		FROM controllers
 		WHERE account_id = $1
 		  AND owner_user_id IS NOT NULL
+		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
 		ORDER BY updated_at DESC, created_at DESC
 	`, accountID)
 	if err != nil {
@@ -983,6 +984,8 @@ func (h *ControllerHandler) lookupAccountHardwareController(ctx context.Context,
 		       COALESCE(owner_user_id::text, '')
 		FROM controllers
 		WHERE account_id = $1
+		  AND owner_user_id IS NOT NULL
+		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
 		  AND (UPPER(COALESCE(controller_uid, hw_id)) = UPPER($2) OR id::text = $2)
 	`, accountID, strings.TrimSpace(identifier)))
 	if err != nil {

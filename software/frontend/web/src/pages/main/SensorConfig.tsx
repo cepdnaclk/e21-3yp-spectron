@@ -206,7 +206,7 @@ const getTypeSpecificFieldsForSensorType = (sensorType: string): TypeSpecificFie
   }
 };
 
-const getDefaultTypeSpecificValue = (sensorType: string, key: string) => {
+const getTypeSpecificPlaceholder = (sensorType: string, key: string) => {
   if (key !== 'unit') {
     return '';
   }
@@ -375,7 +375,7 @@ const SensorConfig: React.FC = () => {
   const [locationCountry, setLocationCountry] = useState('');
   const [locationRegion, setLocationRegion] = useState('');
   const [locationLabel, setLocationLabel] = useState('');
-  const [historicalWindowDays, setHistoricalWindowDays] = useState('14');
+  const [historicalWindowDays, setHistoricalWindowDays] = useState('');
   const [installationNotes, setInstallationNotes] = useState('');
   const [friendlyName, setFriendlyName] = useState('');
   const [useCase, setUseCase] = useState<UseCaseOption>('generic_monitoring');
@@ -383,7 +383,7 @@ const SensorConfig: React.FC = () => {
   const [primaryMetric, setPrimaryMetric] = useState('');
   const [metricThresholds, setMetricThresholds] = useState<Record<string, MetricThresholdInput>>({});
   const [typeSpecificValues, setTypeSpecificValues] = useState<Record<string, string>>({});
-  const [reportsPerDay, setReportsPerDay] = useState('24');
+  const [reportsPerDay, setReportsPerDay] = useState('');
   const [readingFlowType, setReadingFlowType] = useState<'CONSTANT_PER_DAY' | 'TRIGGER'>('CONSTANT_PER_DAY');
   const [validationStatus, setValidationStatus] = useState('');
   const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
@@ -454,9 +454,7 @@ const SensorConfig: React.FC = () => {
     setTypeSpecificValues((current) => {
       const next: Record<string, string> = {};
       for (const field of typeSpecificFields) {
-        next[field.key] =
-          current[field.key] ??
-          getDefaultTypeSpecificValue(sensor?.type || navigationState?.sensorType || '', field.key);
+        next[field.key] = current[field.key] ?? '';
       }
       return next;
     });
@@ -482,9 +480,9 @@ const SensorConfig: React.FC = () => {
         setLocationCountry(sensorData.context?.location?.country || '');
         setLocationRegion(sensorData.context?.location?.region || '');
         setLocationLabel(sensorData.context?.location?.label || '');
-        setHistoricalWindowDays(sensorData.context?.historical_window_days?.toString() || '14');
+        setHistoricalWindowDays(sensorData.context?.historical_window_days?.toString() || '');
         setInstallationNotes(sensorData.context?.installation_notes || '');
-        setReportsPerDay(sensorData.active_config?.report_interval_per_day?.toString() || '24');
+        setReportsPerDay(sensorData.active_config?.report_interval_per_day?.toString() || '');
         setUseCase(
           (sensorData.active_config?.use_case as UseCaseOption | undefined) ||
             getDefaultUseCaseForSensorType(sensorData.type || '')
@@ -525,8 +523,7 @@ const SensorConfig: React.FC = () => {
             Object.fromEntries(
               hardwareFields.map((field) => [
                 field.key,
-                hardwareConfig[field.key]?.toString() ||
-                  getDefaultTypeSpecificValue(sensorData.type || '', field.key),
+                hardwareConfig[field.key]?.toString() || '',
               ])
             )
           );
@@ -1084,6 +1081,7 @@ const SensorConfig: React.FC = () => {
                   type="number"
                   value={historicalWindowDays}
                   onChange={(e) => setHistoricalWindowDays(e.target.value)}
+                  placeholder="14"
                   helperText="Used for AI review of recent readings and later improvement suggestions."
                 />
               </Grid>
@@ -1388,6 +1386,7 @@ const SensorConfig: React.FC = () => {
                       label={`${field.label}${field.required ? ' *' : ''}`}
                       type={field.type}
                       value={typeSpecificValues[field.key] || ''}
+                      placeholder={getTypeSpecificPlaceholder(sensor?.type || navigationState?.sensorType || '', field.key)}
                       onChange={(e) =>
                         setTypeSpecificValues((current) => ({
                           ...current,
@@ -1429,6 +1428,7 @@ const SensorConfig: React.FC = () => {
             type="number"
             value={reportsPerDay}
             onChange={(e) => setReportsPerDay(e.target.value)}
+            placeholder="24"
             margin="normal"
             disabled={readingFlowType === 'TRIGGER'}
             helperText="How many times per day the sensor should send data"

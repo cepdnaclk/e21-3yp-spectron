@@ -33,6 +33,7 @@ func (h *ControllerHandler) List(w http.ResponseWriter, r *http.Request) {
 		SELECT id, account_id, hw_id, name, purpose, location, status, last_seen, created_at
 		FROM controllers
 		WHERE account_id = $1
+		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
 		ORDER BY created_at DESC
 	`, accountID)
 	if err != nil {
@@ -68,6 +69,7 @@ func (h *ControllerHandler) Get(w http.ResponseWriter, r *http.Request) {
 		SELECT id, account_id, hw_id, name, purpose, location, status, last_seen, created_at
 		FROM controllers
 		WHERE id = $1 AND account_id = $2
+		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
 	`, controllerID, accountID).Scan(&c.ID, &c.AccountID, &c.HWID, &c.Name, &c.Purpose, &c.Location, &c.Status, &c.LastSeen, &c.CreatedAt)
 	if err != nil {
 		http.Error(w, "controller not found", http.StatusNotFound)
