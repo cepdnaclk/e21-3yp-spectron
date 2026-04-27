@@ -53,6 +53,10 @@ func main() {
 	r := chi.NewRouter()
 	httpapi.RegisterRoutes(r, pool, cfg.AllowedOrigins, rawReadingsPublisher)
 
+	monitorCtx, stopMonitor := context.WithCancel(context.Background())
+	defer stopMonitor()
+	go iot.NewAlertMonitor(pool).Run(monitorCtx)
+
 	srv := &http.Server{
 		Addr:         "0.0.0.0:" + cfg.HTTPPort, // Listen on all interfaces for mobile access
 		Handler:      r,
