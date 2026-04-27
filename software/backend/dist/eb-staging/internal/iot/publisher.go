@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"net"
 	"strings"
 	"time"
 
 	"github.com/segmentio/kafka-go"
+
+	kafkasecurity "spectron-backend/internal/kafka"
 )
 
 var ErrProducerDisabled = errors.New("raw readings producer is disabled")
@@ -38,25 +42,63 @@ func (p *DisabledPublisher) Close() error {
 }
 
 type KafkaPublisher struct {
-	writer *kafka.Writer
+	writer    *kafka.Writer
+	transport *kafka.Transport
 }
 
 func NewKafkaPublisher(brokers []string, topic string) RawReadingsPublisher {
-	trimmedTopic := strings.TrimSpace(topic)
-	if len(brokers) == 0 || trimmedTopic == "" {
-		return NewDisabledPublisher("configure KAFKA_BROKERS and KAFKA_RAW_READINGS_TOPIC to enable device ingest")
+	publisher, err := NewKafkaPublisherWithConfig(kafkasecurity.KafkaConfig{
+		Brokers:          brokers,
+		RawReadingsTopic: topic,
+		ClientID:         "spectron-backend",
+	})
+	if err != nil {
+		return NewDisabledPublisher(err.Error())
 	}
+	return publisher
+}
+
+func NewKafkaPublisherWithConfig(cfg kafkasecurity.KafkaConfig) (RawReadingsPublisher, error) {
+	trimmedTopic := strings.TrimSpace(cfg.RawReadingsTopic)
+	if len(cfg.Brokers) == 0 || trimmedTopic == "" {
+		return NewDisabledPublisher("configure KAFKA_BROKERS and KAFKA_RAW_READINGS_TOPIC to enable device ingest"), nil
+	}
+
+	tlsConfig, err := kafkasecurity.BuildTLSConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	dialer := &net.Dialer{
+		Timeout:   3 * time.Second,
+		DualStack: true,
+	}
+	transport := &kafka.Transport{
+		Dial:     dialer.DialContext,
+		ClientID: strings.TrimSpace(cfg.ClientID),
+		TLS:      tlsConfig,
+	}
+
+	if cfg.TLSEnabled {
+		log.Println("Kafka TLS enabled")
+	}
+	if cfg.MTLSEnabled {
+		log.Println("Kafka mTLS enabled")
+	}
+	log.Println("Kafka producer configured")
 
 	return &KafkaPublisher{
 		writer: &kafka.Writer{
-			Addr:         kafka.TCP(brokers...),
+			Addr:         kafka.TCP(cfg.Brokers...),
 			Topic:        trimmedTopic,
 			Balancer:     &kafka.Hash{},
 			RequiredAcks: kafka.RequireOne,
 			Async:        false,
 			BatchTimeout: 250 * time.Millisecond,
+			Transport:    transport,
 		},
-	}
+		transport: transport,
+	}, nil
 }
 
 func (p *KafkaPublisher) PublishRawReadings(ctx context.Context, event RawReadingsEvent) error {
@@ -85,5 +127,9 @@ func (p *KafkaPublisher) Close() error {
 	if p == nil || p.writer == nil {
 		return nil
 	}
-	return p.writer.Close()
+	err := p.writer.Close()
+	if p.transport != nil {
+		p.transport.CloseIdleConnections()
+	}
+	return err
 }

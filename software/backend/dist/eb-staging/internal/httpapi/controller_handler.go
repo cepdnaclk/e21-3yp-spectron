@@ -33,6 +33,7 @@ func (h *ControllerHandler) List(w http.ResponseWriter, r *http.Request) {
 		SELECT id, account_id, hw_id, name, purpose, location, status, last_seen, created_at
 		FROM controllers
 		WHERE account_id = $1
+		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
 		ORDER BY created_at DESC
 	`, accountID)
 	if err != nil {
@@ -68,6 +69,7 @@ func (h *ControllerHandler) Get(w http.ResponseWriter, r *http.Request) {
 		SELECT id, account_id, hw_id, name, purpose, location, status, last_seen, created_at
 		FROM controllers
 		WHERE id = $1 AND account_id = $2
+		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
 	`, controllerID, accountID).Scan(&c.ID, &c.AccountID, &c.HWID, &c.Name, &c.Purpose, &c.Location, &c.Status, &c.LastSeen, &c.CreatedAt)
 	if err != nil {
 		http.Error(w, "controller not found", http.StatusNotFound)
@@ -123,7 +125,11 @@ func (h *ControllerHandler) Pair(w http.ResponseWriter, r *http.Request) {
 
 	hwID := strings.TrimSpace(req.QRToken)
 	if hwID == "" {
-		http.Error(w, "invalid controller qr id", http.StatusBadRequest)
+		http.Error(w, "Controller ID required.", http.StatusBadRequest)
+		return
+	}
+	if !strings.HasPrefix(strings.ToUpper(hwID), "CTRL-") {
+		http.Error(w, "Scan the controller QR code or enter a controller ID.", http.StatusBadRequest)
 		return
 	}
 
@@ -148,8 +154,31 @@ func (h *ControllerHandler) Pair(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			http.Error(w, "controller not found", http.StatusBadRequest)
-			return
+			controllerID = uuid.New()
+			defaultName := fmt.Sprintf("Controller %s", hwID)
+			now := time.Now().UTC()
+			_, err = h.db.Exec(r.Context(), `
+				INSERT INTO controllers (
+					id,
+					account_id,
+					hw_id,
+					controller_uid,
+					name,
+					qr_code,
+					status,
+					last_seen,
+					created_at,
+					updated_at,
+					min_reporting_interval_sec
+				)
+				VALUES ($1, $2, $3, $3, $4, $5, 'PENDING_CONFIG', NULL, $6, $6, $7)
+			`, controllerID, accountID, hwID, defaultName, hwID, now, 300)
+			if err != nil {
+				http.Error(w, "failed to register controller", http.StatusInternalServerError)
+				return
+			}
+
+			goto pairController
 		}
 		http.Error(w, "failed to find controller", http.StatusInternalServerError)
 		return
@@ -158,7 +187,10 @@ func (h *ControllerHandler) Pair(w http.ResponseWriter, r *http.Request) {
 pairController:
 	_, err = h.db.Exec(r.Context(), `
 		UPDATE controllers
-		SET account_id = $1, status = 'PENDING_CONFIG'
+		SET account_id = $1,
+		    status = 'PENDING_CONFIG',
+		    updated_at = NOW(),
+		    min_reporting_interval_sec = LEAST(min_reporting_interval_sec, 300)
 		WHERE id = $2
 	`, accountID, controllerID)
 	if err != nil {
@@ -215,7 +247,10 @@ func (h *ControllerHandler) resolveControllerForPairing(r *http.Request, account
 
 		_, err = tx.Exec(r.Context(), `
 			UPDATE controllers
-			SET account_id = $1, status = 'PENDING_CONFIG'
+			SET account_id = $1,
+			    status = 'PENDING_CONFIG',
+			    updated_at = NOW(),
+			    min_reporting_interval_sec = LEAST(min_reporting_interval_sec, 300)
 			WHERE id = $2
 		`, accountID, controllerID)
 		if err != nil {
@@ -243,7 +278,10 @@ func (h *ControllerHandler) resolveControllerForPairing(r *http.Request, account
 
 	_, err = tx.Exec(r.Context(), `
 		UPDATE controllers
-		SET account_id = $1, status = 'PENDING_CONFIG'
+		SET account_id = $1,
+		    status = 'PENDING_CONFIG',
+		    updated_at = NOW(),
+		    min_reporting_interval_sec = LEAST(min_reporting_interval_sec, 300)
 		WHERE id = $2
 	`, accountID, controllerID)
 	if err != nil {

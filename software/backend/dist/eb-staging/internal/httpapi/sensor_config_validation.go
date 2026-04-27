@@ -693,7 +693,7 @@ func validateAndFinalizeConfig(sensorType string, purpose string, ctx *models.Se
 
 	minIntervalSeconds := capability.MinReportingIntervalSec
 	if minIntervalSeconds <= 0 {
-		minIntervalSeconds = 600
+		minIntervalSeconds = 300
 	}
 
 	maxReportsPerDay := 86400 / minIntervalSeconds

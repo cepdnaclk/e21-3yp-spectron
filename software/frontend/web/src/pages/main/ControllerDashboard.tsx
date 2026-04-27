@@ -51,6 +51,10 @@ const ControllerDashboard: React.FC = () => {
   const [toastOpen, setToastOpen] = useState(Boolean(navigationState?.configurationSaved));
   const [toastSeverity, setToastSeverity] = useState<'success' | 'error'>('success');
   const activeControllerId = controllerId || id || navigationState?.controllerId || '';
+  const releasableControllerId =
+    (controller?.hw_id && /^CTRL-/i.test(controller.hw_id) ? controller.hw_id : '') ||
+    navigationState?.controllerId ||
+    activeControllerId;
   const isHardwareRoute = Boolean(controllerId);
   const canManageControllers = user?.accounts?.some((account) => account.role === 'OWNER' || account.role === 'ADMIN');
 
@@ -138,13 +142,13 @@ const ControllerDashboard: React.FC = () => {
   };
 
   const handleRemoveController = async () => {
-    if (!activeControllerId || removing) {
+    if (!releasableControllerId || removing) {
       return;
     }
 
     setRemoving(true);
     try {
-      await releaseHardwareController(activeControllerId);
+      await releaseHardwareController(releasableControllerId);
       navigate('/controllers', {
         replace: true,
         state: { message: 'Controller removed from your account.' },

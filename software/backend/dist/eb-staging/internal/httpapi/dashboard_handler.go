@@ -28,7 +28,10 @@ func (h *DashboardHandler) Overview(w http.ResponseWriter, r *http.Request) {
 	// Get controller count
 	var controllerCount int
 	_ = h.db.QueryRow(r.Context(), `
-		SELECT COUNT(*) FROM controllers WHERE account_id = $1
+		SELECT COUNT(*)
+		FROM controllers
+		WHERE account_id = $1
+		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
 	`, accountID).Scan(&controllerCount)
 
 	// Get sensor count
@@ -37,6 +40,7 @@ func (h *DashboardHandler) Overview(w http.ResponseWriter, r *http.Request) {
 		SELECT COUNT(*) FROM sensors s
 		JOIN controllers c ON s.controller_id = c.id
 		WHERE c.account_id = $1
+		  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
 	`, accountID).Scan(&sensorCount)
 
 	// Get active alerts count
@@ -67,7 +71,10 @@ func (h *DashboardHandler) ControllerDashboard(w http.ResponseWriter, r *http.Re
 	// Verify controller belongs to account
 	var controllerAccountID uuid.UUID
 	err = h.db.QueryRow(r.Context(), `
-		SELECT account_id FROM controllers WHERE id = $1
+		SELECT account_id
+		FROM controllers
+		WHERE id = $1
+		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
 	`, controllerID).Scan(&controllerAccountID)
 	if err != nil {
 		http.Error(w, "controller not found", http.StatusNotFound)
@@ -93,8 +100,8 @@ func (h *DashboardHandler) ControllerDashboard(w http.ResponseWriter, r *http.Re
 	`, controllerID).Scan(&recentReadings)
 
 	response := map[string]interface{}{
-		"controller_id":  controllerID,
-		"sensor_count":   sensorCount,
+		"controller_id":   controllerID,
+		"sensor_count":    sensorCount,
 		"recent_readings": recentReadings,
 	}
 
@@ -117,6 +124,7 @@ func (h *DashboardHandler) GetReadings(w http.ResponseWriter, r *http.Request) {
 		FROM sensors s
 		JOIN controllers c ON s.controller_id = c.id
 		WHERE s.id = $1
+		  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
 	`, sensorID).Scan(&sensorAccountID)
 	if err != nil {
 		http.Error(w, "sensor not found", http.StatusNotFound)
@@ -253,12 +261,12 @@ func (h *DashboardHandler) GetReadings(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 
 		type Reading struct {
-			Time  time.Time             `json:"time"`
-			Value float64               `json:"value"`
+			Time  time.Time              `json:"time"`
+			Value float64                `json:"value"`
 			Meta  map[string]interface{} `json:"meta,omitempty"`
 		}
 
-		var readings []Reading
+		readings := make([]Reading, 0)
 		for rows.Next() {
 			var r Reading
 			var metaJSON []byte

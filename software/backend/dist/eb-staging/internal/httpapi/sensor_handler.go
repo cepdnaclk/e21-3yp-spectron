@@ -42,7 +42,10 @@ func (h *SensorHandler) List(w http.ResponseWriter, r *http.Request) {
 	// Verify controller belongs to account
 	var controllerAccountID uuid.UUID
 	err = h.db.QueryRow(r.Context(), `
-		SELECT account_id FROM controllers WHERE id = $1
+		SELECT account_id
+		FROM controllers
+		WHERE id = $1
+		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
 	`, controllerID).Scan(&controllerAccountID)
 	if err != nil {
 		http.Error(w, "controller not found", http.StatusNotFound)
@@ -169,6 +172,7 @@ func (h *SensorHandler) Get(w http.ResponseWriter, r *http.Request) {
 			  AND sr.time >= active_config.created_at
 		) observation ON true
 		WHERE s.id = $1 AND c.account_id = $2
+		  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
 	`, sensorID, accountID))
 	if err != nil {
 		http.Error(w, "sensor not found", http.StatusNotFound)
@@ -316,7 +320,7 @@ Rules:
   use_case (string, optional),
   presentation_profile (string, optional),
   primary_metric (string, optional),
-  report_interval_per_day (integer 1-144),
+  report_interval_per_day (integer 1-288),
   thresholds (object with optional min,max,warning_min,warning_max numbers),
   metric_thresholds (object map where each key has same threshold shape),
   explanation (string).
@@ -405,8 +409,8 @@ Rules:
 	if suggestion.ReportIntervalPerDay < 1 {
 		suggestion.ReportIntervalPerDay = 1
 	}
-	if suggestion.ReportIntervalPerDay > 144 {
-		suggestion.ReportIntervalPerDay = 144
+	if suggestion.ReportIntervalPerDay > 288 {
+		suggestion.ReportIntervalPerDay = 288
 	}
 
 	if strings.TrimSpace(suggestion.FriendlyName) == "" {
@@ -610,8 +614,8 @@ func (h *SensorHandler) generateAISuggestion(sensorType string, req models.AISug
 	if reportsPerDay < 1 {
 		reportsPerDay = 1
 	}
-	if reportsPerDay > 144 {
-		reportsPerDay = 144 // Max 144 reports per day (every 10 minutes)
+	if reportsPerDay > 288 {
+		reportsPerDay = 288 // Max 288 reports per day (every 5 minutes)
 	}
 
 	// Generate friendly name from purpose

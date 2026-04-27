@@ -13,7 +13,8 @@ import {
   Button,
 } from '@mui/material';
 import { Add, Hub as ChipIcon, Place, Sensors, ArrowForward } from '@mui/icons-material';
-import { getControllers, Controller } from '../../services/controllerService';
+import { Controller } from '../../services/controllerService';
+import { getMyHardwareControllers } from '../../services/hardwarePairingService';
 import { ControllersSkeleton } from '../../components/LoadingSkeletons';
 
 const Controllers: React.FC = () => {
@@ -27,7 +28,7 @@ const Controllers: React.FC = () => {
 
   const loadControllers = async () => {
     try {
-      const data = await getControllers();
+      const data = await getMyHardwareControllers();
       setControllers(data);
     } catch (error) {
       console.error('Error loading controllers:', error);

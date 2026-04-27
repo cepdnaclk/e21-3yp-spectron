@@ -1,5 +1,6 @@
 import api from './api';
 import { Controller } from './controllerService';
+import { API_ENDPOINTS } from '../config/api';
 import {
   getSensor,
   getSensors,
@@ -235,13 +236,66 @@ export const pairHardwareController = async (controllerId: string): Promise<Hard
 
 export const releaseHardwareController = async (controllerId: string): Promise<void> => {
   if (!isMockMode()) {
-    await api.delete(`/api/controllers/${encodeURIComponent(controllerId)}/claim`);
-    return;
+    const releaseByIdentifier = async (identifier: string) =>
+      api.delete(`/api/controllers/${encodeURIComponent(identifier)}/claim`);
+
+    try {
+      await releaseByIdentifier(controllerId);
+      return;
+    } catch (error: any) {
+      const status = error?.response?.status;
+      if (status !== 404 || /^CTRL-/i.test(controllerId)) {
+        throw error;
+      }
+
+      const legacyResponse = await api.get<Controller>(API_ENDPOINTS.CONTROLLERS.GET(controllerId));
+      const fallbackControllerId = extractControllerId(legacyResponse.data?.hw_id || '');
+      if (!fallbackControllerId) {
+        throw error;
+      }
+
+      await releaseByIdentifier(fallbackControllerId);
+      return;
+    }
   }
 
   const state = readStore();
   delete state[controllerId];
   writeStore(state);
+};
+
+export const getMyHardwareControllers = async (): Promise<Controller[]> => {
+  if (isMockMode()) {
+    return Object.values(readStore()).map((stored) => ({
+      id: stored.controllerId,
+      account_id: 'local-demo',
+      hw_id: stored.controllerId,
+      name: 'Paired Controller',
+      status: normalizeControllerStatus(stored.status),
+      created_at: stored.updatedAt,
+    }));
+  }
+
+  const response = await api.get<{
+    controllers?: Array<{
+      controllerId: string;
+      name?: string;
+      status?: string;
+    }>;
+  }>('/api/controllers/my');
+
+  const controllers = Array.isArray(response.data?.controllers)
+    ? response.data.controllers
+    : [];
+
+  return controllers.map((controller) => ({
+    id: controller.controllerId,
+    account_id: '',
+    hw_id: controller.controllerId,
+    name: controller.name,
+    status: normalizeControllerStatus(controller.status),
+    created_at: '',
+  }));
 };
 
 export const getHardwareController = async (controllerId: string): Promise<Controller> => {
@@ -288,6 +342,16 @@ export const getHardwareSensors = async (controllerId: string): Promise<Sensor[]
   if (stored) {
     const storedSensors = Array.isArray(stored.sensors) ? stored.sensors : [];
     return storedSensors.map((sensor) => toAppSensor(controllerId, sensor));
+  }
+
+  if (/^CTRL-/i.test(controllerId)) {
+    const response = await api.get<{
+      controllerId?: string;
+      sensors?: HardwarePairingSensor[];
+    }>(`/api/controllers/${encodeURIComponent(controllerId)}/sensors`);
+
+    const sensors = Array.isArray(response.data?.sensors) ? response.data.sensors : [];
+    return sensors.map((sensor) => toAppSensor(controllerId, sensor));
   }
 
   return getSensors(controllerId);

@@ -41,14 +41,16 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { getControllers } from '../../services/controllerService';
 import {
-  getSensors,
   getSensorReadings,
   Sensor,
   SensorReading,
   SensorConfig,
 } from '../../services/sensorService';
+import {
+  getHardwareSensors,
+  getMyHardwareControllers,
+} from '../../services/hardwarePairingService';
 import { MonitoringSkeleton } from '../../components/LoadingSkeletons';
 import { getSensorMetrics, ThresholdRange } from '../../utils/sensorConfig';
 
@@ -434,11 +436,11 @@ const Monitoring: React.FC = () => {
       }
       setErrorMessage(null);
 
-      const controllerList = await getControllers();
+      const controllerList = await getMyHardwareControllers();
 
       const groupedControllers = await Promise.all(
         controllerList.map(async (controller) => {
-          const sensors = await getSensors(controller.id);
+          const sensors = await getHardwareSensors(controller.id);
           const to = new Date();
           const from = new Date();
           from.setDate(to.getDate() - 1);

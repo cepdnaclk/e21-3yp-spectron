@@ -120,7 +120,7 @@ func (h *SensorHandler) lookupSensorMetadata(ctx context.Context, sensorID uuid.
 			COALESCE(s.purpose, ''),
 			COALESCE(s.context_json, '{}'::jsonb),
 			COALESCE(s.calibration_status, 'UNKNOWN'),
-			COALESCE(c.min_reporting_interval_sec, 600),
+			LEAST(COALESCE(c.min_reporting_interval_sec, 300), 300),
 			COALESCE(c.supports_adaptive_sampling, false),
 			COALESCE(c.supports_local_alerts, false),
 			COALESCE(c.offline_buffer_capacity, 2000),
@@ -128,6 +128,7 @@ func (h *SensorHandler) lookupSensorMetadata(ctx context.Context, sensorID uuid.
 		FROM sensors s
 		JOIN controllers c ON s.controller_id = c.id
 		WHERE s.id = $1 AND c.account_id = $2
+		  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
 	`, sensorID, accountID).Scan(
 		&metadata.SensorID,
 		&metadata.ControllerID,

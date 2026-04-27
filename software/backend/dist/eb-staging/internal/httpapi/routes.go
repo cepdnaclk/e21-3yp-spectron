@@ -16,8 +16,10 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		allowedOrigins = []string{
 			"http://localhost:3000",
 			"http://localhost:3001",
+			"http://localhost:3002",
 			"http://127.0.0.1:3000",
 			"http://127.0.0.1:3001",
+			"http://127.0.0.1:3002",
 		}
 	}
 
@@ -57,7 +59,9 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 	// Public routes
 	r.Post("/auth/register", authHandler.Register)
 	r.Post("/auth/login", authHandler.Login)
+	r.Post("/auth/admin/login", authHandler.AdminLogin)
 	r.Post("/api/iot/discover", ingestHandler.Discover)
+	r.Post("/api/iot/config", ingestHandler.Config)
 	r.Post("/api/iot/upload", ingestHandler.Upload)
 
 	// Protected routes
@@ -67,16 +71,39 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		// Auth
 		r.Get("/auth/me", authHandler.Me)
 		r.Patch("/auth/me", authHandler.UpdateProfile)
-		r.Delete("/auth/me", authHandler.DeleteAccount)
+		r.With(RequireAccountRole(db, "OWNER")).Delete("/auth/me", authHandler.DeleteAccount)
 		r.Post("/auth/change-password", authHandler.ChangePassword)
-		r.Get("/users", authHandler.ListUsers)
+		r.With(RequireAccountRole(db, "OWNER")).Get("/users", authHandler.ListUsers)
+		r.With(RequireAccountRole(db, "OWNER")).Post("/users/viewers", authHandler.CreateViewer)
 
 		// Controllers
 		r.Route("/controllers", func(r chi.Router) {
 			r.Get("/", controllerHandler.List)
-			r.Post("/pair", controllerHandler.Pair)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/pair", controllerHandler.Pair)
 			r.Get("/{id}", controllerHandler.Get)
-			r.Patch("/{id}", controllerHandler.Update)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Patch("/{id}", controllerHandler.Update)
+		})
+
+		r.Route("/api/controllers", func(r chi.Router) {
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/pair", controllerHandler.PairAPI)
+			r.Get("/my", controllerHandler.MyControllersAPI)
+			r.Get("/{controllerId}/sensors", controllerHandler.ControllerSensorsAPI)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Delete("/{controllerId}/claim", controllerHandler.ReleaseControllerAPI)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{controllerId}/sensors/{sensorId}/config", controllerHandler.SaveSensorConfigAPI)
+			r.Get("/{controllerId}/sensors/{sensorId}/config", controllerHandler.GetSensorConfigAPI)
+		})
+
+		r.Route("/api/admin", func(r chi.Router) {
+			r.Use(RequireSystemAdmin(db))
+			r.Get("/overview", controllerHandler.AdminOverviewAPI)
+			r.Get("/devices", controllerHandler.AdminDevicesAPI)
+			r.Post("/devices", controllerHandler.AdminCreateDeviceAPI)
+			r.Get("/users", controllerHandler.AdminUsersAPI)
+			r.Get("/owners", authHandler.AdminListOwners)
+			r.Post("/owners", authHandler.AdminCreateOwner)
+			r.Patch("/owners/{userId}/approve", authHandler.AdminApproveOwner)
+			r.Patch("/owners/{userId}/reject", authHandler.AdminRejectOwner)
+			r.Get("/system", controllerHandler.AdminSystemHealthAPI)
 		})
 
 		// Sensors
@@ -86,7 +113,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		r.Route("/sensors", func(r chi.Router) {
 			r.Get("/{id}", sensorHandler.Get)
 			r.Post("/{id}/ai-suggest-config", sensorHandler.AISuggestConfig)
-			r.Post("/{id}/config", sensorHandler.SaveConfig)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/config", sensorHandler.SaveConfig)
 		})
 
 		// Dashboard
@@ -97,7 +124,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		// Alerts
 		r.Route("/alerts", func(r chi.Router) {
 			r.Get("/", alertHandler.List)
-			r.Post("/{id}/ack", alertHandler.Acknowledge)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/ack", alertHandler.Acknowledge)
 		})
 	})
 }

@@ -161,6 +161,58 @@ func (h *IngestHandler) Discover(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to register sensor list", http.StatusInternalServerError)
 			return
 		}
+
+		hardwareName := strings.TrimSpace(sensor.Name)
+		if hardwareName == "" {
+			hardwareName = defaultHardwareSensorName(sensorType, sensorHWID)
+		}
+
+		hardwareConfigured := false
+		if err := tx.QueryRow(r.Context(), `
+			SELECT EXISTS (
+				SELECT 1
+				FROM sensors existing_sensor
+				JOIN sensor_configs sc ON sc.sensor_id = existing_sensor.id
+				WHERE existing_sensor.controller_id = $1
+				  AND existing_sensor.hw_id = $2
+				  AND sc.active = true
+			) OR EXISTS (
+				SELECT 1
+				FROM controller_sensors existing_sensor
+				JOIN sensor_configurations sc ON sc.sensor_id = existing_sensor.id
+				WHERE existing_sensor.controller_id = $1
+				  AND existing_sensor.sensor_uid = $2
+			)
+		`, controllerID, sensorHWID).Scan(&hardwareConfigured); err != nil {
+			http.Error(w, "failed to resolve hardware sensor configuration", http.StatusInternalServerError)
+			return
+		}
+
+		_, err = tx.Exec(r.Context(), `
+			INSERT INTO controller_sensors (
+				id,
+				sensor_uid,
+				controller_id,
+				name,
+				type,
+				status,
+				configured,
+				created_at,
+				updated_at
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+			ON CONFLICT (sensor_uid) DO UPDATE
+			SET name = EXCLUDED.name,
+			    type = EXCLUDED.type,
+			    status = EXCLUDED.status,
+			    configured = controller_sensors.configured OR EXCLUDED.configured,
+			    updated_at = NOW()
+			WHERE controller_sensors.controller_id = EXCLUDED.controller_id
+		`, uuid.New(), sensorHWID, controllerID, hardwareName, normalizeHardwareSensorType(sensorType), "live", hardwareConfigured)
+		if err != nil {
+			http.Error(w, "failed to sync hardware sensor list", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
