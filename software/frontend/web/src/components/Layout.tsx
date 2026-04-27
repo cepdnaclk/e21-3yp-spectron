@@ -7,6 +7,7 @@ import {
   Box,
   Avatar,
   Stack,
+  Button,
   ButtonBase,
   useMediaQuery,
   useTheme,
@@ -18,6 +19,7 @@ import {
   AccountCircle,
   Spa,
   Groups,
+  Logout,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -39,7 +41,7 @@ const getInitials = (name?: string) => {
 const Layout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
   const [value, setValue] = React.useState(0);
@@ -69,6 +71,11 @@ const Layout: React.FC = () => {
   const handleChange = (_event: React.SyntheticEvent, newValue: number) => {
     setValue(newValue);
     navigate(routes[newValue].path);
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/signin', { replace: true });
   };
 
   return (
@@ -193,6 +200,16 @@ const Layout: React.FC = () => {
                 </Typography>
               </Stack>
               </ButtonBase>
+              <Button
+                fullWidth
+                variant="outlined"
+                color="primary"
+                startIcon={<Logout />}
+                onClick={handleLogout}
+                sx={{ mt: 2 }}
+              >
+                Logout
+              </Button>
             </Box>
           </Box>
         </Box>
