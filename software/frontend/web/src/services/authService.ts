@@ -15,8 +15,8 @@ export interface RegisterRequest {
 }
 
 export interface AuthResponse {
-  token: string;
-  user: {
+  token?: string;
+  user?: {
     id: string;
     email: string;
     name?: string;
@@ -24,8 +24,9 @@ export interface AuthResponse {
     avatar_url?: string;
     account_type?: 'USER' | 'ADMIN';
     status?: 'ACTIVE' | 'PENDING_APPROVAL' | 'REJECTED' | 'DISABLED';
+    is_email_verified?: boolean;
   };
-  status?: 'ACTIVE' | 'PENDING_APPROVAL' | 'REJECTED' | 'DISABLED';
+  status?: 'ACTIVE' | 'PENDING_APPROVAL' | 'REJECTED' | 'DISABLED' | 'EMAIL_VERIFICATION_REQUIRED';
   message?: string;
 }
 
@@ -37,6 +38,7 @@ export interface User {
   avatar_url?: string;
   account_type?: 'USER' | 'ADMIN';
   status?: 'ACTIVE' | 'PENDING_APPROVAL' | 'REJECTED' | 'DISABLED';
+  is_email_verified?: boolean;
   accounts: Array<{
     id: string;
     name: string;
@@ -55,6 +57,7 @@ type MeResponse =
         avatar_url?: string;
         account_type?: 'USER' | 'ADMIN';
         status?: 'ACTIVE' | 'PENDING_APPROVAL' | 'REJECTED' | 'DISABLED';
+        is_email_verified?: boolean;
       };
       accounts?: Array<{
         id: string;
@@ -73,6 +76,7 @@ const normalizeUser = (data: MeResponse): User => {
       avatar_url: data.user.avatar_url,
       account_type: data.user.account_type,
       status: data.user.status,
+      is_email_verified: data.user.is_email_verified,
       accounts: (data.accounts || []).map((account) => ({
         ...account,
         role: account.role || 'VIEWER',
@@ -91,13 +95,17 @@ const normalizeUser = (data: MeResponse): User => {
 
 export const login = async (credentials: LoginRequest): Promise<AuthResponse> => {
   const response = await api.post<AuthResponse>(API_ENDPOINTS.AUTH.LOGIN, credentials);
-  setToken(response.data.token, 'user');
+  if (response.data.token) {
+    setToken(response.data.token, 'user');
+  }
   return response.data;
 };
 
 export const adminLogin = async (credentials: LoginRequest): Promise<AuthResponse> => {
   const response = await api.post<AuthResponse>(API_ENDPOINTS.AUTH.ADMIN_LOGIN, credentials);
-  setToken(response.data.token, 'admin');
+  if (response.data.token) {
+    setToken(response.data.token, 'admin');
+  }
   return response.data;
 };
 
@@ -106,6 +114,20 @@ export const register = async (data: RegisterRequest): Promise<AuthResponse> => 
   if (response.data.token) {
     setToken(response.data.token, 'user');
   }
+  return response.data;
+};
+
+export const verifyEmail = async (token: string): Promise<{ status: string; message: string }> => {
+  const response = await api.post<{ status: string; message: string }>(API_ENDPOINTS.AUTH.VERIFY_EMAIL, {
+    token,
+  });
+  return response.data;
+};
+
+export const resendVerification = async (email: string): Promise<{ message: string }> => {
+  const response = await api.post<{ message: string }>(API_ENDPOINTS.AUTH.RESEND_VERIFICATION, {
+    email,
+  });
   return response.data;
 };
 

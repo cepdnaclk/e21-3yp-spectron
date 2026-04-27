@@ -7,11 +7,12 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"spectron-backend/internal/config"
 	"spectron-backend/internal/iot"
 )
 
 // RegisterRoutes wires all HTTP routes for the API.
-func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, rawReadingsPublisher iot.RawReadingsPublisher) {
+func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, rawReadingsPublisher iot.RawReadingsPublisher, emailConfig config.EmailConfig) {
 	if len(allowedOrigins) == 0 {
 		allowedOrigins = []string{
 			"http://localhost:3000",
@@ -49,7 +50,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 	})
 
 	// Initialize handlers
-	authHandler := NewAuthHandler(db)
+	authHandler := NewAuthHandler(db, emailConfig)
 	controllerHandler := NewControllerHandler(db)
 	sensorHandler := NewSensorHandler(db)
 	alertHandler := NewAlertHandler(db)
@@ -60,6 +61,8 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 	r.Post("/auth/register", authHandler.Register)
 	r.Post("/auth/login", authHandler.Login)
 	r.Post("/auth/admin/login", authHandler.AdminLogin)
+	r.Post("/auth/verify-email", authHandler.VerifyEmail)
+	r.Post("/auth/resend-verification", authHandler.ResendVerification)
 	r.Post("/api/iot/discover", ingestHandler.Discover)
 	r.Post("/api/iot/config", ingestHandler.Config)
 	r.Post("/api/iot/upload", ingestHandler.Upload)

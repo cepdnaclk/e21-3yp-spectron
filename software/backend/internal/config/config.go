@@ -20,6 +20,7 @@ type Config struct {
 	AllowedOrigins []string
 	Kafka          KafkaConfig
 	MQTT           MQTTConfig
+	Email          EmailConfig
 }
 
 type KafkaConfig = kafkasecurity.KafkaConfig
@@ -38,9 +39,20 @@ type MQTTConfig struct {
 	InsecureSkipVerify bool
 }
 
+type EmailConfig struct {
+	SMTPHost    string
+	SMTPPort    int
+	SMTPUser    string
+	SMTPPass    string
+	EmailFrom   string
+	FrontendURL string
+}
+
 func Load() (*Config, error) {
 	// Load .env if present; ignore error if file is missing
 	_ = godotenv.Load()
+	// Keep local secrets such as SMTP credentials outside tracked .env files.
+	_ = godotenv.Overload(".env.local")
 
 	httpPort := getenv("PORT", "")
 	if httpPort == "" {
@@ -92,6 +104,14 @@ func Load() (*Config, error) {
 			ClientCertFile:     getenv("MQTT_CLIENT_CERT_FILE", ""),
 			ClientKeyFile:      getenv("MQTT_CLIENT_KEY_FILE", ""),
 			InsecureSkipVerify: parseBool(getenv("MQTT_INSECURE_SKIP_VERIFY", "false")),
+		},
+		Email: EmailConfig{
+			SMTPHost:    getenv("SMTP_HOST", ""),
+			SMTPPort:    parseInt(getenv("SMTP_PORT", "587"), 587),
+			SMTPUser:    getenv("SMTP_USER", ""),
+			SMTPPass:    os.Getenv("SMTP_PASS"),
+			EmailFrom:   getenv("EMAIL_FROM", getenv("SMTP_USER", "no-reply@spectron.local")),
+			FrontendURL: strings.TrimRight(getenv("FRONTEND_URL", "http://localhost:3001"), "/"),
 		},
 	}, nil
 }
@@ -186,6 +206,14 @@ func parseCSV(raw string) []string {
 func parseBool(raw string) bool {
 	value, err := strconv.ParseBool(strings.TrimSpace(raw))
 	return err == nil && value
+}
+
+func parseInt(raw string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return fallback
+	}
+	return value
 }
 
 func parseQoS(raw string) (byte, error) {

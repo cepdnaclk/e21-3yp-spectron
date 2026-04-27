@@ -81,6 +81,19 @@ $env:MQTT_TOPIC="spectron/controllers/+/raw"
 $env:MQTT_CLIENT_ID="spectron-mqtt-bridge"
 ```
 
+Email verification requires SMTP settings. Put real SMTP credentials in `software/backend/.env.local` so they stay out of the tracked `.env` file:
+
+```powershell
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-app-password
+EMAIL_FROM="Spectron <your-email@gmail.com>"
+FRONTEND_URL=http://localhost:3001
+```
+
+If `SMTP_HOST` is not set, the backend will reject signup/resend requests that need to send a verification email.
+
 `POST /api/iot/upload` now accepts controller payloads in this shape and publishes them to Kafka:
 
 ```json

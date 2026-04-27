@@ -32,6 +32,12 @@ var migration007UserStatus string
 //go:embed migrations/008_seed_single_system_admin.sql
 var migration008SeedSingleSystemAdmin string
 
+//go:embed migrations/009_email_verification.sql
+var migration009EmailVerification string
+
+//go:embed migrations/010_activate_verified_email_users.sql
+var migration010ActivateVerifiedEmailUsers string
+
 type migration struct {
 	name string
 	sql  string
@@ -45,6 +51,8 @@ var startupMigrations = []migration{
 	{name: "006_admin_account_type", sql: migration006AdminAccountType},
 	{name: "007_user_status", sql: migration007UserStatus},
 	{name: "008_seed_single_system_admin", sql: migration008SeedSingleSystemAdmin},
+	{name: "009_email_verification", sql: migration009EmailVerification},
+	{name: "010_activate_verified_email_users", sql: migration010ActivateVerifiedEmailUsers},
 }
 
 func ApplyStartupMigrations(ctx context.Context, pool *pgxpool.Pool) error {

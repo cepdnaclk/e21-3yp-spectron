@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import SignIn from './pages/auth/SignIn';
 import AdminSignIn from './pages/auth/AdminSignIn';
 import SignUp from './pages/auth/SignUp';
+import VerifyEmail from './pages/auth/VerifyEmail';
 import Controllers from './pages/main/Controllers';
 import PairController from './pages/main/PairController';
 import ControllerDashboard from './pages/main/ControllerDashboard';
@@ -265,6 +266,7 @@ function AppRoutes() {
       <Route path="/signin" element={<SignIn />} />
       <Route path="/admin/signin" element={<AdminSignIn />} />
       <Route path="/signup" element={<SignUp />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
       <Route
         path="/"
         element={
