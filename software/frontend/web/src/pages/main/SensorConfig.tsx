@@ -29,6 +29,7 @@ import {
   SensorContext,
 } from '../../services/sensorService';
 import {
+  getHardwareController,
   getHardwareSensor,
   saveHardwareSensorConfiguration,
 } from '../../services/hardwarePairingService';
@@ -378,6 +379,7 @@ const SensorConfig: React.FC = () => {
   const [historicalWindowDays, setHistoricalWindowDays] = useState('');
   const [installationNotes, setInstallationNotes] = useState('');
   const [friendlyName, setFriendlyName] = useState('');
+  const [systemName, setSystemName] = useState('');
   const [useCase, setUseCase] = useState<UseCaseOption>('generic_monitoring');
   const [presentationProfile, setPresentationProfile] = useState<PresentationProfileOption>('single_trend');
   const [primaryMetric, setPrimaryMetric] = useState('');
@@ -465,12 +467,18 @@ const SensorConfig: React.FC = () => {
 
     try {
       setPageError(null);
-      const sensorData = isHardwareRoute || activeControllerId
-        ? await getHardwareSensor(activeSensorId, activeControllerId)
-        : await getSensor(activeSensorId);
+      const [sensorData, controllerData] = await Promise.all([
+        isHardwareRoute || activeControllerId
+          ? getHardwareSensor(activeSensorId, activeControllerId)
+          : getSensor(activeSensorId),
+        isHardwareRoute && activeControllerId
+          ? getHardwareController(activeControllerId)
+          : Promise.resolve(null),
+      ]);
       setSensor(sensorData);
 
       if (initializedSensorIdRef.current !== activeSensorId) {
+        setSystemName(controllerData?.name || '');
         setPurpose(sensorData.purpose || '');
         setFriendlyName(sensorData.active_config?.friendly_name || sensorData.name || '');
         setDomain(sensorData.context?.domain || '');
@@ -679,6 +687,11 @@ const SensorConfig: React.FC = () => {
       return;
     }
 
+    if (isHardwareRoute && !systemName.trim()) {
+      setPageError('Please enter a system name before saving.');
+      return;
+    }
+
     if (readingFlowType !== 'TRIGGER' && !toPositiveIntOrUndefined(reportsPerDay)) {
       setPageError('Reports per day is required.');
       return;
@@ -806,6 +819,7 @@ const SensorConfig: React.FC = () => {
         await saveHardwareSensorConfiguration({
           controllerId: activeControllerId,
           sensorId: activeSensorId,
+          systemName: systemName.trim(),
           sensorType: sensor.type,
           sensorName: friendlyName.trim(),
           usedFor: getOptionLabel(USE_CASE_OPTIONS, useCase),
@@ -1190,6 +1204,16 @@ const SensorConfig: React.FC = () => {
           <Typography variant="subtitle1" gutterBottom>
             Configuration
           </Typography>
+
+          <TextField
+            fullWidth
+            label="System Name *"
+            value={systemName}
+            onChange={(e) => setSystemName(e.target.value)}
+            margin="normal"
+            required={isHardwareRoute}
+            helperText="This name will represent the monitoring system in dashboards and future controller reattachment."
+          />
 
           <TextField
             fullWidth

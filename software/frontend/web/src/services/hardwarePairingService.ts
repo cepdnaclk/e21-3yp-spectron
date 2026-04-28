@@ -22,6 +22,9 @@ const STORAGE_KEY = 'spectron_hardware_pairings';
 
 export interface HardwarePairingSensor {
   id: string;
+  sensorUid?: string;
+  systemId?: string;
+  slotKey?: string;
   name: string;
   type: string;
   status: string;
@@ -32,14 +35,29 @@ export interface HardwarePairingSensor {
 export interface HardwarePairingResponse {
   id?: string;
   controllerId: string;
+  systemId?: string;
+  systemName?: string;
   routeId?: string;
   status: string;
   sensors: HardwarePairingSensor[];
 }
 
+export interface HardwareSystemSummary {
+  id: string;
+  name: string;
+  purpose?: string;
+  location?: string;
+  status: string;
+  activeControllerId?: string;
+  activeControllerHw?: string;
+  sensorCount: number;
+  configuredSensors: number;
+}
+
 export interface SaveHardwareSensorConfigRequest {
   controllerId: string;
   sensorId: string;
+  systemName: string;
   sensorType: string;
   sensorName: string;
   usedFor: string;
@@ -47,6 +65,18 @@ export interface SaveHardwareSensorConfigRequest {
   config: Record<string, unknown>;
   appConfig: SensorConfigPayload;
 }
+
+type HardwareSensorConfigResponse = {
+  controllerId: string;
+  systemId?: string;
+  sensorId: string;
+  sensorUid?: string;
+  sensorType: string;
+  sensorName: string;
+  usedFor?: string;
+  dashboardView?: string;
+  config: Record<string, unknown>;
+};
 
 type StoredHardwareController = HardwarePairingResponse & {
   updatedAt: string;
@@ -125,13 +155,61 @@ export const toAppSensor = (controllerId: string, sensor: HardwarePairingSensor)
   return {
     id: sensor.id,
     controller_id: controllerId,
-    hw_id: sensor.id,
+    hw_id: sensor.sensorUid || sensor.id,
     type: sensor.type,
     name: sensor.name,
     status: normalizeStatus(sensor.status),
     config_active: sensor.configured,
     active_config: appConfig,
   };
+};
+
+const toHardwareThreshold = (rawValue: unknown): number | undefined => {
+  return typeof rawValue === 'number' && Number.isFinite(rawValue) ? rawValue : undefined;
+};
+
+const toHardwareAppConfig = (
+  configResponse: HardwareSensorConfigResponse
+): SensorConfigPayload => {
+  const rawConfig = configResponse.config || {};
+  const reportsPerDay =
+    typeof rawConfig.reportsPerDay === 'number' && Number.isFinite(rawConfig.reportsPerDay)
+      ? rawConfig.reportsPerDay
+      : 24;
+  const estimatedBatteryLifeDays =
+    typeof rawConfig.estimatedBatteryLifeDays === 'number' && Number.isFinite(rawConfig.estimatedBatteryLifeDays)
+      ? rawConfig.estimatedBatteryLifeDays
+      : 77;
+
+  return {
+    friendly_name: configResponse.sensorName,
+    use_case: configResponse.usedFor,
+    presentation_profile: configResponse.dashboardView,
+    primary_metric: 'temperature',
+    thresholds: {
+      warning_max: toHardwareThreshold(rawConfig.temperatureWarningMax),
+    },
+    metric_thresholds: {
+      temperature: {
+        min: toHardwareThreshold(rawConfig.temperatureMin),
+        max: toHardwareThreshold(rawConfig.temperatureMax),
+        warning_min: toHardwareThreshold(rawConfig.temperatureWarningMin),
+        warning_max: toHardwareThreshold(rawConfig.temperatureWarningMax),
+      },
+      humidity: {
+        min: toHardwareThreshold(rawConfig.humidityMin),
+        max: toHardwareThreshold(rawConfig.humidityMax),
+        warning_min: toHardwareThreshold(rawConfig.humidityWarningMin),
+        warning_max: toHardwareThreshold(rawConfig.humidityWarningMax),
+      },
+    },
+    report_interval_per_day: reportsPerDay,
+    power_management: {
+      battery_life_days: estimatedBatteryLifeDays,
+      sampling_frequency: reportsPerDay,
+    },
+    hardware_config: rawConfig,
+  } as SensorConfigPayload;
 };
 
 const normalizePairingResponse = (data: any, fallbackControllerId: string): HardwarePairingResponse => {
@@ -144,6 +222,9 @@ const normalizePairingResponse = (data: any, fallbackControllerId: string): Hard
   const sensors = Array.isArray(data?.sensors)
     ? data.sensors.map((sensor: any) => ({
         id: sensor.id || sensor.hw_id,
+        sensorUid: sensor.sensorUid || sensor.sensor_uid || sensor.hw_id,
+        systemId: sensor.systemId || sensor.system_id,
+        slotKey: sensor.slotKey || sensor.slot_key,
         name: sensor.name || `${sensor.type || 'Unknown'} Sensor`,
         type: sensor.type || 'unknown',
         status: sensor.status || 'live',
@@ -155,6 +236,8 @@ const normalizePairingResponse = (data: any, fallbackControllerId: string): Hard
   return {
     id: data?.id,
     controllerId,
+    systemId: data?.systemId || data?.system_id,
+    systemName: data?.systemName || data?.system_name,
     routeId: data?.id || controllerId,
     status: data?.status || 'paired',
     sensors,
@@ -215,7 +298,7 @@ export const extractControllerId = (value: string): string => {
   return '';
 };
 
-export const pairHardwareController = async (controllerId: string): Promise<HardwarePairingResponse> => {
+export const pairHardwareController = async (controllerId: string, systemId?: string): Promise<HardwarePairingResponse> => {
   const normalizedControllerId = extractControllerId(controllerId);
   if (!normalizedControllerId) {
     throw new Error('Invalid controller QR code');
@@ -224,6 +307,7 @@ export const pairHardwareController = async (controllerId: string): Promise<Hard
   if (!isMockMode()) {
     const response = await api.post('/api/controllers/pair', {
       controllerId: normalizedControllerId,
+      systemId: systemId || undefined,
     });
     return normalizePairingResponse(response.data, normalizedControllerId);
   }
@@ -279,6 +363,8 @@ export const getMyHardwareControllers = async (): Promise<Controller[]> => {
   const response = await api.get<{
     controllers?: Array<{
       controllerId: string;
+      systemId?: string;
+      systemName?: string;
       name?: string;
       status?: string;
     }>;
@@ -292,9 +378,42 @@ export const getMyHardwareControllers = async (): Promise<Controller[]> => {
     id: controller.controllerId,
     account_id: '',
     hw_id: controller.controllerId,
-    name: controller.name,
+    name: controller.systemName || controller.name,
     status: normalizeControllerStatus(controller.status),
     created_at: '',
+  }));
+};
+
+export const getMySystems = async (): Promise<HardwareSystemSummary[]> => {
+  if (isMockMode()) {
+    return [];
+  }
+
+  const response = await api.get<{
+    systems?: Array<{
+      id: string;
+      name: string;
+      purpose?: string;
+      location?: string;
+      status?: string;
+      activeControllerId?: string;
+      activeControllerHw?: string;
+      sensorCount?: number;
+      configuredSensors?: number;
+    }>;
+  }>('/api/systems/my');
+
+  const systems = Array.isArray(response.data?.systems) ? response.data.systems : [];
+  return systems.map((system) => ({
+    id: system.id,
+    name: system.name,
+    purpose: system.purpose,
+    location: system.location,
+    status: system.status || 'standby',
+    activeControllerId: system.activeControllerId,
+    activeControllerHw: system.activeControllerHw,
+    sensorCount: system.sensorCount || 0,
+    configuredSensors: system.configuredSensors || 0,
   }));
 };
 
@@ -314,6 +433,8 @@ export const getHardwareController = async (controllerId: string): Promise<Contr
   if (/^CTRL-/i.test(controllerId)) {
     const response = await api.get<{ controllers?: Array<{
       controllerId: string;
+      systemId?: string;
+      systemName?: string;
       name?: string;
       status?: string;
     }> }>('/api/controllers/my');
@@ -326,7 +447,7 @@ export const getHardwareController = async (controllerId: string): Promise<Contr
         id: controller.controllerId,
         account_id: '',
         hw_id: controller.controllerId,
-        name: controller.name,
+        name: controller.systemName || controller.name,
         status: normalizeControllerStatus(controller.status),
         created_at: '',
       };
@@ -337,7 +458,12 @@ export const getHardwareController = async (controllerId: string): Promise<Contr
   return response.data;
 };
 
-export const getHardwareSensors = async (controllerId: string): Promise<Sensor[]> => {
+export const getHardwareSensors = async (
+  controllerId: string,
+  options?: {
+    liveOnly?: boolean;
+  }
+): Promise<Sensor[]> => {
   const stored = getStoredHardware(controllerId);
   if (stored) {
     const storedSensors = Array.isArray(stored.sensors) ? stored.sensors : [];
@@ -348,7 +474,9 @@ export const getHardwareSensors = async (controllerId: string): Promise<Sensor[]
     const response = await api.get<{
       controllerId?: string;
       sensors?: HardwarePairingSensor[];
-    }>(`/api/controllers/${encodeURIComponent(controllerId)}/sensors`);
+    }>(`/api/controllers/${encodeURIComponent(controllerId)}/sensors`, {
+      params: options?.liveOnly ? { live: 'true' } : undefined,
+    });
 
     const sensors = Array.isArray(response.data?.sensors) ? response.data.sensors : [];
     return sensors.map((sensor) => toAppSensor(controllerId, sensor));
@@ -363,6 +491,33 @@ export const getHardwareSensor = async (sensorId: string, controllerId?: string)
     const sensor = (Array.isArray(stored?.sensors) ? stored?.sensors : [])?.find((item) => item.id === sensorId);
     if (sensor) {
       return toAppSensor(controllerId, sensor);
+    }
+
+    if (/^CTRL-/i.test(controllerId)) {
+      const sensors = await getHardwareSensors(controllerId);
+      const matchedSensor = sensors.find((item) => item.id === sensorId);
+      if (!matchedSensor) {
+        throw new Error('Sensor not found');
+      }
+
+      try {
+        const configResponse = await api.get<HardwareSensorConfigResponse>(
+          `/api/controllers/${encodeURIComponent(controllerId)}/sensors/${encodeURIComponent(sensorId)}/config`
+        );
+
+        return {
+          ...matchedSensor,
+          name: configResponse.data.sensorName || matchedSensor.name,
+          purpose: configResponse.data.usedFor || matchedSensor.purpose,
+          config_active: true,
+          active_config: toHardwareAppConfig(configResponse.data),
+        };
+      } catch (error: any) {
+        if (error?.response?.status === 404) {
+          return matchedSensor;
+        }
+        throw error;
+      }
     }
   }
 
@@ -406,6 +561,7 @@ export const saveHardwareSensorConfiguration = async (
 
   state[request.controllerId] = {
     ...current,
+    systemName: request.systemName || current.systemName,
     sensors: nextSensors,
     updatedAt: new Date().toISOString(),
   };

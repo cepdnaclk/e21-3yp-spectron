@@ -4,12 +4,16 @@ import "encoding/json"
 
 type HardwarePairRequest struct {
 	ControllerID               string `json:"controllerId,omitempty"`
+	SystemID                   string `json:"systemId,omitempty"`
 	PairingTokenOrControllerID string `json:"pairingTokenOrControllerId"`
 	QRToken                    string `json:"qr_token,omitempty"`
 }
 
 type HardwareSensorResponse struct {
 	ID         string `json:"id"`
+	SensorUID  string `json:"sensorUid,omitempty"`
+	SystemID   string `json:"systemId,omitempty"`
+	SlotKey    string `json:"slotKey,omitempty"`
 	Name       string `json:"name"`
 	Type       string `json:"type"`
 	Status     string `json:"status"`
@@ -19,12 +23,16 @@ type HardwareSensorResponse struct {
 type HardwarePairResponse struct {
 	ID           string                   `json:"id"`
 	ControllerID string                   `json:"controllerId"`
+	SystemID     string                   `json:"systemId,omitempty"`
+	SystemName   string                   `json:"systemName,omitempty"`
 	Status       string                   `json:"status"`
 	Sensors      []HardwareSensorResponse `json:"sensors"`
 }
 
 type UserHardwareControllerResponse struct {
 	ControllerID string                   `json:"controllerId"`
+	SystemID     string                   `json:"systemId,omitempty"`
+	SystemName   string                   `json:"systemName,omitempty"`
 	Name         string                   `json:"name"`
 	Status       string                   `json:"status"`
 	Sensors      []HardwareSensorResponse `json:"sensors"`
@@ -36,10 +44,12 @@ type UserHardwareControllersResponse struct {
 
 type ControllerSensorsResponse struct {
 	ControllerID string                   `json:"controllerId"`
+	SystemID     string                   `json:"systemId,omitempty"`
 	Sensors      []HardwareSensorResponse `json:"sensors"`
 }
 
 type SaveHardwareSensorConfigRequest struct {
+	SystemName    string                 `json:"systemName,omitempty"`
 	SensorType    string                 `json:"sensorType"`
 	SensorName    string                 `json:"sensorName"`
 	UsedFor       string                 `json:"usedFor"`
@@ -51,18 +61,37 @@ type SaveHardwareSensorConfigRequest struct {
 type SaveHardwareSensorConfigResponse struct {
 	Message      string `json:"message"`
 	ControllerID string `json:"controllerId"`
+	SystemID     string `json:"systemId,omitempty"`
 	SensorID     string `json:"sensorId"`
 	Configured   bool   `json:"configured"`
 }
 
 type HardwareSensorConfigResponse struct {
 	ControllerID  string          `json:"controllerId"`
+	SystemID      string          `json:"systemId,omitempty"`
 	SensorID      string          `json:"sensorId"`
+	SensorUID     string          `json:"sensorUid,omitempty"`
 	SensorType    string          `json:"sensorType"`
 	SensorName    string          `json:"sensorName"`
 	UsedFor       string          `json:"usedFor,omitempty"`
 	DashboardView string          `json:"dashboardView,omitempty"`
 	Config        json.RawMessage `json:"config"`
+}
+
+type UserSystemResponse struct {
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	Purpose            string `json:"purpose,omitempty"`
+	Location           string `json:"location,omitempty"`
+	Status             string `json:"status"`
+	ActiveControllerID string `json:"activeControllerId,omitempty"`
+	ActiveControllerHW string `json:"activeControllerHw,omitempty"`
+	SensorCount        int    `json:"sensorCount"`
+	ConfiguredSensors  int    `json:"configuredSensors"`
+}
+
+type UserSystemsResponse struct {
+	Systems []UserSystemResponse `json:"systems"`
 }
 
 type DemoCreateControllerRequest struct {

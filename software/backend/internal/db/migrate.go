@@ -32,6 +32,9 @@ var migration007UserStatus string
 //go:embed migrations/008_seed_single_system_admin.sql
 var migration008SeedSingleSystemAdmin string
 
+//go:embed migrations/009_system_assignments.sql
+var migration009SystemAssignments string
+
 type migration struct {
 	name string
 	sql  string
@@ -45,6 +48,7 @@ var startupMigrations = []migration{
 	{name: "006_admin_account_type", sql: migration006AdminAccountType},
 	{name: "007_user_status", sql: migration007UserStatus},
 	{name: "008_seed_single_system_admin", sql: migration008SeedSingleSystemAdmin},
+	{name: "009_system_assignments", sql: migration009SystemAssignments},
 }
 
 func ApplyStartupMigrations(ctx context.Context, pool *pgxpool.Pool) error {

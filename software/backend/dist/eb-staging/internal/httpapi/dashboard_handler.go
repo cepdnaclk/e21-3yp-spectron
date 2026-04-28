@@ -117,18 +117,28 @@ func (h *DashboardHandler) GetReadings(w http.ResponseWriter, r *http.Request) {
 
 	accountID := GetAccountID(r).(uuid.UUID)
 
-	// Verify sensor belongs to account
+	useSystemSensorID := false
 	var sensorAccountID uuid.UUID
 	err = h.db.QueryRow(r.Context(), `
-		SELECT c.account_id
-		FROM sensors s
-		JOIN controllers c ON s.controller_id = c.id
-		WHERE s.id = $1
-		  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
+		SELECT s.account_id
+		FROM system_sensors ss
+		JOIN systems s ON s.id = ss.system_id
+		WHERE ss.id = $1
 	`, sensorID).Scan(&sensorAccountID)
-	if err != nil {
-		http.Error(w, "sensor not found", http.StatusNotFound)
-		return
+	if err == nil {
+		useSystemSensorID = true
+	} else {
+		err = h.db.QueryRow(r.Context(), `
+			SELECT c.account_id
+			FROM sensors s
+			JOIN controllers c ON s.controller_id = c.id
+			WHERE s.id = $1
+			  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
+		`, sensorID).Scan(&sensorAccountID)
+		if err != nil {
+			http.Error(w, "sensor not found", http.StatusNotFound)
+			return
+		}
 	}
 	if sensorAccountID != accountID {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -156,6 +166,10 @@ func (h *DashboardHandler) GetReadings(w http.ResponseWriter, r *http.Request) {
 
 	// Build query based on interval
 	var query string
+	sensorColumn := "sensor_id"
+	if useSystemSensorID {
+		sensorColumn = "system_sensor_id"
+	}
 	if interval != "" {
 		bucketSize, err := parseBucketInterval(interval)
 		if err != nil {
@@ -166,7 +180,7 @@ func (h *DashboardHandler) GetReadings(w http.ResponseWriter, r *http.Request) {
 		query = `
 			SELECT time, value
 			FROM sensor_readings
-			WHERE sensor_id = $1 AND time >= $2 AND time <= $3
+			WHERE ` + sensorColumn + ` = $1 AND time >= $2 AND time <= $3
 			ORDER BY time
 		`
 		rows, err := h.db.Query(r.Context(), query, sensorID, from, to)
@@ -249,7 +263,7 @@ func (h *DashboardHandler) GetReadings(w http.ResponseWriter, r *http.Request) {
 		query = `
 			SELECT time, value, meta
 			FROM sensor_readings
-			WHERE sensor_id = $1 AND time >= $2 AND time <= $3
+			WHERE ` + sensorColumn + ` = $1 AND time >= $2 AND time <= $3
 			ORDER BY time DESC
 			LIMIT 1000
 		`

@@ -1,0 +1,32 @@
+Command: cmake -G Ninja -B C:\Users\dell\OneDrive\Documents\spectron-official\e21-3yp-spectron-dashboard\hardware\Spectron_Sht30_PayloadApp\build -DPYTHON_DEPS_CHECKED=1 -DPYTHON=C:\Espressif\tools\python\v6.0\venv\Scripts\python.exe -DESP_PLATFORM=1 -DIDF_TARGET=esp32c3 -DCCACHE_ENABLE=False C:\Users\dell\OneDrive\Documents\spectron-official\e21-3yp-spectron-dashboard\hardware\Spectron_Sht30_PayloadApp
+CMake Deprecation Warning at CMakeLists.txt:3 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+Configuration Report               
++---------------------------------+
+|  Parser Version: 1              |
+|  Verbosity: default             |
+|  Defaults policy: sdkconfig     |
+|  Status: Finished successfully  |
+|                                 |
++---------------------------------+
+CMake Warning in C:/esp/v6.0/esp-idf/components/mbedtls/mbedtls/tf-psa-crypto/core/CMakeLists.txt:
+  The object file directory
+
+    C:/Users/dell/OneDrive/Documents/spectron-official/e21-3yp-spectron-dashboard/hardware/Spectron_Sht30_PayloadApp/build/esp-idf/mbedtls/mbedtls/tf-psa-crypto/core/CMakeFiles/tfpsacrypto.dir/./
+
+  has 191 characters.  The maximum full path to an object file is 250
+  characters (see CMAKE_OBJECT_PATH_MAX).  Object file
+
+    c640535b57d061ae05f1663187d24a6d/psa_crypto_driver_esp_sha256.c.obj
+
+  cannot be safely placed under this directory.  The build may not work
+  correctly.
+
+

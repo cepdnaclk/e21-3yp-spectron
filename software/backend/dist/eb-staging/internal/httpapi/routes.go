@@ -93,6 +93,10 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 			r.Get("/{controllerId}/sensors/{sensorId}/config", controllerHandler.GetSensorConfigAPI)
 		})
 
+		r.Route("/api/systems", func(r chi.Router) {
+			r.Get("/my", controllerHandler.MySystemsAPI)
+		})
+
 		r.Route("/api/admin", func(r chi.Router) {
 			r.Use(RequireSystemAdmin(db))
 			r.Get("/overview", controllerHandler.AdminOverviewAPI)

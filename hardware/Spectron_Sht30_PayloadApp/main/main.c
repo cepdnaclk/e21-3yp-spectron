@@ -37,6 +37,14 @@ static const char *TAG = "BASE_PAYLOAD";
 #define WAKE_SESSION_TIMEOUT_MS     30000
 #define TX_FLUSH_DELAY_MS           1000
 
+/*
+ * Lab/debug mode:
+ * keep the ESP32-C3 awake on USB and emit readings every 10 seconds
+ * after config is received so controller/backend behavior is easy to verify.
+ */
+#define LAB_DEBUG_DISABLE_DEEP_SLEEP 1
+#define LAB_DEBUG_SEND_INTERVAL_MS   10000
+
 #define I2C_PORT                    I2C_NUM_0
 #define DEFAULT_I2C_SDA_GPIO        6
 #define DEFAULT_I2C_SCL_GPIO        7
@@ -76,6 +84,15 @@ static char g_sensor_name[MPROTO_SENSOR_NAME_LEN] = {0};
 static int16_t g_temp_hi_x100 = 3500;
 static uint16_t g_hum_hi_x100 = 8500;
 
+static uint32_t get_effective_send_interval_ms(void)
+{
+#if LAB_DEBUG_DISABLE_DEEP_SLEEP
+    return LAB_DEBUG_SEND_INTERVAL_MS;
+#else
+    return g_sample_period_ms;
+#endif
+}
+
 static void print_mac(const char *label, const uint8_t *mac)
 {
     ESP_LOGI(TAG, "%s %02X:%02X:%02X:%02X:%02X:%02X",
@@ -107,6 +124,7 @@ static esp_err_t nvs_read_module_meta(void)
 {
     nvs_handle_t nvs;
     esp_err_t err = nvs_open(NVS_NS_MODULE, NVS_READONLY, &nvs);
+    bool have_saved_runtime_cfg = false;
 
     if (err != ESP_OK) {
         return err;
@@ -135,6 +153,8 @@ static esp_err_t nvs_read_module_meta(void)
 
     if (nvs_get_u32(nvs, NVS_KEY_SAMPLE_MS, &g_sample_period_ms) != ESP_OK) {
         g_sample_period_ms = DEFAULT_SAMPLE_PERIOD_MS;
+    } else {
+        have_saved_runtime_cfg = true;
     }
 
     if (g_sample_period_ms < MIN_SAMPLE_PERIOD_MS) {
@@ -181,6 +201,11 @@ static esp_err_t nvs_read_module_meta(void)
              g_i2c_scl_gpio,
              g_i2c_addr,
              (unsigned long)g_sample_period_ms);
+
+    g_config_received = have_saved_runtime_cfg;
+    if (g_config_received) {
+        ESP_LOGI(TAG, "Using persisted runtime config from NVS for this wake session");
+    }
 
     return ESP_OK;
 }
@@ -556,7 +581,7 @@ static bool send_sensor_data(void)
                  t,
                  h,
                  pl.alert_flags,
-                 (unsigned long)g_sample_period_ms);
+                 (unsigned long)get_effective_send_interval_ms());
         return true;
     }
 }
@@ -692,13 +717,21 @@ void app_main(void)
              g_sensor_name,
              (unsigned long)g_sample_period_ms);
 
+#if LAB_DEBUG_DISABLE_DEEP_SLEEP
+    ESP_LOGW(TAG,
+             "LAB DEBUG MODE: deep sleep disabled, forcing runtime send interval to %lu ms",
+             (unsigned long)get_effective_send_interval_ms());
+#endif
+
     uint32_t wake_session_started_ms = esp_log_timestamp();
 
     while (1) {
+#if !LAB_DEBUG_DISABLE_DEEP_SLEEP
         if ((esp_log_timestamp() - wake_session_started_ms) >= WAKE_SESSION_TIMEOUT_MS) {
             ESP_LOGW(TAG, "Wake session timed out before reading was sent");
             enter_timed_deep_sleep("session_timeout", g_sample_period_ms);
         }
+#endif
 
         if (!g_base_acked) {
             send_base_hello();
@@ -712,7 +745,15 @@ void app_main(void)
         } else {
             if (send_sensor_data()) {
                 vTaskDelay(pdMS_TO_TICKS(TX_FLUSH_DELAY_MS));
+#if LAB_DEBUG_DISABLE_DEEP_SLEEP
+                ESP_LOGI(TAG,
+                         "LAB DEBUG MODE: staying awake and waiting %lu ms before next sample",
+                         (unsigned long)get_effective_send_interval_ms());
+                vTaskDelay(pdMS_TO_TICKS(get_effective_send_interval_ms()));
+#else
                 enter_timed_deep_sleep("sample_sent", g_sample_period_ms);
+#endif
+                continue;
             }
             vTaskDelay(pdMS_TO_TICKS(DISCOVERY_PERIOD_MS));
         }

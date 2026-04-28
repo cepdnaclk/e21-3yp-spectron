@@ -41,13 +41,16 @@ type hardwareControllerRecord struct {
 }
 
 type hardwareSensorRecord struct {
-	id         uuid.UUID
-	uid        string
-	name       string
-	sensorType string
-	status     string
-	configured bool
-	legacyID   *uuid.UUID
+	id                 uuid.UUID
+	systemID           *uuid.UUID
+	slotKey            string
+	uid                string
+	name               string
+	sensorType         string
+	status             string
+	configured         bool
+	controllerSensorID *uuid.UUID
+	legacyID           *uuid.UUID
 }
 
 type legacySensorRecord struct {
@@ -446,7 +449,7 @@ func (h *ControllerHandler) PairAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	controller, err := h.claimController(r.Context(), userID, accountID, provided)
+	controller, system, err := h.claimController(r.Context(), userID, accountID, provided, strings.TrimSpace(req.SystemID))
 	if err != nil {
 		var apiErr apiError
 		if errors.As(err, &apiErr) {
@@ -458,7 +461,7 @@ func (h *ControllerHandler) PairAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sensors, err := h.loadHardwareSensors(r.Context(), controller.id, controller.updatedAt)
+	sensors, err := h.loadLiveHardwareSensors(r.Context(), controller.id, controller.updatedAt)
 	if err != nil {
 		log.Printf("load paired sensors: %v", err)
 		http.Error(w, "failed to load sensors", http.StatusInternalServerError)
@@ -468,6 +471,8 @@ func (h *ControllerHandler) PairAPI(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(models.HardwarePairResponse{
 		ID:           controller.id.String(),
 		ControllerID: controller.uid,
+		SystemID:     system.id.String(),
+		SystemName:   system.name,
 		Status:       "paired",
 		Sensors:      sensors,
 	})
@@ -477,12 +482,23 @@ func (h *ControllerHandler) MyControllersAPI(w http.ResponseWriter, r *http.Requ
 	accountID := GetAccountID(r).(uuid.UUID)
 
 	rows, err := h.db.Query(r.Context(), `
-		SELECT id, COALESCE(controller_uid, hw_id), COALESCE(name, 'Main Controller'), status, updated_at
-		FROM controllers
-		WHERE account_id = $1
-		  AND owner_user_id IS NOT NULL
-		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
-		ORDER BY updated_at DESC, created_at DESC
+		SELECT
+			c.id,
+			COALESCE(c.controller_uid, c.hw_id),
+			COALESCE(s.name, c.name, 'Main Controller'),
+			c.status,
+			sca.assigned_at,
+			s.id,
+			COALESCE(s.name, c.name, 'Main Controller')
+		FROM controllers c
+		JOIN system_controller_assignments sca
+		  ON sca.controller_id = c.id
+		 AND sca.unassigned_at IS NULL
+		JOIN systems s ON s.id = sca.system_id
+		WHERE c.account_id = $1
+		  AND c.owner_user_id IS NOT NULL
+		  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
+		ORDER BY sca.assigned_at DESC, c.created_at DESC
 	`, accountID)
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
@@ -497,7 +513,9 @@ func (h *ControllerHandler) MyControllersAPI(w http.ResponseWriter, r *http.Requ
 		var name string
 		var status string
 		var sessionStart time.Time
-		if err := rows.Scan(&controllerID, &controllerUID, &name, &status, &sessionStart); err != nil {
+		var systemID uuid.UUID
+		var systemName string
+		if err := rows.Scan(&controllerID, &controllerUID, &name, &status, &sessionStart, &systemID, &systemName); err != nil {
 			continue
 		}
 
@@ -509,6 +527,8 @@ func (h *ControllerHandler) MyControllersAPI(w http.ResponseWriter, r *http.Requ
 
 		controllers = append(controllers, models.UserHardwareControllerResponse{
 			ControllerID: controllerUID,
+			SystemID:     systemID.String(),
+			SystemName:   systemName,
 			Name:         name,
 			Status:       status,
 			Sensors:      sensors,
@@ -518,9 +538,76 @@ func (h *ControllerHandler) MyControllersAPI(w http.ResponseWriter, r *http.Requ
 	json.NewEncoder(w).Encode(models.UserHardwareControllersResponse{Controllers: controllers})
 }
 
+func (h *ControllerHandler) MySystemsAPI(w http.ResponseWriter, r *http.Request) {
+	accountID := GetAccountID(r).(uuid.UUID)
+
+	rows, err := h.db.Query(r.Context(), `
+		SELECT
+			s.id,
+			s.name,
+			COALESCE(s.purpose, ''),
+			COALESCE(s.location, ''),
+			s.status,
+			active_sca.controller_id,
+			COALESCE(c.hw_id, ''),
+			COUNT(ss.id)::int,
+			COUNT(ss.id) FILTER (WHERE ss.configured = true)::int
+		FROM systems s
+		LEFT JOIN system_controller_assignments active_sca
+		  ON active_sca.system_id = s.id
+		 AND active_sca.unassigned_at IS NULL
+		LEFT JOIN controllers c ON c.id = active_sca.controller_id
+		LEFT JOIN system_sensors ss ON ss.system_id = s.id
+		WHERE s.account_id = $1
+		  AND s.status <> 'archived'
+		GROUP BY s.id, s.name, s.purpose, s.location, s.status, active_sca.controller_id, c.hw_id, s.updated_at, s.created_at
+		ORDER BY s.updated_at DESC, s.created_at DESC
+	`, accountID)
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	systems := make([]models.UserSystemResponse, 0)
+	for rows.Next() {
+		var system models.UserSystemResponse
+		var systemID uuid.UUID
+		var purpose string
+		var location string
+		var activeControllerID *uuid.UUID
+		if err := rows.Scan(
+			&systemID,
+			&system.Name,
+			&purpose,
+			&location,
+			&system.Status,
+			&activeControllerID,
+			&system.ActiveControllerHW,
+			&system.SensorCount,
+			&system.ConfiguredSensors,
+		); err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+
+		system.ID = systemID.String()
+		system.Purpose = purpose
+		system.Location = location
+		if activeControllerID != nil {
+			system.ActiveControllerID = activeControllerID.String()
+		}
+		systems = append(systems, system)
+	}
+
+	json.NewEncoder(w).Encode(models.UserSystemsResponse{Systems: systems})
+}
+
 func (h *ControllerHandler) ControllerSensorsAPI(w http.ResponseWriter, r *http.Request) {
 	accountID := GetAccountID(r).(uuid.UUID)
 	controllerParam := strings.TrimSpace(chi.URLParam(r, "controllerId"))
+	liveOnlyParam := strings.TrimSpace(r.URL.Query().Get("live"))
+	liveOnly := strings.EqualFold(liveOnlyParam, "true") || liveOnlyParam == "1"
 
 	controller, err := h.lookupAccountHardwareController(r.Context(), accountID, controllerParam)
 	if err != nil {
@@ -528,20 +615,39 @@ func (h *ControllerHandler) ControllerSensorsAPI(w http.ResponseWriter, r *http.
 		return
 	}
 
-	sensors, err := h.loadHardwareSensors(r.Context(), controller.id, controller.updatedAt)
+	system, err := loadActiveSystemForController(r.Context(), h.db, controller.id)
 	if err != nil {
-		http.Error(w, "failed to load sensors", http.StatusInternalServerError)
+		writeAPIError(w, err)
 		return
+	}
+
+	sensors := []models.HardwareSensorResponse{}
+	if liveOnly {
+		if strings.EqualFold(strings.TrimSpace(controller.status), "ONLINE") {
+			sensors, err = h.loadLiveHardwareSensors(r.Context(), controller.id, controller.updatedAt)
+			if err != nil {
+				http.Error(w, "failed to load sensors", http.StatusInternalServerError)
+				return
+			}
+		}
+	} else {
+		sensors, err = h.loadHardwareSensors(r.Context(), controller.id, system.assignedAt)
+		if err != nil {
+			http.Error(w, "failed to load sensors", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	json.NewEncoder(w).Encode(models.ControllerSensorsResponse{
 		ControllerID: controller.uid,
+		SystemID:     system.id.String(),
 		Sensors:      sensors,
 	})
 }
 
 func (h *ControllerHandler) ReleaseControllerAPI(w http.ResponseWriter, r *http.Request) {
 	accountID := GetAccountID(r).(uuid.UUID)
+	userID := GetUserID(r).(uuid.UUID)
 	controllerParam := strings.TrimSpace(chi.URLParam(r, "controllerId"))
 
 	controller, err := h.lookupAccountHardwareController(r.Context(), accountID, controllerParam)
@@ -555,7 +661,19 @@ func (h *ControllerHandler) ReleaseControllerAPI(w http.ResponseWriter, r *http.
 		return
 	}
 
-	_, err = h.db.Exec(r.Context(), `
+	tx, err := h.db.BeginTx(r.Context(), pgx.TxOptions{})
+	if err != nil {
+		http.Error(w, "failed to start release transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	if err := h.releaseControllerFromSystem(r.Context(), tx, controller.id, userID); err != nil {
+		http.Error(w, "failed to detach controller from system", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = tx.Exec(r.Context(), `
 		UPDATE controllers
 		SET owner_user_id = NULL,
 		    status = 'unclaimed',
@@ -567,8 +685,13 @@ func (h *ControllerHandler) ReleaseControllerAPI(w http.ResponseWriter, r *http.
 		return
 	}
 
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to finalize controller removal", http.StatusInternalServerError)
+		return
+	}
+
 	json.NewEncoder(w).Encode(map[string]string{
-		"message":      "Controller removed from this account.",
+		"message":      "Controller removed from this account. The monitoring system was preserved for later reassignment.",
 		"controllerId": controller.uid,
 	})
 }
@@ -590,6 +713,12 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	system, err := loadActiveSystemForController(r.Context(), h.db, controller.id)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
 	var req models.SaveHardwareSensorConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
@@ -597,6 +726,7 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 	}
 
 	req.SensorType = strings.TrimSpace(req.SensorType)
+	req.SystemName = strings.TrimSpace(req.SystemName)
 	req.SensorName = strings.TrimSpace(req.SensorName)
 	req.UsedFor = strings.TrimSpace(req.UsedFor)
 	req.DashboardView = strings.TrimSpace(req.DashboardView)
@@ -619,45 +749,115 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 	defer tx.Rollback(r.Context())
 
 	_, err = tx.Exec(r.Context(), `
-		UPDATE controller_sensors
+		UPDATE systems
+		SET name = $1,
+		    updated_at = NOW()
+		WHERE id = $2
+	`, req.SystemName, system.id)
+	if err != nil {
+		http.Error(w, "failed to update system name", http.StatusInternalServerError)
+		return
+	}
+
+	if sensor.controllerSensorID != nil {
+		_, err = tx.Exec(r.Context(), `
+			UPDATE controller_sensors
+			SET name = $1,
+			    type = $2,
+			    configured = true,
+			    updated_at = NOW()
+			WHERE id = $3 AND controller_id = $4
+		`, req.SensorName, req.SensorType, *sensor.controllerSensorID, controller.id)
+		if err != nil {
+			http.Error(w, "failed to update controller sensor", http.StatusInternalServerError)
+			return
+		}
+
+		_, err = tx.Exec(r.Context(), `
+			INSERT INTO sensor_configurations (
+				id,
+				sensor_id,
+				controller_id,
+				used_for,
+				dashboard_view,
+				config_json,
+				created_at,
+				updated_at
+			)
+			VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW(), NOW())
+			ON CONFLICT (sensor_id) DO UPDATE
+			SET used_for = EXCLUDED.used_for,
+			    dashboard_view = EXCLUDED.dashboard_view,
+			    config_json = EXCLUDED.config_json,
+			    updated_at = NOW()
+		`, uuid.New(), *sensor.controllerSensorID, controller.id, req.UsedFor, req.DashboardView, configJSON)
+		if err != nil {
+			http.Error(w, "failed to save controller sensor configuration", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	_, err = tx.Exec(r.Context(), `
+		UPDATE system_sensors
 		SET name = $1,
 		    type = $2,
 		    configured = true,
+		    status = CASE
+		        WHEN status = 'pending_discovery' THEN 'pending_discovery'
+		        ELSE 'live'
+		    END,
 		    updated_at = NOW()
-		WHERE id = $3 AND controller_id = $4
-	`, req.SensorName, req.SensorType, sensor.id, controller.id)
+		WHERE id = $3
+	`, req.SensorName, req.SensorType, sensor.id)
 	if err != nil {
-		http.Error(w, "failed to update sensor", http.StatusInternalServerError)
+		http.Error(w, "failed to update system sensor", http.StatusInternalServerError)
 		return
 	}
 
 	_, err = tx.Exec(r.Context(), `
-		INSERT INTO sensor_configurations (
+		UPDATE system_sensor_configurations
+		SET active = false,
+		    updated_at = NOW()
+		WHERE system_sensor_id = $1
+		  AND active = true
+	`, sensor.id)
+	if err != nil {
+		http.Error(w, "failed to retire previous system configuration", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = tx.Exec(r.Context(), `
+		INSERT INTO system_sensor_configurations (
 			id,
-			sensor_id,
-			controller_id,
+			system_sensor_id,
 			used_for,
 			dashboard_view,
 			config_json,
+			active,
 			created_at,
 			updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW(), NOW())
-		ON CONFLICT (sensor_id) DO UPDATE
-		SET used_for = EXCLUDED.used_for,
-		    dashboard_view = EXCLUDED.dashboard_view,
-		    config_json = EXCLUDED.config_json,
-		    updated_at = NOW()
-	`, uuid.New(), sensor.id, controller.id, req.UsedFor, req.DashboardView, configJSON)
+		VALUES ($1, $2, $3, $4, $5::jsonb, true, NOW(), NOW())
+	`, uuid.New(), sensor.id, req.UsedFor, req.DashboardView, configJSON)
 	if err != nil {
-		http.Error(w, "failed to save configuration", http.StatusInternalServerError)
+		http.Error(w, "failed to save system sensor configuration", http.StatusInternalServerError)
 		return
 	}
 
 	legacyConfig := buildLegacySensorConfig(req)
-	legacySensor, legacyErr := lookupLegacySensorRecord(r.Context(), tx, controller.id, sensorParam)
-	if errors.Is(legacyErr, pgx.ErrNoRows) && sensor.uid != "" && sensor.uid != sensorParam {
-		legacySensor, legacyErr = lookupLegacySensorRecord(r.Context(), tx, controller.id, sensor.uid)
+	legacySensor := legacySensorRecord{}
+	legacyErr := pgx.ErrNoRows
+	if sensor.legacyID != nil {
+		legacyErr = tx.QueryRow(r.Context(), `
+			SELECT id, hw_id, COALESCE(name, ''), type, status
+			FROM sensors
+			WHERE id = $1
+		`, *sensor.legacyID).Scan(&legacySensor.id, &legacySensor.hwID, &legacySensor.name, &legacySensor.sensorType, &legacySensor.status)
+	} else {
+		legacySensor, legacyErr = lookupLegacySensorRecord(r.Context(), tx, controller.id, sensorParam)
+		if errors.Is(legacyErr, pgx.ErrNoRows) && sensor.uid != "" && sensor.uid != sensorParam {
+			legacySensor, legacyErr = lookupLegacySensorRecord(r.Context(), tx, controller.id, sensor.uid)
+		}
 	}
 	if legacyErr == nil {
 		legacyConfigJSON, marshalErr := json.Marshal(legacyConfig)
@@ -670,9 +870,10 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 			UPDATE sensors
 			SET name = COALESCE($1, name),
 			    purpose = COALESCE($2, purpose),
-			    type = $3
+			    type = $3,
+			    system_sensor_id = $5
 			WHERE id = $4
-		`, nullableString(req.SensorName), nullableString(req.UsedFor), sensor.sensorType, legacySensor.id)
+		`, nullableString(req.SensorName), nullableString(req.UsedFor), sensor.sensorType, legacySensor.id, sensor.id)
 		if err != nil {
 			http.Error(w, "failed to update discovered sensor", http.StatusInternalServerError)
 			return
@@ -721,7 +922,8 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 	json.NewEncoder(w).Encode(models.SaveHardwareSensorConfigResponse{
 		Message:      "Configuration activated successfully",
 		ControllerID: controller.uid,
-		SensorID:     sensor.uid,
+		SystemID:     system.id.String(),
+		SensorID:     sensor.id.String(),
 		Configured:   true,
 	})
 }
@@ -743,14 +945,23 @@ func (h *ControllerHandler) GetSensorConfigAPI(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	system, err := loadActiveSystemForController(r.Context(), h.db, controller.id)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
 	var usedFor string
 	var dashboardView string
 	var configJSON []byte
 	err = h.db.QueryRow(r.Context(), `
 		SELECT COALESCE(used_for, ''), COALESCE(dashboard_view, ''), config_json
-		FROM sensor_configurations
-		WHERE controller_id = $1 AND sensor_id = $2
-	`, controller.id, sensor.id).Scan(&usedFor, &dashboardView, &configJSON)
+		FROM system_sensor_configurations
+		WHERE system_sensor_id = $1
+		  AND active = true
+		ORDER BY updated_at DESC
+		LIMIT 1
+	`, sensor.id).Scan(&usedFor, &dashboardView, &configJSON)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			http.Error(w, "configuration not found", http.StatusNotFound)
@@ -762,7 +973,9 @@ func (h *ControllerHandler) GetSensorConfigAPI(w http.ResponseWriter, r *http.Re
 
 	json.NewEncoder(w).Encode(models.HardwareSensorConfigResponse{
 		ControllerID:  controller.uid,
-		SensorID:      sensor.uid,
+		SystemID:      system.id.String(),
+		SensorID:      sensor.id.String(),
+		SensorUID:     sensor.uid,
 		SensorType:    sensor.sensorType,
 		SensorName:    sensor.name,
 		UsedFor:       usedFor,
@@ -871,24 +1084,24 @@ func (h *ControllerHandler) DemoCreateControllerAPI(w http.ResponseWriter, r *ht
 	})
 }
 
-func (h *ControllerHandler) claimController(ctx context.Context, userID uuid.UUID, accountID uuid.UUID, provided string) (hardwareControllerRecord, error) {
+func (h *ControllerHandler) claimController(ctx context.Context, userID uuid.UUID, accountID uuid.UUID, provided string, preferredSystemID string) (hardwareControllerRecord, systemRecord, error) {
 	tx, err := h.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return hardwareControllerRecord{}, err
+		return hardwareControllerRecord{}, systemRecord{}, err
 	}
 	defer tx.Rollback(ctx)
 
 	normalized := strings.ToUpper(strings.TrimSpace(provided))
 	record, err := h.findControllerForClaim(ctx, tx, normalized)
 	if err != nil {
-		return hardwareControllerRecord{}, err
+		return hardwareControllerRecord{}, systemRecord{}, err
 	}
 
 	if record.ownerUserID != "" {
 		if strings.EqualFold(record.ownerUserID, userID.String()) {
-			return hardwareControllerRecord{}, apiError{status: http.StatusConflict, message: "This device is already added to your account."}
+			return hardwareControllerRecord{}, systemRecord{}, apiError{status: http.StatusConflict, message: "This device is already added to your account."}
 		}
-		return hardwareControllerRecord{}, apiError{status: http.StatusConflict, message: "This controller is already owned by another account."}
+		return hardwareControllerRecord{}, systemRecord{}, apiError{status: http.StatusConflict, message: "This controller is already owned by another account."}
 	}
 
 	err = tx.QueryRow(ctx, `
@@ -902,16 +1115,21 @@ func (h *ControllerHandler) claimController(ctx context.Context, userID uuid.UUI
 		RETURNING updated_at
 	`, userID, accountID, record.id).Scan(&record.updatedAt)
 	if err != nil {
-		return hardwareControllerRecord{}, err
+		return hardwareControllerRecord{}, systemRecord{}, err
+	}
+
+	system, err := h.ensureControllerSystemAssignment(ctx, tx, record, userID, accountID, preferredSystemID)
+	if err != nil {
+		return hardwareControllerRecord{}, systemRecord{}, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return hardwareControllerRecord{}, err
+		return hardwareControllerRecord{}, systemRecord{}, err
 	}
 
 	record.status = "paired"
 	record.ownerUserID = userID.String()
-	return record, nil
+	return record, system, nil
 }
 
 func (h *ControllerHandler) findControllerForClaim(ctx context.Context, tx pgx.Tx, normalized string) (hardwareControllerRecord, error) {
@@ -1011,18 +1229,46 @@ func (h *ControllerHandler) lookupHardwareSensor(ctx context.Context, controller
 
 	var sensor hardwareSensorRecord
 	trimmedIdentifier := strings.TrimSpace(sensorIdentifier)
+	var systemID uuid.UUID
+	var controllerSensorID *uuid.UUID
+	var legacySensorID *uuid.UUID
 	err := h.db.QueryRow(ctx, `
-		SELECT id, sensor_uid, name, type, status, configured
-		FROM controller_sensors
-		WHERE controller_id = $1
-		  AND (sensor_uid = $2 OR id::text = $2)
+		SELECT
+			ss.id,
+			ss.system_id,
+			ss.slot_key,
+			COALESCE(cs.sensor_uid, ss.current_sensor_uid, ''),
+			ss.name,
+			ss.type,
+			ss.status,
+			ss.configured,
+			cs.id,
+			s.id
+		FROM system_controller_assignments sca
+		JOIN system_sensors ss ON ss.system_id = sca.system_id
+		LEFT JOIN controller_sensors cs
+		  ON cs.system_sensor_id = ss.id
+		 AND cs.controller_id = sca.controller_id
+		LEFT JOIN sensors s ON s.system_sensor_id = ss.id AND s.controller_id = sca.controller_id
+		WHERE sca.controller_id = $1
+		  AND sca.unassigned_at IS NULL
+		  AND (
+		        ss.id::text = $2
+		     OR COALESCE(cs.sensor_uid, ss.current_sensor_uid, '') = $2
+		  )
+		ORDER BY cs.updated_at DESC NULLS LAST, s.last_seen DESC NULLS LAST
+		LIMIT 1
 	`, controllerID, trimmedIdentifier).Scan(
 		&sensor.id,
+		&systemID,
+		&sensor.slotKey,
 		&sensor.uid,
 		&sensor.name,
 		&sensor.sensorType,
 		&sensor.status,
 		&sensor.configured,
+		&controllerSensorID,
+		&legacySensorID,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -1035,16 +1281,35 @@ func (h *ControllerHandler) lookupHardwareSensor(ctx context.Context, controller
 		return hardwareSensorRecord{}, err
 	}
 
+	sensor.systemID = &systemID
+	sensor.controllerSensorID = controllerSensorID
+	sensor.legacyID = legacySensorID
 	return sensor, nil
 }
 
 func (h *ControllerHandler) loadHardwareSensors(ctx context.Context, controllerID uuid.UUID, sessionStart time.Time) ([]models.HardwareSensorResponse, error) {
 	rows, err := h.db.Query(ctx, `
-		SELECT sensor_uid, name, type, status, configured
-		FROM controller_sensors
-		WHERE controller_id = $1
-		  AND updated_at >= $2
-		ORDER BY created_at ASC, sensor_uid ASC
+		SELECT
+			ss.id,
+			COALESCE(cs.sensor_uid, ss.current_sensor_uid, ''),
+			ss.system_id,
+			ss.slot_key,
+			ss.name,
+			ss.type,
+			ss.status,
+			ss.configured
+		FROM system_controller_assignments sca
+		JOIN system_sensors ss ON ss.system_id = sca.system_id
+		LEFT JOIN controller_sensors cs
+		  ON cs.system_sensor_id = ss.id
+		 AND cs.controller_id = sca.controller_id
+		WHERE sca.controller_id = $1
+		  AND sca.unassigned_at IS NULL
+		  AND (
+		        cs.updated_at >= $2
+		     OR (cs.id IS NULL AND ss.updated_at >= $2)
+		  )
+		ORDER BY ss.created_at ASC, ss.slot_key ASC
 	`, controllerID, sessionStart)
 	if err != nil {
 		return nil, err
@@ -1054,9 +1319,56 @@ func (h *ControllerHandler) loadHardwareSensors(ctx context.Context, controllerI
 	sensors := []models.HardwareSensorResponse{}
 	for rows.Next() {
 		var sensor models.HardwareSensorResponse
-		if err := rows.Scan(&sensor.ID, &sensor.Name, &sensor.Type, &sensor.Status, &sensor.Configured); err != nil {
+		var logicalID uuid.UUID
+		var systemID uuid.UUID
+		if err := rows.Scan(&logicalID, &sensor.SensorUID, &systemID, &sensor.SlotKey, &sensor.Name, &sensor.Type, &sensor.Status, &sensor.Configured); err != nil {
 			return nil, err
 		}
+		sensor.ID = logicalID.String()
+		sensor.SystemID = systemID.String()
+		sensors = append(sensors, sensor)
+	}
+
+	return sensors, rows.Err()
+}
+
+func (h *ControllerHandler) loadLiveHardwareSensors(ctx context.Context, controllerID uuid.UUID, sessionStart time.Time) ([]models.HardwareSensorResponse, error) {
+	rows, err := h.db.Query(ctx, `
+		SELECT
+			ss.id,
+			COALESCE(cs.sensor_uid, ss.current_sensor_uid, ''),
+			ss.system_id,
+			ss.slot_key,
+			ss.name,
+			ss.type,
+			ss.status,
+			ss.configured
+		FROM system_controller_assignments sca
+		JOIN system_sensors ss ON ss.system_id = sca.system_id
+		LEFT JOIN controller_sensors cs
+		  ON cs.system_sensor_id = ss.id
+		 AND cs.controller_id = sca.controller_id
+		WHERE sca.controller_id = $1
+		  AND sca.unassigned_at IS NULL
+		  AND ss.last_seen IS NOT NULL
+		  AND ss.last_seen >= $2
+		ORDER BY ss.created_at ASC, ss.slot_key ASC
+	`, controllerID, sessionStart)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	sensors := []models.HardwareSensorResponse{}
+	for rows.Next() {
+		var sensor models.HardwareSensorResponse
+		var logicalID uuid.UUID
+		var systemID uuid.UUID
+		if err := rows.Scan(&logicalID, &sensor.SensorUID, &systemID, &sensor.SlotKey, &sensor.Name, &sensor.Type, &sensor.Status, &sensor.Configured); err != nil {
+			return nil, err
+		}
+		sensor.ID = logicalID.String()
+		sensor.SystemID = systemID.String()
 		sensors = append(sensors, sensor)
 	}
 
@@ -1177,8 +1489,15 @@ func (h *ControllerHandler) ensureHardwareSensorForLegacy(ctx context.Context, c
 
 	status := hardwareSensorStatusFromLegacy(legacySensor.status)
 	sensorType := normalizeHardwareSensorType(legacySensor.sensorType)
+	system, err := loadActiveSystemForController(ctx, h.db, controllerID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return hardwareSensorRecord{}, apiError{status: http.StatusNotFound, message: "sensor not found"}
+		}
+		return hardwareSensorRecord{}, err
+	}
 
-	var sensor hardwareSensorRecord
+	var controllerSensorID uuid.UUID
 	err = h.db.QueryRow(ctx, `
 		INSERT INTO controller_sensors (
 			id,
@@ -1198,21 +1517,44 @@ func (h *ControllerHandler) ensureHardwareSensorForLegacy(ctx context.Context, c
 		    status = EXCLUDED.status,
 		    updated_at = NOW()
 		WHERE controller_sensors.controller_id = EXCLUDED.controller_id
-		RETURNING id, sensor_uid, name, type, status, configured
+		RETURNING id
 	`, uuid.New(), legacySensor.hwID, controllerID, name, sensorType, status).Scan(
-		&sensor.id,
-		&sensor.uid,
-		&sensor.name,
-		&sensor.sensorType,
-		&sensor.status,
-		&sensor.configured,
+		&controllerSensorID,
 	)
 	if err != nil {
 		return hardwareSensorRecord{}, err
 	}
 
-	sensor.legacyID = &legacySensor.id
-	return sensor, nil
+	systemSensor, err := ensureSystemSensorBinding(
+		ctx,
+		h.db,
+		system.id,
+		controllerID,
+		legacySensor.hwID,
+		sensorType,
+		name,
+		status,
+		false,
+		&controllerSensorID,
+		&legacySensor.id,
+		nil,
+	)
+	if err != nil {
+		return hardwareSensorRecord{}, err
+	}
+
+	return hardwareSensorRecord{
+		id:                 systemSensor.id,
+		systemID:           &system.id,
+		slotKey:            systemSensor.slotKey,
+		uid:                legacySensor.hwID,
+		name:               systemSensor.name,
+		sensorType:         systemSensor.sensorType,
+		status:             systemSensor.status,
+		configured:         systemSensor.configured,
+		controllerSensorID: &controllerSensorID,
+		legacyID:           &legacySensor.id,
+	}, nil
 }
 
 func lookupLegacySensorRecord(ctx context.Context, q queryRower, controllerID uuid.UUID, sensorIdentifier string) (legacySensorRecord, error) {
@@ -1338,6 +1680,9 @@ func sanitizeUID(value string) string {
 }
 
 func validateHardwareSensorConfigRequest(req models.SaveHardwareSensorConfigRequest, actualSensorType string) error {
+	if strings.TrimSpace(req.SystemName) == "" {
+		return fmt.Errorf("systemName required")
+	}
 	if req.SensorType == "" {
 		return fmt.Errorf("sensorType required")
 	}

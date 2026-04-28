@@ -77,7 +77,7 @@ const ControllerDashboard: React.FC = () => {
       setLoading(true);
       const [controllerData, sensorsData] = await Promise.all([
         getHardwareController(activeControllerId),
-        getHardwareSensors(activeControllerId),
+        getHardwareSensors(activeControllerId, { liveOnly: true }),
       ]);
       setController(controllerData);
       setSensors(Array.isArray(sensorsData) ? sensorsData : []);
@@ -93,6 +93,19 @@ const ControllerDashboard: React.FC = () => {
       loadData();
     }
   }, [activeControllerId, loadData]);
+
+  useEffect(() => {
+    if (!activeControllerId) {
+      return undefined;
+    }
+
+    const intervalMs = sensors.length === 0 ? 5000 : 15000;
+    const intervalId = window.setInterval(() => {
+      loadData();
+    }, intervalMs);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeControllerId, loadData, sensors.length]);
 
   useEffect(() => {
     if (!navigationState?.configurationSaved) {

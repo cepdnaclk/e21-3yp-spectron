@@ -1068,9 +1068,14 @@ const Monitoring: React.FC = () => {
                                 size="small"
                                 startIcon={<Tune />}
                                 onClick={() =>
-                                  navigate(`/sensors/${item.sensor.id}/config`, {
+                                  navigate(`/hardware/${controller.id}/sensors/${item.sensor.id}/configure`, {
                                     state: {
                                       preferredSetupMode: 'manual',
+                                      controllerId: controller.id,
+                                      sensorId: item.sensor.id,
+                                      sensorType: item.sensor.type,
+                                      sensorName: item.sensor.name || `${item.sensor.type} Sensor`,
+                                      configured: Boolean(item.sensor.config_active),
                                       returnTo: '/monitoring',
                                     },
                                   })

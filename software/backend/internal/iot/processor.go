@@ -44,7 +44,11 @@ func (p *RawReadingsProcessor) ProcessEvent(ctx context.Context, event RawReadin
 	_, err = tx.Exec(ctx, `
 		UPDATE controllers
 		SET status = 'ONLINE',
-		    last_seen = $2
+		    last_seen = $2,
+		    updated_at = CASE
+		        WHEN UPPER(COALESCE(status, '')) = 'ONLINE' THEN updated_at
+		        ELSE $2
+		    END
 		WHERE id = $1
 	`, controllerID, event.ReadingTime)
 	if err != nil {
@@ -87,6 +91,28 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 		return fmt.Errorf("upsert sensor %s: %w", sensorHWID, err)
 	}
 
+	var systemSensorID *uuid.UUID
+	var systemID *uuid.UUID
+	var resolvedSystemID uuid.UUID
+	if err := tx.QueryRow(ctx, `
+		SELECT system_id
+		FROM system_controller_assignments
+		WHERE controller_id = $1
+		  AND unassigned_at IS NULL
+	`, controllerID).Scan(&resolvedSystemID); err != nil && err != pgx.ErrNoRows {
+		return fmt.Errorf("resolve active system for controller %s: %w", event.DeviceID, err)
+	}
+	if resolvedSystemID != uuid.Nil {
+		systemID = &resolvedSystemID
+	}
+	if systemID != nil {
+		resolvedSystemSensorID, bindErr := upsertSystemSensorState(ctx, tx, *systemID, controllerID, sensorHWID, sensorType, persistedSensorName, event.ReadingTime, persistedSensorID)
+		if bindErr != nil {
+			return fmt.Errorf("bind logical system sensor %s: %w", sensorHWID, bindErr)
+		}
+		systemSensorID = &resolvedSystemSensorID
+	}
+
 	meta, err := json.Marshal(map[string]any{
 		"event_id":      event.EventID,
 		"device_id":     event.DeviceID,
@@ -102,12 +128,13 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 	}
 
 	_, err = tx.Exec(ctx, `
-		INSERT INTO sensor_readings (time, sensor_id, value, meta)
-		VALUES ($1, $2, $3, $4::jsonb)
+		INSERT INTO sensor_readings (time, sensor_id, system_sensor_id, value, meta)
+		VALUES ($1, $2, $3, $4, $5::jsonb)
 		ON CONFLICT (time, sensor_id) DO UPDATE
-		SET value = EXCLUDED.value,
+		SET system_sensor_id = COALESCE(EXCLUDED.system_sensor_id, sensor_readings.system_sensor_id),
+		    value = EXCLUDED.value,
 		    meta = EXCLUDED.meta
-	`, event.ReadingTime, persistedSensorID, sensor.Value, meta)
+	`, event.ReadingTime, persistedSensorID, systemSensorID, sensor.Value, meta)
 	if err != nil {
 		return fmt.Errorf("insert sensor reading %s: %w", sensorHWID, err)
 	}
@@ -116,6 +143,8 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 		AccountID:    accountID,
 		ControllerID: controllerID,
 		SensorID:     persistedSensorID,
+		SystemID:     systemID,
+		SystemSensorID: systemSensorID,
 		SensorHWID:   sensorHWID,
 		SensorName:   persistedSensorName,
 		SensorType:   persistedSensorType,
@@ -128,10 +157,151 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 	return nil
 }
 
+func upsertSystemSensorState(
+	ctx context.Context,
+	tx pgx.Tx,
+	systemID uuid.UUID,
+	controllerID uuid.UUID,
+	sensorHWID string,
+	sensorType string,
+	sensorName string,
+	readingTime time.Time,
+	legacySensorID uuid.UUID,
+) (uuid.UUID, error) {
+	slotKey := NormalizeSystemSensorSlotKey(sensorHWID, sensorType)
+	displayName := strings.TrimSpace(sensorName)
+	if displayName == "" {
+		displayName = sensorHWID
+	}
+
+	var systemSensorID uuid.UUID
+	err := tx.QueryRow(ctx, `
+		INSERT INTO system_sensors (
+			id,
+			system_id,
+			slot_key,
+			name,
+			type,
+			status,
+			configured,
+			current_controller_id,
+			current_sensor_uid,
+			created_at,
+			updated_at,
+			last_seen
+		)
+		VALUES ($1, $2, $3, $4, $5, 'live', false, $6, $7, NOW(), NOW(), $8)
+		ON CONFLICT (system_id, slot_key) DO UPDATE
+		SET name = COALESCE(NULLIF(EXCLUDED.name, ''), system_sensors.name),
+		    type = EXCLUDED.type,
+		    status = 'live',
+		    current_controller_id = EXCLUDED.current_controller_id,
+		    current_sensor_uid = EXCLUDED.current_sensor_uid,
+		    updated_at = NOW(),
+		    last_seen = EXCLUDED.last_seen
+		RETURNING id
+	`, uuid.New(), systemID, slotKey, displayName, sensorType, controllerID, sensorHWID, readingTime).Scan(&systemSensorID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE sensors
+		SET system_sensor_id = $2
+		WHERE id = $1
+	`, legacySensorID, systemSensorID); err != nil {
+		return uuid.Nil, err
+	}
+
+	var controllerSensorID *uuid.UUID
+	var resolvedControllerSensorID uuid.UUID
+	if err := tx.QueryRow(ctx, `
+		SELECT id
+		FROM controller_sensors
+		WHERE controller_id = $1
+		  AND sensor_uid = $2
+	`, controllerID, sensorHWID).Scan(&resolvedControllerSensorID); err != nil && err != pgx.ErrNoRows {
+		return uuid.Nil, err
+	}
+	if resolvedControllerSensorID != uuid.Nil {
+		controllerSensorID = &resolvedControllerSensorID
+	}
+	if controllerSensorID != nil {
+		if _, err := tx.Exec(ctx, `
+			UPDATE controller_sensors
+			SET system_sensor_id = $2,
+			    updated_at = NOW()
+			WHERE id = $1
+		`, *controllerSensorID, systemSensorID); err != nil {
+			return uuid.Nil, err
+		}
+	}
+
+	var existingAssignmentID uuid.UUID
+	var existingControllerSensorID *uuid.UUID
+	var existingLegacySensorID *uuid.UUID
+	var resolvedExistingControllerSensorID *uuid.UUID
+	var resolvedExistingLegacySensorID *uuid.UUID
+	err = tx.QueryRow(ctx, `
+		SELECT id, controller_sensor_id, legacy_sensor_id
+		FROM system_sensor_assignments
+		WHERE system_sensor_id = $1
+		  AND unassigned_at IS NULL
+	`, systemSensorID).Scan(&existingAssignmentID, &resolvedExistingControllerSensorID, &resolvedExistingLegacySensorID)
+	if err != nil && err != pgx.ErrNoRows {
+		return uuid.Nil, err
+	}
+	existingControllerSensorID = resolvedExistingControllerSensorID
+	existingLegacySensorID = resolvedExistingLegacySensorID
+	if err == nil {
+		matchesController := (existingControllerSensorID == nil && controllerSensorID == nil) || (existingControllerSensorID != nil && controllerSensorID != nil && *existingControllerSensorID == *controllerSensorID)
+		matchesLegacy := existingLegacySensorID != nil && *existingLegacySensorID == legacySensorID
+		if matchesController && matchesLegacy {
+			if _, err := tx.Exec(ctx, `
+				UPDATE system_sensor_assignments
+				SET controller_id = $2,
+				    sensor_uid = $3
+				WHERE id = $1
+			`, existingAssignmentID, controllerID, sensorHWID); err != nil {
+				return uuid.Nil, err
+			}
+			return systemSensorID, nil
+		}
+
+		if _, err := tx.Exec(ctx, `
+			UPDATE system_sensor_assignments
+			SET unassigned_at = NOW()
+			WHERE id = $1
+		`, existingAssignmentID); err != nil {
+			return uuid.Nil, err
+		}
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO system_sensor_assignments (
+			id,
+			system_sensor_id,
+			controller_id,
+			controller_sensor_id,
+			legacy_sensor_id,
+			sensor_uid,
+			assigned_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW())
+	`, uuid.New(), systemSensorID, controllerID, controllerSensorID, legacySensorID, sensorHWID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	return systemSensorID, nil
+}
+
 type thresholdAlertInput struct {
 	AccountID    uuid.UUID
 	ControllerID uuid.UUID
 	SensorID     uuid.UUID
+	SystemID     *uuid.UUID
+	SystemSensorID *uuid.UUID
 	SensorHWID   string
 	SensorName   string
 	SensorType   string
@@ -148,7 +318,7 @@ type thresholdAlertEvaluation struct {
 }
 
 func (p *RawReadingsProcessor) evaluateThresholdAlert(ctx context.Context, tx pgx.Tx, input thresholdAlertInput) error {
-	config, ok, err := loadActiveSensorConfig(ctx, tx, input.SensorID, input.ControllerID, input.SensorHWID, input.SensorType)
+	config, ok, err := loadActiveSensorConfig(ctx, tx, input.SensorID, input.SystemSensorID, input.ControllerID, input.SensorHWID, input.SensorType)
 	if err != nil {
 		return err
 	}
@@ -162,11 +332,32 @@ func (p *RawReadingsProcessor) evaluateThresholdAlert(ctx context.Context, tx pg
 	}
 
 	message := thresholdAlertMessage(input, evaluation)
-	return upsertOpenAlert(ctx, tx, input.AccountID, input.ControllerID, input.SensorID, "THRESHOLD_BREACH", evaluation.Severity, message)
+	return upsertOpenAlert(ctx, tx, input.AccountID, input.ControllerID, input.SensorID, input.SystemID, input.SystemSensorID, "THRESHOLD_BREACH", evaluation.Severity, message)
 }
 
-func loadActiveSensorConfig(ctx context.Context, tx pgx.Tx, sensorID uuid.UUID, controllerID uuid.UUID, sensorHWID string, sensorType string) (models.SensorConfig, bool, error) {
+func loadActiveSensorConfig(ctx context.Context, tx pgx.Tx, sensorID uuid.UUID, systemSensorID *uuid.UUID, controllerID uuid.UUID, sensorHWID string, sensorType string) (models.SensorConfig, bool, error) {
 	var rawConfig []byte
+	if systemSensorID != nil {
+		err := tx.QueryRow(ctx, `
+			SELECT config_json
+			FROM system_sensor_configurations
+			WHERE system_sensor_id = $1
+			  AND active = true
+			ORDER BY updated_at DESC
+			LIMIT 1
+		`, *systemSensorID).Scan(&rawConfig)
+		if err == nil {
+			config, err := decodeAlertSensorConfig(rawConfig, sensorType)
+			if err != nil {
+				return models.SensorConfig{}, false, err
+			}
+			return config, true, nil
+		}
+		if err != pgx.ErrNoRows {
+			return models.SensorConfig{}, false, err
+		}
+	}
+
 	err := tx.QueryRow(ctx, `
 		SELECT config_json
 		FROM sensor_configs
@@ -348,7 +539,7 @@ func roundForAlert(value float64) float64 {
 	return math.Round(value*100) / 100
 }
 
-func upsertOpenAlert(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, controllerID uuid.UUID, sensorID uuid.UUID, alertType string, severity string, message string) error {
+func upsertOpenAlert(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, controllerID uuid.UUID, sensorID uuid.UUID, systemID *uuid.UUID, systemSensorID *uuid.UUID, alertType string, severity string, message string) error {
 	var existingID uuid.UUID
 	err := tx.QueryRow(ctx, `
 		SELECT id
@@ -370,15 +561,17 @@ func upsertOpenAlert(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, contro
 		_, err = tx.Exec(ctx, `
 			UPDATE alerts
 			SET message = $1,
+			    system_id = $2,
+			    system_sensor_id = $3,
 			    created_at = NOW()
-			WHERE id = $2
-		`, message, existingID)
+			WHERE id = $4
+		`, message, systemID, systemSensorID, existingID)
 		return err
 	}
 
 	_, err = tx.Exec(ctx, `
-		INSERT INTO alerts (id, account_id, controller_id, sensor_id, type, severity, message, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-	`, uuid.New(), accountID, controllerID, sensorID, alertType, severity, message)
+		INSERT INTO alerts (id, account_id, controller_id, sensor_id, system_id, system_sensor_id, type, severity, message, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+	`, uuid.New(), accountID, controllerID, sensorID, systemID, systemSensorID, alertType, severity, message)
 	return err
 }
