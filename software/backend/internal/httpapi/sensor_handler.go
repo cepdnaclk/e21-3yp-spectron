@@ -182,6 +182,53 @@ func (h *SensorHandler) Get(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(s)
 }
 
+func (h *SensorHandler) Update(w http.ResponseWriter, r *http.Request) {
+	sensorID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		http.Error(w, "invalid sensor id", http.StatusBadRequest)
+		return
+	}
+
+	accountID := GetAccountID(r).(uuid.UUID)
+
+	var req models.UpdateSensorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == nil {
+		http.Error(w, "no fields to update", http.StatusBadRequest)
+		return
+	}
+
+	name := strings.TrimSpace(*req.Name)
+	if name == "" {
+		http.Error(w, "sensor name required", http.StatusBadRequest)
+		return
+	}
+
+	tag, err := h.db.Exec(r.Context(), `
+		UPDATE sensors s
+		SET name = $1
+		FROM controllers c
+		WHERE s.controller_id = c.id
+		  AND s.id = $2
+		  AND c.account_id = $3
+		  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
+	`, name, sensorID, accountID)
+	if err != nil {
+		http.Error(w, "failed to update sensor", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "sensor not found", http.StatusNotFound)
+		return
+	}
+
+	h.Get(w, r)
+}
+
 func (h *SensorHandler) AISuggestConfig(w http.ResponseWriter, r *http.Request) {
 	sensorID, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {

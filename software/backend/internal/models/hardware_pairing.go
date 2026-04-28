@@ -48,6 +48,14 @@ type ControllerSensorsResponse struct {
 	Sensors      []HardwareSensorResponse `json:"sensors"`
 }
 
+type UpdateHardwareControllerRequest struct {
+	Name *string `json:"name,omitempty"`
+}
+
+type UpdateHardwareSensorRequest struct {
+	Name *string `json:"name,omitempty"`
+}
+
 type SaveHardwareSensorConfigRequest struct {
 	SystemName    string                 `json:"systemName,omitempty"`
 	SensorType    string                 `json:"sensorType"`

@@ -108,6 +108,10 @@ export interface SaveSensorConfigRequest {
   config: SensorConfig;
 }
 
+export interface UpdateSensorRequest {
+  name?: string;
+}
+
 export interface SaveSensorConfigResponse {
   status: string;
   validated_config: SensorConfig;
@@ -146,6 +150,14 @@ export const saveSensorConfig = async (
   request: SaveSensorConfigRequest
 ): Promise<SaveSensorConfigResponse> => {
   const response = await api.post<SaveSensorConfigResponse>(API_ENDPOINTS.SENSORS.CONFIG(sensorId), request);
+  return response.data;
+};
+
+export const updateSensor = async (
+  sensorId: string,
+  request: UpdateSensorRequest
+): Promise<Sensor> => {
+  const response = await api.patch<Sensor>(API_ENDPOINTS.SENSORS.UPDATE(sensorId), request);
   return response.data;
 };
 

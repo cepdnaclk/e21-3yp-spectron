@@ -1,10 +1,11 @@
 import api from './api';
-import { Controller } from './controllerService';
+import { Controller, updateController } from './controllerService';
 import { API_ENDPOINTS } from '../config/api';
 import {
   getSensor,
   getSensors,
   saveSensorConfig,
+  updateSensor,
   Sensor,
   SensorConfig as SensorConfigPayload,
 } from './sensorService';
@@ -148,6 +149,14 @@ const normalizeStatus = (status: string): Sensor['status'] => {
     default:
       return 'OFFLINE';
   }
+};
+
+const isRouteNotFound = (error: any) => {
+  return error?.response?.status === 404 && typeof error?.response?.data === 'string';
+};
+
+const renameRouteUnavailableError = () => {
+  return new Error('Rename endpoint is not available on the running backend. Please restart the backend server and try again.');
 };
 
 export const toAppSensor = (controllerId: string, sensor: HardwarePairingSensor): Sensor => {
@@ -554,6 +563,130 @@ export const getHardwareSensor = async (sensorId: string, controllerId?: string)
   }
 
   return getSensor(sensorId);
+};
+
+export const renameHardwareController = async (
+  controllerId: string,
+  name: string
+): Promise<Controller> => {
+  const trimmedName = name.trim();
+
+  if (isMockMode()) {
+    const state = readStore();
+    const current = state[controllerId] || mockPairingResponse(controllerId);
+    state[controllerId] = {
+      ...current,
+      systemName: trimmedName,
+      updatedAt: new Date().toISOString(),
+    };
+    writeStore(state);
+
+    return {
+      id: controllerId,
+      account_id: 'local-demo',
+      hw_id: controllerId,
+      name: trimmedName,
+      status: normalizeControllerStatus(current.status),
+      created_at: state[controllerId].updatedAt,
+    };
+  }
+
+  if (/^CTRL-/i.test(controllerId)) {
+    let response;
+    try {
+      response = await api.patch<{
+        controllerId: string;
+        systemName?: string;
+        name?: string;
+        status?: string;
+      }>(`/api/controllers/${encodeURIComponent(controllerId)}`, { name: trimmedName });
+    } catch (error: any) {
+      if (!isRouteNotFound(error)) {
+        throw error;
+      }
+
+      try {
+        response = await api.put<{
+          controllerId: string;
+          systemName?: string;
+          name?: string;
+          status?: string;
+        }>(`/api/controllers/${encodeURIComponent(controllerId)}`, { name: trimmedName });
+      } catch (fallbackError: any) {
+        if (isRouteNotFound(fallbackError)) {
+          throw renameRouteUnavailableError();
+        }
+        throw fallbackError;
+      }
+    }
+
+    return {
+      id: response.data.controllerId || controllerId,
+      account_id: '',
+      hw_id: response.data.controllerId || controllerId,
+      name: response.data.systemName || response.data.name || trimmedName,
+      status: normalizeControllerStatus(response.data.status),
+      created_at: '',
+    };
+  }
+
+  return updateController(controllerId, { name: trimmedName });
+};
+
+export const renameHardwareSensor = async (
+  controllerId: string,
+  sensorId: string,
+  name: string
+): Promise<Sensor> => {
+  const trimmedName = name.trim();
+
+  if (isMockMode()) {
+    const state = readStore();
+    const current = state[controllerId] || mockPairingResponse(controllerId);
+    const nextSensors = (Array.isArray(current.sensors) ? current.sensors : []).map((sensor) =>
+      sensor.id === sensorId || sensor.sensorUid === sensorId
+        ? { ...sensor, name: trimmedName }
+        : sensor
+    );
+    state[controllerId] = {
+      ...current,
+      sensors: nextSensors,
+      updatedAt: new Date().toISOString(),
+    };
+    writeStore(state);
+
+    const updatedSensor = nextSensors.find((sensor) => sensor.id === sensorId || sensor.sensorUid === sensorId);
+    return updatedSensor ? toAppSensor(controllerId, updatedSensor) : getSensor(sensorId);
+  }
+
+  if (/^CTRL-/i.test(controllerId)) {
+    let response;
+    try {
+      response = await api.patch<HardwarePairingSensor>(
+        `/api/controllers/${encodeURIComponent(controllerId)}/sensors/${encodeURIComponent(sensorId)}`,
+        { name: trimmedName }
+      );
+    } catch (error: any) {
+      if (!isRouteNotFound(error)) {
+        throw error;
+      }
+
+      try {
+        response = await api.put<HardwarePairingSensor>(
+          `/api/controllers/${encodeURIComponent(controllerId)}/sensors/${encodeURIComponent(sensorId)}`,
+          { name: trimmedName }
+        );
+      } catch (fallbackError: any) {
+        if (isRouteNotFound(fallbackError)) {
+          throw renameRouteUnavailableError();
+        }
+        throw fallbackError;
+      }
+    }
+    return toAppSensor(controllerId, response.data);
+  }
+
+  return updateSensor(sensorId, { name: trimmedName });
 };
 
 export const saveHardwareSensorConfiguration = async (

@@ -13,14 +13,17 @@ import {
   Stack,
   IconButton,
   Snackbar,
+  TextField,
 } from '@mui/material';
-import { ArrowBack, DeleteOutline, Settings, DeviceThermostat, Place, Memory, Tune, Wifi, WifiOff } from '@mui/icons-material';
+import { ArrowBack, Check, Close, DeleteOutline, Edit, Settings, DeviceThermostat, Place, Memory, Tune, Wifi, WifiOff } from '@mui/icons-material';
 import { Controller } from '../../services/controllerService';
 import { Sensor } from '../../services/sensorService';
 import {
   HardwarePairingSensor,
   getHardwareController,
   getHardwareSensors,
+  renameHardwareController,
+  renameHardwareSensor,
   releaseHardwareController,
 } from '../../services/hardwarePairingService';
 import { ControllerDashboardSkeleton } from '../../components/LoadingSkeletons';
@@ -46,6 +49,12 @@ const ControllerDashboard: React.FC = () => {
   const [sensors, setSensors] = useState<Sensor[]>([]);
   const [loading, setLoading] = useState(true);
   const [removing, setRemoving] = useState(false);
+  const [renamingController, setRenamingController] = useState(false);
+  const [editingControllerName, setEditingControllerName] = useState(false);
+  const [controllerNameDraft, setControllerNameDraft] = useState('');
+  const [renamingSensorId, setRenamingSensorId] = useState<string | null>(null);
+  const [editingSensorId, setEditingSensorId] = useState<string | null>(null);
+  const [sensorNameDraft, setSensorNameDraft] = useState('');
   const navigationState = (location.state || null) as DashboardNavigationState | null;
   const [saveNotice, setSaveNotice] = useState<DashboardNavigationState | null>(navigationState);
   const [toastOpen, setToastOpen] = useState(Boolean(navigationState?.configurationSaved));
@@ -57,6 +66,12 @@ const ControllerDashboard: React.FC = () => {
     activeControllerId;
   const isHardwareRoute = Boolean(controllerId);
   const canManageControllers = user?.accounts?.some((account) => account.role === 'OWNER' || account.role === 'ADMIN');
+
+  useEffect(() => {
+    if (controller && !editingControllerName) {
+      setControllerNameDraft(controller.name || '');
+    }
+  }, [controller, editingControllerName]);
 
   const handleBack = () => {
     if ((window.history.state?.idx ?? 0) > 0) {
@@ -181,6 +196,76 @@ const ControllerDashboard: React.FC = () => {
     }
   };
 
+  const showToast = (message: string, severity: 'success' | 'error') => {
+    setSaveNotice({ observationMessage: message });
+    setToastSeverity(severity);
+    setToastOpen(true);
+  };
+
+  const startControllerRename = () => {
+    setControllerNameDraft(controller?.name || '');
+    setEditingControllerName(true);
+  };
+
+  const cancelControllerRename = () => {
+    setControllerNameDraft(controller?.name || '');
+    setEditingControllerName(false);
+  };
+
+  const saveControllerName = async () => {
+    const nextName = controllerNameDraft.trim();
+    if (!controller || !activeControllerId || !nextName || renamingController) {
+      return;
+    }
+
+    setRenamingController(true);
+    try {
+      const updatedController = await renameHardwareController(activeControllerId, nextName);
+      setController((current) => current ? { ...current, ...updatedController, name: updatedController.name || nextName } : updatedController);
+      setEditingControllerName(false);
+      showToast('Controller name updated.', 'success');
+    } catch (err: any) {
+      const responseData = err?.response?.data;
+      showToast(err?.message || (typeof responseData === 'string' ? responseData : responseData?.message) || 'Failed to update controller name.', 'error');
+    } finally {
+      setRenamingController(false);
+    }
+  };
+
+  const startSensorRename = (sensor: Sensor) => {
+    setEditingSensorId(sensor.id);
+    setSensorNameDraft(sensor.name || `${sensor.type} Sensor`);
+  };
+
+  const cancelSensorRename = () => {
+    setEditingSensorId(null);
+    setSensorNameDraft('');
+  };
+
+  const saveSensorName = async (sensor: Sensor) => {
+    const nextName = sensorNameDraft.trim();
+    if (!activeControllerId || !nextName || renamingSensorId) {
+      return;
+    }
+
+    setRenamingSensorId(sensor.id);
+    try {
+      const updatedSensor = await renameHardwareSensor(activeControllerId, sensor.id, nextName);
+      setSensors((current) =>
+        current.map((item) =>
+          item.id === sensor.id ? { ...item, ...updatedSensor, name: updatedSensor.name || nextName } : item
+        )
+      );
+      cancelSensorRename();
+      showToast('Sensor name updated.', 'success');
+    } catch (err: any) {
+      const responseData = err?.response?.data;
+      showToast(err?.message || (typeof responseData === 'string' ? responseData : responseData?.message) || 'Failed to update sensor name.', 'error');
+    } finally {
+      setRenamingSensorId(null);
+    }
+  };
+
   if (loading) {
     return <ControllerDashboardSkeleton />;
   }
@@ -270,7 +355,65 @@ const ControllerDashboard: React.FC = () => {
               <Typography variant="overline" sx={{ color: '#e1c7a3', fontWeight: 800 }}>
                 Controller workspace
               </Typography>
-              <Typography variant="h4">{controller.name || 'Unnamed Controller'}</Typography>
+              {editingControllerName ? (
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  alignItems="center"
+                  component="form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveControllerName();
+                  }}
+                  sx={{ mt: 0.5 }}
+                >
+                  <TextField
+                    size="small"
+                    value={controllerNameDraft}
+                    onChange={(event) => setControllerNameDraft(event.target.value)}
+                    autoFocus
+                    variant="filled"
+                    label="Controller name"
+                    sx={{
+                      minWidth: { xs: 220, sm: 360 },
+                      bgcolor: 'rgba(255, 253, 248, 0.12)',
+                      borderRadius: 1,
+                      '& .MuiInputBase-input, & .MuiInputLabel-root': {
+                        color: '#fffdf8',
+                      },
+                    }}
+                  />
+                  <IconButton
+                    aria-label="Save controller name"
+                    type="submit"
+                    disabled={renamingController || !controllerNameDraft.trim()}
+                    sx={{ color: '#fffdf8' }}
+                  >
+                    <Check />
+                  </IconButton>
+                  <IconButton
+                    aria-label="Cancel controller name edit"
+                    onClick={cancelControllerRename}
+                    disabled={renamingController}
+                    sx={{ color: '#fffdf8' }}
+                  >
+                    <Close />
+                  </IconButton>
+                </Stack>
+              ) : (
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography variant="h4">{controller.name || 'Unnamed Controller'}</Typography>
+                  {canManageControllers && (
+                    <IconButton
+                      aria-label="Edit controller name"
+                      onClick={startControllerRename}
+                      sx={{ color: '#fffdf8' }}
+                    >
+                      <Edit />
+                    </IconButton>
+                  )}
+                </Stack>
+              )}
             </Box>
             <Chip
               icon={controller.status === 'ONLINE' ? <Wifi /> : <WifiOff />}
@@ -385,9 +528,58 @@ const ControllerDashboard: React.FC = () => {
                         <Box sx={{ p: 1, borderRadius: '50%', bgcolor: 'rgba(108, 137, 48, 0.12)' }}>
                           <DeviceThermostat color="primary" />
                         </Box>
-                        <Typography variant="h6">
-                          {sensor.name || `${sensor.type} Sensor`}
-                        </Typography>
+                        {editingSensorId === sensor.id ? (
+                          <Stack
+                            direction="row"
+                            spacing={0.5}
+                            alignItems="center"
+                            component="form"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              saveSensorName(sensor);
+                            }}
+                          >
+                            <TextField
+                              size="small"
+                              value={sensorNameDraft}
+                              onChange={(event) => setSensorNameDraft(event.target.value)}
+                              autoFocus
+                              label="Sensor name"
+                              sx={{ minWidth: { xs: 180, sm: 240 } }}
+                            />
+                            <IconButton
+                              aria-label="Save sensor name"
+                              type="submit"
+                              size="small"
+                              disabled={renamingSensorId === sensor.id || !sensorNameDraft.trim()}
+                            >
+                              <Check fontSize="small" />
+                            </IconButton>
+                            <IconButton
+                              aria-label="Cancel sensor name edit"
+                              onClick={cancelSensorRename}
+                              size="small"
+                              disabled={renamingSensorId === sensor.id}
+                            >
+                              <Close fontSize="small" />
+                            </IconButton>
+                          </Stack>
+                        ) : (
+                          <Stack direction="row" spacing={0.5} alignItems="center">
+                            <Typography variant="h6">
+                              {sensor.name || `${sensor.type} Sensor`}
+                            </Typography>
+                            {canManageControllers && (
+                              <IconButton
+                                aria-label="Edit sensor name"
+                                size="small"
+                                onClick={() => startSensorRename(sensor)}
+                              >
+                                <Edit fontSize="small" />
+                              </IconButton>
+                            )}
+                          </Stack>
+                        )}
                       </Box>
                       <Chip
                         label={sensor.status}

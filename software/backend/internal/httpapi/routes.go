@@ -90,8 +90,12 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		r.Route("/api/controllers", func(r chi.Router) {
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/pair", controllerHandler.PairAPI)
 			r.Get("/my", controllerHandler.MyControllersAPI)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Patch("/{controllerId}", controllerHandler.UpdateHardwareControllerAPI)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Put("/{controllerId}", controllerHandler.UpdateHardwareControllerAPI)
 			r.Get("/{controllerId}/sensors", controllerHandler.ControllerSensorsAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Delete("/{controllerId}/claim", controllerHandler.ReleaseControllerAPI)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Patch("/{controllerId}/sensors/{sensorId}", controllerHandler.UpdateHardwareSensorAPI)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Put("/{controllerId}/sensors/{sensorId}", controllerHandler.UpdateHardwareSensorAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{controllerId}/sensors/{sensorId}/config", controllerHandler.SaveSensorConfigAPI)
 			r.Get("/{controllerId}/sensors/{sensorId}/config", controllerHandler.GetSensorConfigAPI)
 		})
@@ -119,6 +123,8 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		})
 		r.Route("/sensors", func(r chi.Router) {
 			r.Get("/{id}", sensorHandler.Get)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Patch("/{id}", sensorHandler.Update)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Put("/{id}", sensorHandler.Update)
 			r.Post("/{id}/ai-suggest-config", sensorHandler.AISuggestConfig)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/config", sensorHandler.SaveConfig)
 		})

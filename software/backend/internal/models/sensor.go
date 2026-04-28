@@ -105,6 +105,10 @@ type SaveSensorConfigRequest struct {
 	Config  *SensorConfig  `json:"config,omitempty"`
 }
 
+type UpdateSensorRequest struct {
+	Name *string `json:"name,omitempty"`
+}
+
 type ConfigValidationResult struct {
 	FinalConfig              SensorConfig `json:"final_config"`
 	ValidationStatus         string       `json:"validation_status"`

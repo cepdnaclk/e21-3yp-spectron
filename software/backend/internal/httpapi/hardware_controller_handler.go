@@ -645,6 +645,183 @@ func (h *ControllerHandler) ControllerSensorsAPI(w http.ResponseWriter, r *http.
 	})
 }
 
+func (h *ControllerHandler) UpdateHardwareControllerAPI(w http.ResponseWriter, r *http.Request) {
+	accountID := GetAccountID(r).(uuid.UUID)
+	controllerParam := strings.TrimSpace(chi.URLParam(r, "controllerId"))
+
+	controller, err := h.lookupAccountHardwareController(r.Context(), accountID, controllerParam)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	var req models.UpdateHardwareControllerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.Name == nil {
+		http.Error(w, "no fields to update", http.StatusBadRequest)
+		return
+	}
+
+	name := strings.TrimSpace(*req.Name)
+	if name == "" {
+		http.Error(w, "controller name required", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := h.db.BeginTx(r.Context(), pgx.TxOptions{})
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	_, err = tx.Exec(r.Context(), `
+		UPDATE controllers
+		SET name = $1,
+		    updated_at = NOW()
+		WHERE id = $2
+		  AND account_id = $3
+	`, name, controller.id, accountID)
+	if err != nil {
+		http.Error(w, "failed to update controller", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = tx.Exec(r.Context(), `
+		UPDATE systems
+		SET name = $1,
+		    updated_at = NOW()
+		WHERE id = (
+			SELECT system_id
+			FROM system_controller_assignments
+			WHERE controller_id = $2
+			  AND unassigned_at IS NULL
+			ORDER BY assigned_at DESC
+			LIMIT 1
+		)
+		  AND account_id = $3
+	`, name, controller.id, accountID)
+	if err != nil {
+		http.Error(w, "failed to update system name", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to commit controller update", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(models.UserHardwareControllerResponse{
+		ControllerID: controller.uid,
+		Name:         name,
+		SystemName:   name,
+		Status:       controller.status,
+	})
+}
+
+func (h *ControllerHandler) UpdateHardwareSensorAPI(w http.ResponseWriter, r *http.Request) {
+	accountID := GetAccountID(r).(uuid.UUID)
+	controllerParam := strings.TrimSpace(chi.URLParam(r, "controllerId"))
+	sensorParam := strings.TrimSpace(chi.URLParam(r, "sensorId"))
+
+	controller, err := h.lookupAccountHardwareController(r.Context(), accountID, controllerParam)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	sensor, err := h.lookupHardwareSensor(r.Context(), controller.id, sensorParam)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	var req models.UpdateHardwareSensorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.Name == nil {
+		http.Error(w, "no fields to update", http.StatusBadRequest)
+		return
+	}
+
+	name := strings.TrimSpace(*req.Name)
+	if name == "" {
+		http.Error(w, "sensor name required", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := h.db.BeginTx(r.Context(), pgx.TxOptions{})
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	_, err = tx.Exec(r.Context(), `
+		UPDATE system_sensors
+		SET name = $1,
+		    updated_at = NOW()
+		WHERE id = $2
+	`, name, sensor.id)
+	if err != nil {
+		http.Error(w, "failed to update system sensor", http.StatusInternalServerError)
+		return
+	}
+
+	if sensor.controllerSensorID != nil {
+		_, err = tx.Exec(r.Context(), `
+			UPDATE controller_sensors
+			SET name = $1,
+			    updated_at = NOW()
+			WHERE id = $2
+			  AND controller_id = $3
+		`, name, *sensor.controllerSensorID, controller.id)
+		if err != nil {
+			http.Error(w, "failed to update controller sensor", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if sensor.legacyID != nil {
+		_, err = tx.Exec(r.Context(), `
+			UPDATE sensors
+			SET name = $1
+			WHERE id = $2
+			  AND controller_id = $3
+		`, name, *sensor.legacyID, controller.id)
+		if err != nil {
+			http.Error(w, "failed to update discovered sensor", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to commit sensor update", http.StatusInternalServerError)
+		return
+	}
+
+	systemID := ""
+	if sensor.systemID != nil {
+		systemID = sensor.systemID.String()
+	}
+
+	json.NewEncoder(w).Encode(models.HardwareSensorResponse{
+		ID:         sensor.id.String(),
+		SensorUID:  sensor.uid,
+		SystemID:   systemID,
+		SlotKey:    sensor.slotKey,
+		Name:       name,
+		Type:       sensor.sensorType,
+		Status:     sensor.status,
+		Configured: sensor.configured,
+	})
+}
+
 func (h *ControllerHandler) ReleaseControllerAPI(w http.ResponseWriter, r *http.Request) {
 	accountID := GetAccountID(r).(uuid.UUID)
 	userID := GetUserID(r).(uuid.UUID)
