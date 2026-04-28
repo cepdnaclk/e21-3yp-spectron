@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
   Box,
   Button,
   Card,
@@ -19,6 +18,7 @@ import {
 } from '@mui/material';
 import { GroupAdd, Refresh } from '@mui/icons-material';
 import { AccountUser, createViewer, getAccountUsers } from '../../services/authService';
+import AutoDismissAlert from '../../components/AutoDismissAlert';
 
 const Team: React.FC = () => {
   const [users, setUsers] = useState<AccountUser[]>([]);
@@ -87,8 +87,12 @@ const Team: React.FC = () => {
         </Button>
       </Stack>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      {notice && <Alert severity="success" sx={{ mb: 2 }}>{notice}</Alert>}
+      <AutoDismissAlert open={Boolean(error)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setError('')}>
+        {error}
+      </AutoDismissAlert>
+      <AutoDismissAlert open={Boolean(notice)} severity="success" sx={{ mb: 2 }} onCloseAlert={() => setNotice('')}>
+        {notice}
+      </AutoDismissAlert>
 
       <Card sx={{ mb: 3 }}>
         <CardContent>

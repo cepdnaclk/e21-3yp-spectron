@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
   Box,
   Button,
   Card,
@@ -26,6 +25,7 @@ import {
   getAdminOwners,
   rejectAdminOwner,
 } from '../../services/adminService';
+import AutoDismissAlert from '../../components/AutoDismissAlert';
 
 const statusColor = (status: AdminOwner['status']) => {
   if (status === 'ACTIVE') return 'success';
@@ -153,8 +153,12 @@ const AdminUsers: React.FC = () => {
         </Button>
       </Stack>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      {notice && <Alert severity="success" sx={{ mb: 2 }}>{notice}</Alert>}
+      <AutoDismissAlert open={Boolean(error)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setError('')}>
+        {error}
+      </AutoDismissAlert>
+      <AutoDismissAlert open={Boolean(notice)} severity="success" sx={{ mb: 2 }} onCloseAlert={() => setNotice('')}>
+        {notice}
+      </AutoDismissAlert>
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid item xs={12} md={4}>

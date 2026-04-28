@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Alert,
   Box,
   Button,
   CircularProgress,
@@ -14,6 +13,7 @@ import {
 import { MarkEmailRead, Spa } from '@mui/icons-material';
 import { resendVerification, verifyEmail } from '../../services/authService';
 import { getApiErrorMessage } from '../../utils/apiError';
+import AutoDismissAlert from '../../components/AutoDismissAlert';
 
 const VerifyEmail: React.FC = () => {
   const navigate = useNavigate();
@@ -22,6 +22,7 @@ const VerifyEmail: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  const [verificationFailed, setVerificationFailed] = useState(false);
   const [email, setEmail] = useState('');
   const [resending, setResending] = useState(false);
   const [resendMessage, setResendMessage] = useState('');
@@ -35,6 +36,7 @@ const VerifyEmail: React.FC = () => {
     const token = searchParams.get('token') || '';
     if (!token.trim()) {
       setError('Verification token is missing.');
+      setVerificationFailed(true);
       setLoading(false);
       return;
     }
@@ -46,6 +48,7 @@ const VerifyEmail: React.FC = () => {
       })
       .catch((err) => {
         setError(getApiErrorMessage(err, 'Email verification failed.'));
+        setVerificationFailed(true);
       })
       .finally(() => setLoading(false));
   }, [navigate, searchParams]);
@@ -116,19 +119,15 @@ const VerifyEmail: React.FC = () => {
             </Stack>
           )}
 
-          {success && (
-            <Alert severity="success" sx={{ mb: 2 }}>
+          <AutoDismissAlert open={Boolean(success)} severity="success" sx={{ mb: 2 }} onCloseAlert={() => setSuccess('')}>
               {success} Redirecting to sign in...
-            </Alert>
-          )}
+          </AutoDismissAlert>
 
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
+          <AutoDismissAlert open={Boolean(error)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setError('')}>
               {error}
-            </Alert>
-          )}
+          </AutoDismissAlert>
 
-          {error && (
+          {verificationFailed && (
             <Box component="form" onSubmit={handleResend} sx={{ mt: 2 }}>
               <TextField
                 fullWidth
@@ -153,11 +152,9 @@ const VerifyEmail: React.FC = () => {
             </Box>
           )}
 
-          {resendMessage && (
-            <Alert severity="info" sx={{ mt: 2 }}>
+          <AutoDismissAlert open={Boolean(resendMessage)} severity="info" sx={{ mt: 2 }} onCloseAlert={() => setResendMessage('')}>
               {resendMessage}
-            </Alert>
-          )}
+          </AutoDismissAlert>
 
           <Typography align="center" sx={{ mt: 3 }}>
             <Link to="/signin">Back to Sign In</Link>

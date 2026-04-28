@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
   Box,
   Button,
   Card,
@@ -18,6 +17,7 @@ import {
 import { Add, Refresh } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { AdminDevice, getAdminDevices } from '../../services/adminService';
+import AutoDismissAlert from '../../components/AutoDismissAlert';
 
 const formatDate = (value?: string) => (value ? new Date(value).toLocaleString() : '-');
 
@@ -77,7 +77,9 @@ const AdminDevices: React.FC = () => {
         </Stack>
       </Stack>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      <AutoDismissAlert open={Boolean(error)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setError('')}>
+        {error}
+      </AutoDismissAlert>
 
       <Card>
         <CardContent>

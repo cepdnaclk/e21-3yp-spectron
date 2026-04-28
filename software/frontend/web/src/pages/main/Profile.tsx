@@ -124,6 +124,18 @@ const Profile: React.FC = () => {
     };
   }, [profileMessage, profileError, passwordMessage, passwordError]);
 
+  useEffect(() => {
+    if (!deleteError) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      setDeleteError('');
+    }, 5000);
+
+    return () => window.clearTimeout(timer);
+  }, [deleteError]);
+
   const fullName = joinName(firstName, lastName);
   const profileDisplayName = fullName || user?.email || 'Spectron User';
   const initials = useMemo(() => getInitials(profileDisplayName), [profileDisplayName]);

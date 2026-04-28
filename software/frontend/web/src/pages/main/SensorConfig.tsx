@@ -35,6 +35,7 @@ import {
 } from '../../services/hardwarePairingService';
 import { estimateBatteryLifeDays, getSensorMetrics } from '../../utils/sensorConfig';
 import { SensorConfigSkeleton } from '../../components/LoadingSkeletons';
+import AutoDismissAlert from '../../components/AutoDismissAlert';
 
 type MetricThresholdInput = {
   mode: ThresholdMode;
@@ -1145,11 +1146,9 @@ const SensorConfig: React.FC = () => {
           </Alert>
         )}
 
-        {pageError && (
-          <Alert severity="error" sx={{ mt: 2 }}>
+        <AutoDismissAlert open={Boolean(pageError)} severity="error" sx={{ mt: 2 }} onCloseAlert={() => setPageError(null)}>
             {pageError}
-          </Alert>
-        )}
+        </AutoDismissAlert>
 
         {validationWarnings.length > 0 && (
           <Alert severity={validationStatus === 'adjusted' ? 'warning' : 'info'} sx={{ mt: 2 }}>
@@ -1659,11 +1658,9 @@ const SensorConfig: React.FC = () => {
           system will keep observing in the background and can suggest better refinements later.
         </Alert>
 
-        {pageError && (
-          <Alert severity="error" sx={{ mt: 2 }}>
+        <AutoDismissAlert open={Boolean(pageError)} severity="error" sx={{ mt: 2 }} onCloseAlert={() => setPageError(null)}>
             {pageError}
-          </Alert>
-        )}
+        </AutoDismissAlert>
 
         <Button
           variant="contained"

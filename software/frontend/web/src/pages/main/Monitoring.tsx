@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Alert,
   Box,
   Button,
   Card,
@@ -39,6 +38,7 @@ import {
   PictureAsPdf,
   TableChart,
 } from '@mui/icons-material';
+import AutoDismissAlert from '../../components/AutoDismissAlert';
 import type { jsPDF as JsPDFDocument } from 'jspdf';
 import {
   Area,
@@ -1145,11 +1145,9 @@ const Monitoring: React.FC = () => {
         </Card>
       </Stack>
 
-      {errorMessage && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      <AutoDismissAlert open={Boolean(errorMessage)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setErrorMessage(null)}>
           {errorMessage}
-        </Alert>
-      )}
+      </AutoDismissAlert>
 
       {!errorMessage && controllers.length === 0 && (
         <Card>
@@ -1695,7 +1693,9 @@ const Monitoring: React.FC = () => {
               fullWidth
             />
 
-            {reportError && <Alert severity="error">{reportError}</Alert>}
+            <AutoDismissAlert open={Boolean(reportError)} severity="error" onCloseAlert={() => setReportError(null)}>
+              {reportError}
+            </AutoDismissAlert>
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2, justifyContent: 'space-between' }}>

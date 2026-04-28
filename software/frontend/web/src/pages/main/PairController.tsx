@@ -23,6 +23,7 @@ import {
   HardwareSystemSummary,
   pairHardwareController,
 } from '../../services/hardwarePairingService';
+import AutoDismissAlert from '../../components/AutoDismissAlert';
 
 const SCANNER_REGION_ID = 'spectron-controller-qr-reader';
 
@@ -207,11 +208,9 @@ const PairController: React.FC = () => {
           Scan the QR code on the controller label or enter the controller ID manually. A controller can be added only while it is unowned.
         </Typography>
 
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
+        <AutoDismissAlert open={Boolean(error)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setError('')}>
+          {error}
+        </AutoDismissAlert>
 
         <Box component="form" onSubmit={handlePair} sx={{ mt: 3, pt: 3, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
           {isScannerSupported ? (
@@ -245,11 +244,9 @@ const PairController: React.FC = () => {
             </Alert>
           )}
 
-          {scanInfo && (
-            <Alert severity="success" sx={{ mb: 2 }}>
-              {scanInfo}
-            </Alert>
-          )}
+          <AutoDismissAlert open={Boolean(scanInfo)} severity="success" sx={{ mb: 2 }} onCloseAlert={() => setScanInfo('')}>
+            {scanInfo}
+          </AutoDismissAlert>
 
           <TextField
             fullWidth

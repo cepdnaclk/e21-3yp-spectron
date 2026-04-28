@@ -27,6 +27,7 @@ import {
   releaseHardwareController,
 } from '../../services/hardwarePairingService';
 import { ControllerDashboardSkeleton } from '../../components/LoadingSkeletons';
+import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { useAuth } from '../../contexts/AuthContext';
 
 type DashboardNavigationState = {
@@ -307,31 +308,31 @@ const ControllerDashboard: React.FC = () => {
           <ArrowBack />
         </IconButton>
       </Box>
-      {saveNotice?.configurationSaved && (
-        <Alert
-          severity={(saveNotice.validationWarnings || []).length > 0 ? 'warning' : 'success'}
-          sx={{ mb: 3 }}
-        >
+      <AutoDismissAlert
+        open={Boolean(saveNotice?.configurationSaved)}
+        severity={(saveNotice?.validationWarnings || []).length > 0 ? 'warning' : 'success'}
+        sx={{ mb: 3 }}
+        onCloseAlert={() => setSaveNotice((current) => current?.configurationSaved ? null : current)}
+      >
           <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-            {saveNotice.configuredSensorName || 'Sensor'} is now configured.
+            {saveNotice?.configuredSensorName || 'Sensor'} is now configured.
           </Typography>
           <Typography variant="body2">
-            {saveNotice.observationMessage || 'The system is now observing live readings and can suggest refinements later.'}
+            {saveNotice?.observationMessage || 'The system is now observing live readings and can suggest refinements later.'}
           </Typography>
-          {(saveNotice.validationWarnings || []).length > 0 && (
+          {(saveNotice?.validationWarnings || []).length > 0 && (
             <Box component="ul" sx={{ pl: 2, mb: 0, mt: 1 }}>
-              {(saveNotice.validationWarnings || []).map((warning) => (
+              {(saveNotice?.validationWarnings || []).map((warning) => (
                 <li key={warning}>
                   <Typography variant="body2">{warning}</Typography>
                 </li>
               ))}
             </Box>
           )}
-        </Alert>
-      )}
+      </AutoDismissAlert>
       <Snackbar
         open={toastOpen}
-        autoHideDuration={3600}
+        autoHideDuration={5000}
         onClose={() => setToastOpen(false)}
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
