@@ -180,6 +180,13 @@ static char g_pending_config_id[64];
 
 static bool send_config_set(const uint8_t *mac, uint32_t base_id, uint32_t sensor_id);
 static void force_ppp_reconnect(const char *reason);
+static const char *sensor_identity_to_backend_type(uint32_t sensor_id, const char *sensor_name, uint8_t sensor_type);
+static bool get_sensor_state_snapshot(char *sensor_name,
+                                      size_t sensor_name_len,
+                                      uint8_t *sensor_type,
+                                      uint32_t *sensor_id,
+                                      bool *configured,
+                                      bool *discovered);
 
 typedef struct {
     char *buf;
@@ -235,13 +242,51 @@ static uint32_t ts_now_seconds(void)
     return 0;
 }
 
+static const char *backend_type_uid_token(const char *backend_type)
+{
+    if (backend_type == NULL || backend_type[0] == '\0') {
+        return "sensor";
+    }
+
+    if (strcmp(backend_type, "temperature_humidity") == 0) {
+        return "temp-humidity";
+    }
+    if (strcmp(backend_type, "bme280") == 0) {
+        return "bme280";
+    }
+    if (strcmp(backend_type, "bmp280") == 0) {
+        return "bmp280";
+    }
+    if (strcmp(backend_type, "vl53l0x") == 0) {
+        return "vl53l0x";
+    }
+    if (strcmp(backend_type, "pressure") == 0) {
+        return "pressure";
+    }
+    if (strcmp(backend_type, "humidity") == 0) {
+        return "humidity";
+    }
+
+    return "sensor";
+}
+
 static const char *get_backend_sensor_uid(void)
 {
     if (g_sensor_uid_ready) {
         return g_sensor_uid;
     }
 
+    uint8_t sensor_type = SENSOR_TYPE_NONE;
+    uint32_t sensor_id = 0;
+    char sensor_name[MPROTO_SENSOR_NAME_LEN] = {0};
+    const char *backend_type = SENSOR_TYPE_STR;
+    const char *type_token = NULL;
     size_t used = 0;
+
+    if (get_sensor_state_snapshot(sensor_name, sizeof(sensor_name), &sensor_type, &sensor_id, NULL, NULL)) {
+        backend_type = sensor_identity_to_backend_type(sensor_id, sensor_name, sensor_type);
+    }
+    type_token = backend_type_uid_token(backend_type);
 
     memset(g_sensor_uid, 0, sizeof(g_sensor_uid));
 
@@ -271,7 +316,14 @@ static const char *get_backend_sensor_uid(void)
     }
 
     if (used < sizeof(g_sensor_uid) - 1) {
-        strlcat(g_sensor_uid, SENSOR_UID_SUFFIX, sizeof(g_sensor_uid));
+        strlcat(g_sensor_uid, "-sensor-", sizeof(g_sensor_uid));
+        strlcat(g_sensor_uid, type_token, sizeof(g_sensor_uid));
+    }
+
+    if (sensor_id != 0 && strlen(g_sensor_uid) < sizeof(g_sensor_uid) - 6) {
+        char id_suffix[16];
+        snprintf(id_suffix, sizeof(id_suffix), "-%04lx", (unsigned long)(sensor_id & 0xFFFFu));
+        strlcat(g_sensor_uid, id_suffix, sizeof(g_sensor_uid));
     }
 
     g_sensor_uid_ready = true;
@@ -580,6 +632,8 @@ static void update_sensor_meta(const char *sensor_name, uint8_t sensor_type, uin
     if (changed) {
         g_sensor_configured = false;
         g_backend_discovered = false;
+        g_sensor_uid_ready = false;
+        g_sensor_uid[0] = '\0';
     }
     g_have_sensor_meta = true;
     portEXIT_CRITICAL(&g_sensor_meta_lock);
