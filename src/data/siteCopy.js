@@ -51,19 +51,24 @@
       ],
     },
     architecture: {
-      title: "IoT Architecture Demo",
+      title: "Solution Architecture",
       subtitle:
-        "Click a block to explore how data flows securely from edge devices to applications.",
+        "The updated architecture shows the full path from sensor nodes to backend services, API gateway, and React applications.",
       panelTitle: "Explanation Panel",
       panelEmpty:
-        "Select a block to view its details. Use Reset View to clear the selection.",
+        "Select an architecture view above to view its details. Use Reset View to clear the selection.",
       badges: {
         scenario: "Scenario",
-        flow: "Flow Step",
+        flow: "Architecture Block",
       },
       resetLabel: "Reset View",
-      modesTitle: "Architecture Modes",
-      flowTitle: "Secure Data Flow",
+      modesTitle: "Architecture View",
+      flowTitle: "End-to-End IoT Solution",
+      diagramLabel: "Spectron solution architecture diagram",
+      diagramDescription:
+        "Sensor and ESP32-C3 nodes communicate over ESP-NOW to an ESP32 gateway, then through a SIM module, MQTT broker, Kafka streaming layer, backend services, API gateway, and React applications.",
+      diagramImageAlt:
+        "Spectron solution architecture showing sensor nodes, ESP32 gateway, SIM module, MQTT broker, Kafka, backend services, API gateway, and React applications.",
     },
     tech: {
       title: "Technology Stack",
