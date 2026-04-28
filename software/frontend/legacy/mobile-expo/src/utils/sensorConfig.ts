@@ -31,6 +31,17 @@ const SENSOR_METRIC_MAP: Record<string, SensorMetric[]> = {
     {key: 'temperature', label: 'Temperature'},
     {key: 'humidity', label: 'Humidity'},
   ],
+  bme280: [
+    {key: 'temperature', label: 'Temperature'},
+    {key: 'pressure', label: 'Pressure'},
+  ],
+  bmp280: [
+    {key: 'temperature', label: 'Temperature'},
+    {key: 'pressure', label: 'Pressure'},
+  ],
+  pressure: [{key: 'pressure', label: 'Pressure'}],
+  vl53l0x: [{key: 'distance', label: 'Distance'}],
+  distance: [{key: 'distance', label: 'Distance'}],
   ultrasonic: [{key: 'fill_level', label: 'Fill Level'}],
   load_cell: [{key: 'weight', label: 'Weight'}],
   gas_sensor: [{key: 'gas_level', label: 'Gas Level'}],

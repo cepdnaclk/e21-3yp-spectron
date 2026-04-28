@@ -173,6 +173,7 @@ const toHardwareAppConfig = (
   configResponse: HardwareSensorConfigResponse
 ): SensorConfigPayload => {
   const rawConfig = configResponse.config || {};
+  const sensorType = (configResponse.sensorType || '').toLowerCase();
   const reportsPerDay =
     typeof rawConfig.reportsPerDay === 'number' && Number.isFinite(rawConfig.reportsPerDay)
       ? rawConfig.reportsPerDay
@@ -182,28 +183,57 @@ const toHardwareAppConfig = (
       ? rawConfig.estimatedBatteryLifeDays
       : 77;
 
+  const metricThresholds: SensorConfigPayload['metric_thresholds'] = {};
+  if (sensorType === 'bme280' || sensorType === 'bmp280') {
+    metricThresholds.temperature = {
+      min: toHardwareThreshold(rawConfig.temperatureMin),
+      max: toHardwareThreshold(rawConfig.temperatureMax),
+      warning_min: toHardwareThreshold(rawConfig.temperatureWarningMin),
+      warning_max: toHardwareThreshold(rawConfig.temperatureWarningMax),
+    };
+    metricThresholds.pressure = {
+      min: toHardwareThreshold(rawConfig.pressureMin),
+      max: toHardwareThreshold(rawConfig.pressureMax),
+      warning_min: toHardwareThreshold(rawConfig.pressureWarningMin),
+      warning_max: toHardwareThreshold(rawConfig.pressureWarningMax),
+    };
+  } else if (sensorType === 'vl53l0x' || sensorType === 'distance') {
+    metricThresholds.distance = {
+      min: toHardwareThreshold(rawConfig.distanceMin),
+      max: toHardwareThreshold(rawConfig.distanceMax),
+      warning_min: toHardwareThreshold(rawConfig.distanceWarningMin),
+      warning_max: toHardwareThreshold(rawConfig.distanceWarningMax),
+    };
+  } else {
+    metricThresholds.temperature = {
+      min: toHardwareThreshold(rawConfig.temperatureMin),
+      max: toHardwareThreshold(rawConfig.temperatureMax),
+      warning_min: toHardwareThreshold(rawConfig.temperatureWarningMin),
+      warning_max: toHardwareThreshold(rawConfig.temperatureWarningMax),
+    };
+    metricThresholds.humidity = {
+      min: toHardwareThreshold(rawConfig.humidityMin),
+      max: toHardwareThreshold(rawConfig.humidityMax),
+      warning_min: toHardwareThreshold(rawConfig.humidityWarningMin),
+      warning_max: toHardwareThreshold(rawConfig.humidityWarningMax),
+    };
+  }
+
+  const primaryMetric =
+    sensorType === 'vl53l0x' || sensorType === 'distance'
+      ? 'distance'
+      : sensorType === 'pressure'
+        ? 'pressure'
+        : 'temperature';
+  const primaryThreshold = metricThresholds[primaryMetric] || {};
+
   return {
     friendly_name: configResponse.sensorName,
     use_case: configResponse.usedFor,
     presentation_profile: configResponse.dashboardView,
-    primary_metric: 'temperature',
-    thresholds: {
-      warning_max: toHardwareThreshold(rawConfig.temperatureWarningMax),
-    },
-    metric_thresholds: {
-      temperature: {
-        min: toHardwareThreshold(rawConfig.temperatureMin),
-        max: toHardwareThreshold(rawConfig.temperatureMax),
-        warning_min: toHardwareThreshold(rawConfig.temperatureWarningMin),
-        warning_max: toHardwareThreshold(rawConfig.temperatureWarningMax),
-      },
-      humidity: {
-        min: toHardwareThreshold(rawConfig.humidityMin),
-        max: toHardwareThreshold(rawConfig.humidityMax),
-        warning_min: toHardwareThreshold(rawConfig.humidityWarningMin),
-        warning_max: toHardwareThreshold(rawConfig.humidityWarningMax),
-      },
-    },
+    primary_metric: primaryMetric,
+    thresholds: primaryThreshold,
+    metric_thresholds: metricThresholds,
     report_interval_per_day: reportsPerDay,
     power_management: {
       battery_life_days: estimatedBatteryLifeDays,

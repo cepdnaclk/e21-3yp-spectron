@@ -211,7 +211,12 @@ const getUseCase = (sensor: Sensor) => {
     case 'temp_humidity':
     case 'dht11':
     case 'dht22':
+    case 'bme280':
+    case 'bmp280':
       return 'climate_monitoring';
+    case 'vl53l0x':
+    case 'distance':
+      return 'generic_monitoring';
     case 'ultrasonic':
       return 'fill_level_monitoring';
     case 'load':
@@ -274,6 +279,11 @@ const getSensorIcon = (sensorType: string) => {
       return Thermostat;
     case 'humidity':
       return WaterDrop;
+    case 'pressure':
+    case 'bme280':
+    case 'bmp280':
+    case 'vl53l0x':
+    case 'distance':
     case 'ultrasonic':
     case 'load':
     case 'load_cell':
@@ -287,8 +297,14 @@ const getSensorUnit = (sensor: Sensor) => {
   return sensor.unit || (
     sensor.type === 'temperature'
       ? 'C'
-      : sensor.type === 'humidity'
-        ? '%RH'
+        : sensor.type === 'humidity'
+          ? '%RH'
+        : sensor.type === 'pressure'
+          ? 'kPa'
+        : sensor.type === 'bme280' || sensor.type === 'bmp280'
+          ? 'C'
+        : sensor.type === 'vl53l0x' || sensor.type === 'distance'
+          ? 'cm'
         : sensor.type === 'ultrasonic'
           ? 'cm'
           : sensor.type === 'load' || sensor.type === 'load_cell'

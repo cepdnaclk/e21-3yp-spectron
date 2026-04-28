@@ -148,16 +148,16 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 	}
 
 	if err := p.evaluateThresholdAlert(ctx, tx, thresholdAlertInput{
-		AccountID:    accountID,
-		ControllerID: controllerID,
-		SensorID:     persistedSensorID,
-		SystemID:     systemID,
+		AccountID:      accountID,
+		ControllerID:   controllerID,
+		SensorID:       persistedSensorID,
+		SystemID:       systemID,
 		SystemSensorID: systemSensorID,
-		SensorHWID:   sensorHWID,
-		SensorName:   persistedSensorName,
-		SensorType:   persistedSensorType,
-		Value:        sensor.Value,
-		ReadingAt:    event.ReadingTime,
+		SensorHWID:     sensorHWID,
+		SensorName:     persistedSensorName,
+		SensorType:     persistedSensorType,
+		Value:          sensor.Value,
+		ReadingAt:      event.ReadingTime,
 	}); err != nil {
 		return fmt.Errorf("evaluate alert for sensor %s: %w", sensorHWID, err)
 	}
@@ -325,16 +325,16 @@ func sensorReadingsRetentionCutoff(now time.Time) time.Time {
 }
 
 type thresholdAlertInput struct {
-	AccountID    uuid.UUID
-	ControllerID uuid.UUID
-	SensorID     uuid.UUID
-	SystemID     *uuid.UUID
+	AccountID      uuid.UUID
+	ControllerID   uuid.UUID
+	SensorID       uuid.UUID
+	SystemID       *uuid.UUID
 	SystemSensorID *uuid.UUID
-	SensorHWID   string
-	SensorName   string
-	SensorType   string
-	Value        float64
-	ReadingAt    time.Time
+	SensorHWID     string
+	SensorName     string
+	SensorType     string
+	Value          float64
+	ReadingAt      time.Time
 }
 
 type thresholdAlertEvaluation struct {
@@ -374,6 +374,30 @@ func loadActiveSensorConfig(ctx context.Context, tx pgx.Tx, sensorID uuid.UUID, 
 			ORDER BY updated_at DESC
 			LIMIT 1
 		`, *systemSensorID).Scan(&rawConfig)
+		if err == nil {
+			config, err := decodeAlertSensorConfig(rawConfig, sensorType)
+			if err != nil {
+				return models.SensorConfig{}, false, err
+			}
+			return config, true, nil
+		}
+		if err != pgx.ErrNoRows {
+			return models.SensorConfig{}, false, err
+		}
+	}
+
+	for _, candidateHWID := range configLookupSensorHWIDs(sensorHWID, sensorType) {
+		err := tx.QueryRow(ctx, `
+			SELECT ssc.config_json
+			FROM system_sensors ss
+			JOIN system_sensor_configurations ssc
+			  ON ssc.system_sensor_id = ss.id
+			 AND ssc.active = true
+			WHERE ss.current_controller_id = $1
+			  AND ss.current_sensor_uid = $2
+			ORDER BY ssc.updated_at DESC
+			LIMIT 1
+		`, controllerID, candidateHWID).Scan(&rawConfig)
 		if err == nil {
 			config, err := decodeAlertSensorConfig(rawConfig, sensorType)
 			if err != nil {
@@ -480,8 +504,15 @@ func configLookupSensorHWIDs(sensorHWID string, sensorType string) []string {
 
 func sidecarParentSensorHWID(sensorHWID string, sensorType string) string {
 	trimmed := strings.TrimSpace(sensorHWID)
-	if trimmed == "" || defaultMetricForSensorType(sensorType) != "humidity" {
+	metric := defaultMetricForSensorType(sensorType)
+	if trimmed == "" || (metric != "humidity" && metric != "pressure") {
 		return ""
+	}
+	if strings.HasSuffix(trimmed, "-humidity") {
+		return strings.TrimSuffix(trimmed, "-humidity")
+	}
+	if strings.HasSuffix(trimmed, "-pressure") {
+		return strings.TrimSuffix(trimmed, "-pressure")
 	}
 	if !strings.HasSuffix(trimmed, "-humidity") {
 		return ""
@@ -563,9 +594,15 @@ func numericPtrFromMap(values map[string]any, key string) *float64 {
 }
 
 func evaluateThresholdBreach(sensorType string, value float64, config models.SensorConfig) thresholdAlertEvaluation {
+	sensorMetric := defaultMetricForSensorType(sensorType)
 	metric := strings.TrimSpace(config.PrimaryMetric)
+	if config.MetricThresholds != nil {
+		if _, ok := config.MetricThresholds[sensorMetric]; ok {
+			metric = sensorMetric
+		}
+	}
 	if metric == "" {
-		metric = defaultMetricForSensorType(sensorType)
+		metric = sensorMetric
 	}
 
 	threshold := config.Thresholds
@@ -591,12 +628,16 @@ func evaluateThresholdBreach(sensorType string, value float64, config models.Sen
 
 func defaultMetricForSensorType(sensorType string) string {
 	switch strings.ToLower(strings.TrimSpace(sensorType)) {
-	case "temperature_humidity", "temp_humidity", "dht11", "dht22", "temperature":
+	case "temperature_humidity", "temp_humidity", "dht11", "dht22", "temperature", "bme280", "bmp280":
 		return "temperature"
 	case "humidity":
 		return "humidity"
+	case "pressure":
+		return "pressure"
 	case "ultrasonic":
 		return "fill_level"
+	case "vl53l0x", "distance":
+		return "distance"
 	case "load", "load_cell":
 		return "weight"
 	case "gas", "gas_sensor":

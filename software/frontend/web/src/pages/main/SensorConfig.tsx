@@ -186,6 +186,12 @@ const getTypeSpecificFieldsForSensorType = (sensorType: string): TypeSpecificFie
         { key: 'highLevelAlert', label: 'High Level Alert', type: 'number', required: true },
         { key: 'unit', label: 'Unit', type: 'text', required: true },
       ];
+    case 'vl53l0x':
+    case 'distance':
+      return [
+        { key: 'maxDistance', label: 'Maximum Distance', type: 'number', required: false },
+        { key: 'unit', label: 'Unit', type: 'text', required: false },
+      ];
     case 'load':
     case 'load_cell':
       return [
@@ -214,7 +220,13 @@ const getTypeSpecificPlaceholder = (sensorType: string, key: string) => {
 
   switch (sensorType.toLowerCase()) {
     case 'ultrasonic':
+    case 'vl53l0x':
+    case 'distance':
       return 'cm';
+    case 'pressure':
+    case 'bme280':
+    case 'bmp280':
+      return 'kPa';
     case 'load':
     case 'load_cell':
       return 'kg';
@@ -257,7 +269,12 @@ const getDefaultUseCaseForSensorType = (sensorType: string): UseCaseOption => {
     case 'temp_humidity':
     case 'dht11':
     case 'dht22':
+    case 'bme280':
+    case 'bmp280':
       return 'climate_monitoring';
+    case 'vl53l0x':
+    case 'distance':
+      return 'generic_monitoring';
     case 'ultrasonic':
       return 'fill_level_monitoring';
     case 'load':
@@ -281,7 +298,13 @@ const getAllowedUseCasesForSensorType = (sensorType: string): UseCaseOption[] =>
     case 'temp_humidity':
     case 'dht11':
     case 'dht22':
+    case 'bme280':
+    case 'bmp280':
       return ['climate_monitoring', 'generic_monitoring'];
+    case 'pressure':
+    case 'vl53l0x':
+    case 'distance':
+      return ['generic_monitoring'];
     case 'ultrasonic':
       return [
         'generic_monitoring',

@@ -424,7 +424,7 @@ Rules:
 
 	metricCount := len(metricThresholds)
 	if metricCount == 0 {
-		if sensorType == "temperature_humidity" || sensorType == "temp_humidity" || sensorType == "dht11" || sensorType == "dht22" {
+		if sensorType == "temperature_humidity" || sensorType == "temp_humidity" || sensorType == "dht11" || sensorType == "dht22" || sensorType == "bme280" || sensorType == "bmp280" {
 			metricCount = 2
 		} else {
 			metricCount = 1

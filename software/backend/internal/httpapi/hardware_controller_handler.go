@@ -1602,7 +1602,7 @@ func lookupLegacySensorRecord(ctx context.Context, q queryRower, controllerID uu
 
 func normalizeHardwareSensorType(sensorType string) string {
 	switch strings.ToLower(strings.TrimSpace(sensorType)) {
-	case "temperature_humidity", "temperature", "humidity", "ultrasonic", "load", "gas", "weight":
+	case "temperature_humidity", "temperature", "humidity", "pressure", "bme280", "bmp280", "vl53l0x", "distance", "ultrasonic", "load", "gas", "weight":
 		return strings.ToLower(strings.TrimSpace(sensorType))
 	default:
 		return "temperature_humidity"
@@ -1626,6 +1626,16 @@ func defaultHardwareSensorName(sensorType string, sensorUID string) string {
 		return "Temperature & Humidity Sensor"
 	case "ultrasonic":
 		return "Ultrasonic Sensor"
+	case "bme280":
+		return "BME280 Temperature Pressure Sensor"
+	case "bmp280":
+		return "BMP280 Temperature Pressure Sensor"
+	case "pressure":
+		return "Pressure Sensor"
+	case "vl53l0x":
+		return "VL53L0X Distance Sensor"
+	case "distance":
+		return "Distance Sensor"
 	case "load":
 		return "Load Sensor"
 	case "gas":

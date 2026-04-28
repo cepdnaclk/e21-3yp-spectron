@@ -39,6 +39,7 @@ static const char *TAG = "CTRL_REAL";
 #define SENSOR_TYPE_STR    "temperature_humidity"
 #define SENSOR_UID_SUFFIX  "-sensor-temp-01"
 #define HUMIDITY_UID_SUFFIX "-humidity"
+#define PRESSURE_UID_SUFFIX "-pressure"
 #define SENSOR_NAME_STR    "Temperature & Humidity Sensor"
 
 #define TELEMETRY_HOST     "spectron-backend-env.eba-niaes6bi.ap-south-1.elasticbeanstalk.com"
@@ -135,6 +136,7 @@ static bool g_have_sensor_meta = false;
 static bool g_sensor_configured = false;
 static bool g_backend_discovered = false;
 static uint8_t g_sensor_proto_type = SENSOR_TYPE_NONE;
+static uint32_t g_sensor_proto_id = 0;
 static char g_sensor_name[MPROTO_SENSOR_NAME_LEN] = "Temperature & Humidity Sensor";
 
 static portMUX_TYPE g_remote_cfg_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -398,6 +400,49 @@ static const char *normalize_backend_sensor_name(const char *sensor_name)
     return sensor_name;
 }
 
+static const char *sensor_identity_to_backend_type(uint32_t sensor_id, const char *sensor_name, uint8_t sensor_type)
+{
+    switch (sensor_id) {
+        case 0x00003001u:
+            return "temperature_humidity";
+        case 0x00002801u:
+            return "bme280";
+        case 0x00002802u:
+            return "bmp280";
+        case 0x00005301u:
+            return "vl53l0x";
+        default:
+            break;
+    }
+
+    const char *name = sensor_name ? sensor_name : "";
+    if (strstr(name, "BME280") != NULL) {
+        return "bme280";
+    }
+    if (strstr(name, "BMP280") != NULL) {
+        return "bmp280";
+    }
+    if (strstr(name, "VL53") != NULL) {
+        return "vl53l0x";
+    }
+
+    return sensor_type_to_backend_name(sensor_type);
+}
+
+static const char *backend_type_primary_unit(const char *backend_type)
+{
+    if (strcmp(backend_type, "bme280") == 0 || strcmp(backend_type, "bmp280") == 0) {
+        return "C";
+    }
+    if (strcmp(backend_type, "vl53l0x") == 0) {
+        return "cm";
+    }
+    if (strcmp(backend_type, "temperature_humidity") == 0) {
+        return "C/%RH";
+    }
+    return "";
+}
+
 static const char *skip_json_ws(const char *p)
 {
     while (p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) {
@@ -514,10 +559,12 @@ static void note_config_ack_result(bool success)
     portEXIT_CRITICAL(&g_config_push_lock);
 }
 
-static void update_sensor_meta(const char *sensor_name, uint8_t sensor_type)
+static void update_sensor_meta(const char *sensor_name, uint8_t sensor_type, uint32_t sensor_id)
 {
     portENTER_CRITICAL(&g_sensor_meta_lock);
-    bool changed = !g_have_sensor_meta || g_sensor_proto_type != sensor_type;
+    bool changed = !g_have_sensor_meta ||
+                   g_sensor_proto_type != sensor_type ||
+                   g_sensor_proto_id != sensor_id;
 
     if (sensor_name && sensor_name[0] != '\0') {
         if (!changed && strncmp(g_sensor_name, sensor_name, sizeof(g_sensor_name)) != 0) {
@@ -529,6 +576,7 @@ static void update_sensor_meta(const char *sensor_name, uint8_t sensor_type)
         strlcpy(g_sensor_name, sensor_name, sizeof(g_sensor_name));
     }
     g_sensor_proto_type = sensor_type;
+    g_sensor_proto_id = sensor_id;
     if (changed) {
         g_sensor_configured = false;
         g_backend_discovered = false;
@@ -555,7 +603,12 @@ static void mark_backend_discovered(void)
     portEXIT_CRITICAL(&g_sensor_meta_lock);
 }
 
-static bool get_sensor_state_snapshot(char *sensor_name, size_t sensor_name_len, uint8_t *sensor_type, bool *configured, bool *discovered)
+static bool get_sensor_state_snapshot(char *sensor_name,
+                                      size_t sensor_name_len,
+                                      uint8_t *sensor_type,
+                                      uint32_t *sensor_id,
+                                      bool *configured,
+                                      bool *discovered)
 {
     bool have_sensor;
 
@@ -567,6 +620,9 @@ static bool get_sensor_state_snapshot(char *sensor_name, size_t sensor_name_len,
         }
         if (sensor_type) {
             *sensor_type = g_sensor_proto_type;
+        }
+        if (sensor_id) {
+            *sensor_id = g_sensor_proto_id;
         }
     }
     if (configured) {
@@ -1298,8 +1354,10 @@ static bool http_post_json(const char *path, const char *json_payload)
 static int build_config_pull_json(char *buf, size_t buf_len)
 {
     uint8_t sensor_type = SENSOR_TYPE_SHT30;
+    uint32_t sensor_id = 0;
+    char sensor_name[MPROTO_SENSOR_NAME_LEN] = {0};
 
-    if (!get_sensor_state_snapshot(NULL, 0, &sensor_type, NULL, NULL)) {
+    if (!get_sensor_state_snapshot(sensor_name, sizeof(sensor_name), &sensor_type, &sensor_id, NULL, NULL)) {
         sensor_type = SENSOR_TYPE_SHT30;
     }
 
@@ -1311,20 +1369,51 @@ static int build_config_pull_json(char *buf, size_t buf_len)
           "\"sensorType\":\"%s\""
         "}",
         get_backend_sensor_uid(),
-        sensor_type_to_backend_name(sensor_type)
+        sensor_identity_to_backend_type(sensor_id, sensor_name, sensor_type)
     );
 }
 
 static int build_payload_json(float temp_value, float humidity_value, char *buf, size_t buf_len)
 {
     uint8_t sensor_type = SENSOR_TYPE_SHT30;
-    char humidity_sensor_uid[80];
+    uint32_t sensor_id = 0;
+    char sensor_name[MPROTO_SENSOR_NAME_LEN] = {0};
+    char sidecar_sensor_uid[80];
 
-    if (!get_sensor_state_snapshot(NULL, 0, &sensor_type, NULL, NULL)) {
+    if (!get_sensor_state_snapshot(sensor_name, sizeof(sensor_name), &sensor_type, &sensor_id, NULL, NULL)) {
         return -1;
     }
 
-    get_backend_humidity_sensor_uid(humidity_sensor_uid, sizeof(humidity_sensor_uid));
+    const char *backend_type = sensor_identity_to_backend_type(sensor_id, sensor_name, sensor_type);
+
+    if (strcmp(backend_type, "vl53l0x") == 0) {
+        return snprintf(
+            buf, buf_len,
+            "{"
+              "\"deviceId\":\"" DEVICE_ID_STR "\","
+              "\"ts\":%lu,"
+              "\"sensors\":["
+                "{"
+                  "\"id\":\"%s\","
+                  "\"type\":\"vl53l0x\","
+                  "\"v\":%.1f"
+                "}"
+              "]"
+            "}",
+            (unsigned long)ts_now_seconds(),
+            get_backend_sensor_uid(),
+            humidity_value
+        );
+    }
+
+    get_backend_humidity_sensor_uid(sidecar_sensor_uid, sizeof(sidecar_sensor_uid));
+
+    const char *sidecar_type = "humidity";
+    if (strcmp(backend_type, "bme280") == 0 || strcmp(backend_type, "bmp280") == 0) {
+        strlcpy(sidecar_sensor_uid, get_backend_sensor_uid(), sizeof(sidecar_sensor_uid));
+        strlcat(sidecar_sensor_uid, PRESSURE_UID_SUFFIX, sizeof(sidecar_sensor_uid));
+        sidecar_type = "pressure";
+    }
 
     return snprintf(
         buf, buf_len,
@@ -1339,16 +1428,17 @@ static int build_payload_json(float temp_value, float humidity_value, char *buf,
             "},"
             "{"
               "\"id\":\"%s\","
-              "\"type\":\"humidity\","
+              "\"type\":\"%s\","
               "\"v\":%.1f"
             "}"
           "]"
         "}",
         (unsigned long)ts_now_seconds(),
         get_backend_sensor_uid(),
-        sensor_type_to_backend_name(sensor_type),
+        backend_type,
         temp_value,
-        humidity_sensor_uid,
+        sidecar_sensor_uid,
+        sidecar_type,
         humidity_value
     );
 }
@@ -1357,10 +1447,40 @@ static int build_discovery_json(char *buf, size_t buf_len)
 {
     char sensor_name[MPROTO_SENSOR_NAME_LEN];
     uint8_t sensor_type = SENSOR_TYPE_NONE;
+    uint32_t sensor_id = 0;
 
-    if (!get_sensor_state_snapshot(sensor_name, sizeof(sensor_name), &sensor_type, NULL, NULL)) {
+    if (!get_sensor_state_snapshot(sensor_name, sizeof(sensor_name), &sensor_type, &sensor_id, NULL, NULL)) {
         return -1;
     }
+
+    const char *backend_type = sensor_identity_to_backend_type(sensor_id, sensor_name, sensor_type);
+
+    if (strcmp(backend_type, "vl53l0x") == 0) {
+        return snprintf(
+            buf, buf_len,
+            "{"
+              "\"deviceId\":\"" DEVICE_ID_STR "\","
+              "\"ts\":%lu,"
+              "\"sensors\":["
+                "{"
+                  "\"id\":\"%s\","
+                  "\"type\":\"vl53l0x\","
+                  "\"name\":\"%s\","
+                  "\"unit\":\"cm\""
+                "}"
+              "]"
+            "}",
+            (unsigned long)ts_now_seconds(),
+            get_backend_sensor_uid(),
+            normalize_backend_sensor_name(sensor_name)
+        );
+    }
+
+    const bool pressure_sensor = strcmp(backend_type, "bme280") == 0 || strcmp(backend_type, "bmp280") == 0;
+    const char *sidecar_suffix = pressure_sensor ? PRESSURE_UID_SUFFIX : HUMIDITY_UID_SUFFIX;
+    const char *sidecar_type = pressure_sensor ? "pressure" : "humidity";
+    const char *sidecar_name = pressure_sensor ? "Pressure" : "Humidity";
+    const char *sidecar_unit = pressure_sensor ? "kPa" : "%RH";
 
     return snprintf(
         buf, buf_len,
@@ -1375,19 +1495,23 @@ static int build_discovery_json(char *buf, size_t buf_len)
               "\"unit\":\"%s\""
             "},"
             "{"
-              "\"id\":\"%s" HUMIDITY_UID_SUFFIX "\","
-              "\"type\":\"humidity\","
-              "\"name\":\"Humidity\","
-              "\"unit\":\"%%RH\""
+              "\"id\":\"%s%s\","
+              "\"type\":\"%s\","
+              "\"name\":\"%s\","
+              "\"unit\":\"%s\""
             "}"
           "]"
         "}",
         (unsigned long)ts_now_seconds(),
         get_backend_sensor_uid(),
-        sensor_type_to_backend_name(sensor_type),
+        backend_type,
         normalize_backend_sensor_name(sensor_name),
-        sensor_type_to_backend_unit(sensor_type),
-        get_backend_sensor_uid()
+        backend_type_primary_unit(backend_type),
+        get_backend_sensor_uid(),
+        sidecar_suffix,
+        sidecar_type,
+        sidecar_name,
+        sidecar_unit
     );
 }
 
@@ -1636,7 +1760,7 @@ static void handle_module_info(const uint8_t *mac, const mproto_frame_t *f)
 
     mproto_module_info_t pl;
     memcpy(&pl, f->payload, sizeof(pl));
-    update_sensor_meta(pl.sensor_name, f->sensor_type);
+    update_sensor_meta(pl.sensor_name, f->sensor_type, f->sensor_id);
 
     ESP_LOGI(TAG, "MODULE_INFO base_id=%lu sensor_id=%lu sensor_type=%u",
              (unsigned long)f->base_id,
@@ -1668,9 +1792,9 @@ static void handle_sensor_data(const uint8_t *mac, const mproto_frame_t *f)
 
     bool sensor_configured = false;
     bool backend_discovered = false;
-    if (!get_sensor_state_snapshot(NULL, 0, NULL, &sensor_configured, &backend_discovered)) {
+    if (!get_sensor_state_snapshot(NULL, 0, NULL, NULL, &sensor_configured, &backend_discovered)) {
         ESP_LOGW(TAG, "No MODULE_INFO seen; inferring sensor metadata from SENSOR_DATA");
-        update_sensor_meta(SENSOR_NAME_STR, f->sensor_type);
+        update_sensor_meta(SENSOR_NAME_STR, f->sensor_type, f->sensor_id);
         sensor_configured = false;
         backend_discovered = false;
     }
@@ -1848,7 +1972,7 @@ static void uploader_task(void *arg)
 
         bool sensor_configured = false;
         bool backend_discovered = false;
-        bool have_sensor_state = get_sensor_state_snapshot(NULL, 0, NULL, &sensor_configured, &backend_discovered);
+        bool have_sensor_state = get_sensor_state_snapshot(NULL, 0, NULL, NULL, &sensor_configured, &backend_discovered);
         controller_sensor_config_t remote_cfg;
         get_remote_config_snapshot(&remote_cfg);
 

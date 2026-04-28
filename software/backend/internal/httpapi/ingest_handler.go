@@ -438,8 +438,17 @@ func (h *IngestHandler) Config(w http.ResponseWriter, r *http.Request) {
 
 			resp.HasActiveConfig = true
 			resp.SamplePeriodMs = effectiveSamplePeriodMs(activeConfig.ReportIntervalPerDay, minIntervalSec)
-			resp.TempThresholdHiX100 = int16(thresholdUpperX100(resolveMetricThreshold(activeConfig, "temperature"), defaultTempThresholdHiX100))
-			resp.HumidityThresholdHiX100 = uint16(thresholdUpperX100(resolveMetricThreshold(activeConfig, "humidity"), defaultHumidityThresholdHiX100))
+			switch strings.ToLower(strings.TrimSpace(resp.SensorType)) {
+			case "bme280", "bmp280":
+				resp.TempThresholdHiX100 = int16(thresholdUpperX100(resolveMetricThreshold(activeConfig, "temperature"), defaultTempThresholdHiX100))
+				resp.HumidityThresholdHiX100 = uint16(thresholdUpperX100(resolveMetricThreshold(activeConfig, "pressure"), defaultHumidityThresholdHiX100))
+			case "vl53l0x", "distance":
+				resp.TempThresholdHiX100 = 0
+				resp.HumidityThresholdHiX100 = uint16(thresholdUpperX100(resolveMetricThreshold(activeConfig, "distance"), defaultHumidityThresholdHiX100))
+			default:
+				resp.TempThresholdHiX100 = int16(thresholdUpperX100(resolveMetricThreshold(activeConfig, "temperature"), defaultTempThresholdHiX100))
+				resp.HumidityThresholdHiX100 = uint16(thresholdUpperX100(resolveMetricThreshold(activeConfig, "humidity"), defaultHumidityThresholdHiX100))
+			}
 			resp.ConfiguredAt = configuredAt
 			if configID != nil {
 				resp.ConfigID = configID.String()

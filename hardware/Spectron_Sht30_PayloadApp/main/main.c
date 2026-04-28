@@ -1227,6 +1227,9 @@ static bool send_sensor_data(void)
             if (pl.temperature_c_x100 >= g_temp_hi_x100) {
                 pl.alert_flags |= 0x01;
             }
+            if (pl.humidity_rh_x100 >= g_hum_hi_x100) {
+                pl.alert_flags |= 0x02;
+            }
 
             ESP_LOGI(TAG,
                      "Prepared BME/BMP280 data: temp=%.2fC pressure=%luPa pressure=%.2fkPa encoded_humidity_field=%u",
@@ -1251,6 +1254,9 @@ static bool send_sensor_data(void)
             pl.temperature_c_x100 = 0;
             pl.humidity_rh_x100 = (uint16_t)lroundf(distance_cm * 100.0f);
             pl.alert_flags = range_status;
+            if (pl.humidity_rh_x100 >= g_hum_hi_x100) {
+                pl.alert_flags |= 0x02;
+            }
 
             ESP_LOGI(TAG,
                      "Prepared VL53L0X data: distance=%umm distance=%.2fcm encoded_humidity_field=%u status=0x%02X",

@@ -283,7 +283,7 @@ func inferUseCaseAndProfile(
 			appliedRules = append(appliedRules, "presentation_profile_default_dual_climate")
 		}
 		return suggestedUseCase, suggestedProfile, "temperature", appliedRules
-	case "temperature", "humidity":
+	case "temperature", "humidity", "bme280", "bmp280":
 		if suggestedUseCase == "" {
 			suggestedUseCase = useCaseClimate
 			appliedRules = append(appliedRules, "use_case_default_climate")
@@ -308,6 +308,11 @@ func inferUseCaseAndProfile(
 				suggestedUseCase = useCaseFillLevel
 				appliedRules = append(appliedRules, "use_case_default_fill_level")
 			}
+		}
+	case "vl53l0x", "distance", "pressure":
+		if suggestedUseCase == "" {
+			suggestedUseCase = useCaseGeneric
+			appliedRules = append(appliedRules, "use_case_default_generic")
 		}
 	case "load", "load_cell":
 		if suggestedUseCase == "" {
@@ -349,6 +354,18 @@ func inferUseCaseAndProfile(
 			appliedRules = append(appliedRules, "presentation_profile_compatibility_adjustment")
 		}
 		return suggestedUseCase, suggestedProfile, "temperature", appliedRules
+	case "bme280", "bmp280":
+		if suggestedProfile == profileDualClimate || suggestedProfile == profileCounter || suggestedProfile == profileLevel {
+			suggestedProfile = profileSingleTrend
+			appliedRules = append(appliedRules, "presentation_profile_compatibility_adjustment")
+		}
+		return suggestedUseCase, suggestedProfile, "temperature", appliedRules
+	case "vl53l0x", "distance", "pressure":
+		if suggestedProfile == profileDualClimate || suggestedProfile == profileCounter {
+			suggestedProfile = profileSingleTrend
+			appliedRules = append(appliedRules, "presentation_profile_compatibility_adjustment")
+		}
+		return suggestedUseCase, suggestedProfile, defaultPrimaryMetric, appliedRules
 	case "ultrasonic":
 		if (suggestedUseCase == useCaseOccupancy || suggestedUseCase == useCaseAttendance) && suggestedProfile == profileLevel {
 			suggestedProfile = profileCounter
@@ -489,6 +506,56 @@ func metricSpecsForSensor(sensorType string, ctx *models.SensorContext) (string,
 				MinAllowed: 0,
 				MaxAllowed: 100,
 				Default:    defaultHumidity,
+			},
+		}, appliedRules
+	case "bme280", "bmp280":
+		return "temperature", map[string]metricSpec{
+			"temperature": {
+				Key:        "temperature",
+				Label:      "temperature",
+				MinAllowed: -10,
+				MaxAllowed: 60,
+				Default:    defaultTemperature,
+			},
+			"pressure": {
+				Key:        "pressure",
+				Label:      "pressure",
+				MinAllowed: 30,
+				MaxAllowed: 120,
+				Default: models.ThresholdConfig{
+					Min:        floatPtr(95.0),
+					Max:        floatPtr(105.0),
+					WarningMin: floatPtr(90.0),
+					WarningMax: floatPtr(110.0),
+				},
+			},
+		}, appliedRules
+	case "pressure":
+		return "pressure", map[string]metricSpec{
+			"pressure": {
+				Key:        "pressure",
+				Label:      "pressure",
+				MinAllowed: 30,
+				MaxAllowed: 120,
+				Default: models.ThresholdConfig{
+					Min:        floatPtr(95.0),
+					Max:        floatPtr(105.0),
+					WarningMin: floatPtr(90.0),
+					WarningMax: floatPtr(110.0),
+				},
+			},
+		}, appliedRules
+	case "vl53l0x", "distance":
+		return "distance", map[string]metricSpec{
+			"distance": {
+				Key:        "distance",
+				Label:      "distance",
+				MinAllowed: 0,
+				MaxAllowed: 500,
+				Default: models.ThresholdConfig{
+					Max:        floatPtr(100.0),
+					WarningMax: floatPtr(150.0),
+				},
 			},
 		}, appliedRules
 	case "ultrasonic":
