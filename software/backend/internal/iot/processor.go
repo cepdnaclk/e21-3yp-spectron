@@ -19,6 +19,8 @@ type RawReadingsProcessor struct {
 	db *pgxpool.Pool
 }
 
+const sensorReadingsRetentionWindow = 7 * 24 * time.Hour
+
 func NewRawReadingsProcessor(db *pgxpool.Pool) *RawReadingsProcessor {
 	return &RawReadingsProcessor{db: db}
 }
@@ -55,6 +57,10 @@ func (p *RawReadingsProcessor) ProcessEvent(ctx context.Context, event RawReadin
 		if err := p.upsertSensorReading(ctx, tx, accountID, controllerID, event, sensor); err != nil {
 			return err
 		}
+	}
+
+	if err := pruneExpiredSensorReadings(ctx, tx, time.Now().UTC()); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -128,6 +134,26 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 	}
 
 	return nil
+}
+
+func pruneExpiredSensorReadings(ctx context.Context, tx pgx.Tx, now time.Time) error {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+
+	_, err := tx.Exec(ctx, `
+		DELETE FROM sensor_readings
+		WHERE time < $1
+	`, sensorReadingsRetentionCutoff(now))
+	if err != nil {
+		return fmt.Errorf("prune expired sensor readings: %w", err)
+	}
+
+	return nil
+}
+
+func sensorReadingsRetentionCutoff(now time.Time) time.Time {
+	return now.UTC().Add(-sensorReadingsRetentionWindow)
 }
 
 type thresholdAlertInput struct {

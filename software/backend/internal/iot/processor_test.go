@@ -123,6 +123,19 @@ func TestConfigLookupSensorHWIDsIncludesParentForHumiditySidecar(t *testing.T) {
 	}
 }
 
+func TestSensorReadingsRetentionCutoffKeepsSevenDays(t *testing.T) {
+	now := time.Date(2026, 4, 28, 9, 30, 0, 0, time.FixedZone("LKT", 5*60*60+30*60))
+	cutoff := sensorReadingsRetentionCutoff(now)
+
+	expected := now.UTC().Add(-7 * 24 * time.Hour)
+	if !cutoff.Equal(expected) {
+		t.Fatalf("expected cutoff %s, got %s", expected, cutoff)
+	}
+	if cutoff.Location() != time.UTC {
+		t.Fatalf("expected UTC cutoff, got %s", cutoff.Location())
+	}
+}
+
 func TestThresholdAlertMessageIncludesSensorValueAndTime(t *testing.T) {
 	readingAt := time.Date(2026, 4, 27, 12, 30, 0, 0, time.UTC)
 	message := thresholdAlertMessage(

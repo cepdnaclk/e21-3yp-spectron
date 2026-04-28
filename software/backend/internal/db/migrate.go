@@ -38,6 +38,9 @@ var migration009EmailVerification string
 //go:embed migrations/010_activate_verified_email_users.sql
 var migration010ActivateVerifiedEmailUsers string
 
+//go:embed migrations/011_sensor_readings_retention.sql
+var migration011SensorReadingsRetention string
+
 type migration struct {
 	name string
 	sql  string
@@ -53,6 +56,7 @@ var startupMigrations = []migration{
 	{name: "008_seed_single_system_admin", sql: migration008SeedSingleSystemAdmin},
 	{name: "009_email_verification", sql: migration009EmailVerification},
 	{name: "010_activate_verified_email_users", sql: migration010ActivateVerifiedEmailUsers},
+	{name: "011_sensor_readings_retention", sql: migration011SensorReadingsRetention},
 }
 
 func ApplyStartupMigrations(ctx context.Context, pool *pgxpool.Pool) error {
