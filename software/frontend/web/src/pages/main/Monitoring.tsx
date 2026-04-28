@@ -441,12 +441,14 @@ const Monitoring: React.FC = () => {
       const groupedControllers = await Promise.all(
         controllerList.map(async (controller) => {
           const sensors = await getHardwareSensors(controller.id);
+          // Filter to only live/active sensors
+          const activeSensors = sensors.filter((s) => s.status === 'OK' || s.status === 'ONLINE');
           const to = new Date();
           const from = new Date();
           from.setDate(to.getDate() - 1);
 
           const sensorCards = await Promise.all(
-            sensors.map(async (sensor) => {
+            activeSensors.map(async (sensor) => {
               const readings = await getSensorReadings(sensor.id, {
                 from: from.toISOString(),
                 to: to.toISOString(),

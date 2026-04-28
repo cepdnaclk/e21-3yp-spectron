@@ -1070,6 +1070,7 @@ func (h *ControllerHandler) loadHardwareSensors(ctx context.Context, controllerI
 		FROM controller_sensors
 		WHERE controller_id = $1
 		  AND updated_at >= $2
+		  AND UPPER(COALESCE(status, '')) = 'LIVE'
 		ORDER BY created_at ASC, sensor_uid ASC
 	`, controllerID, sessionStart)
 	if err != nil {
