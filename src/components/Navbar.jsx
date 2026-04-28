@@ -1,4 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from "react";
+import BrandLogo from "./BrandLogo.jsx";
 import "../styles/navbar.css";
 
 function Navbar({ copy, theme, onToggleTheme }) {
@@ -53,8 +54,8 @@ function Navbar({ copy, theme, onToggleTheme }) {
   return (
     <header className="site-header">
       <div className="container header__inner">
-        <a className="logo" href="#home">
-          SPECTRON
+        <a className="logo-link" href="#home">
+          <BrandLogo />
         </a>
         <div className="header__links">
           <nav className="nav" aria-label="Primary">

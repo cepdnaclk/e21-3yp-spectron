@@ -9,23 +9,23 @@
     },
     toggles: {
       theme: {
-        toDark: "Dark Mode",
-        toLight: "Light Mode",
+        toDark: "Dark",
+        toLight: "Light",
       },
     },
     hero: {
-      eyebrow: "3rd-Year Engineering Project",
-      title: "Spectron: A Standardized Modular IoT Adapter Kit",
+      eyebrow: "Standardized Modular IoT Adapter Kit",
+      title: "SPECTRON",
       text:
-        "A clean, reliable platform that unifies modular sensor nodes with a centralized dashboard for smart deployments.",
-      primaryCta: "Meet the Team",
-      secondaryCta: "Project Overview",
-      highlightsTitle: "Project Highlights",
+        "One reusable device core for multiple sensing applications. Attach different sensor modules, configure behavior in the dashboard, and deploy secure monitoring without rebuilding the full system.",
+      primaryCta: "Explore Architecture",
+      secondaryCta: "Meet the Team",
+      highlightsTitle: "Reusable Adapter Core",
       highlights: [
-        "Adaptable modular IoT kit for multiple sensor types.",
-        "Secure data flow from edge to cloud services.",
-        "Low-power optimization for long deployments.",
-        "Scalable architecture for campus-wide rollouts.",
+        "Swappable sensor interfaces",
+        "ESP32 edge gateway",
+        "MQTT telemetry pipeline",
+        "Live dashboard delivery",
       ],
     },
     overview: {
@@ -80,7 +80,7 @@
         "ESP32",
         "MQTT",
         "PostgreSQL",
-        "Time Scsling",
+        "Time-Series Storage",
       ],
     },
     team: {
@@ -91,7 +91,7 @@
     },
     footer: {
       brand: "SPECTRON",
-      tagline: "Empowering Movement Through Data",
+      tagline: "One reusable device core for multiple sensing applications.",
       quickLinksTitle: "Quick Links",
       contactTitle: "Contact Us",
       contact: {

@@ -1,5 +1,6 @@
 ﻿import { useState } from "react";
 import ArchitectureDiagram from "../components/ArchitectureDiagram.jsx";
+import BrandLogo from "../components/BrandLogo.jsx";
 import ExplanationPanel from "../components/ExplanationPanel.jsx";
 import TeamSection from "../components/TeamSection.jsx";
 import Footer from "../components/Footer.jsx";
@@ -28,19 +29,33 @@ function Home({ copy }) {
         <section className="section hero-section" id="home">
           <div className="container hero">
             <div className="hero__content">
-              <p className="eyebrow">{copy.hero.eyebrow}</p>
+              <p className="eyebrow hero__badge">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M13.5 2 4 13h6l-1.5 9L20 9h-6.5L13.5 2Z" />
+                </svg>
+                <span>{copy.hero.eyebrow}</span>
+              </p>
               <h1 className="hero__title">{copy.hero.title}</h1>
               <p className="hero__text">{copy.hero.text}</p>
               <div className="hero__actions">
-                <a className="btn btn--primary" href="#team">
+                <a className="btn btn--primary" href="#architecture">
                   {copy.hero.primaryCta}
                 </a>
-                <a className="btn btn--ghost" href="#overview">
+                <a className="btn btn--ghost" href="#team">
                   {copy.hero.secondaryCta}
                 </a>
               </div>
             </div>
             <div className="hero__card">
+              <div className="hero__card-top">
+                <BrandLogo className="brand-logo--compact" />
+                <span className="hero__status">Core online</span>
+              </div>
+              <div className="adapter-visual" aria-hidden="true">
+                <span className="adapter-visual__port"></span>
+                <span className="adapter-visual__chip">S</span>
+                <span className="adapter-visual__port"></span>
+              </div>
               <h2 className="card__title">{copy.hero.highlightsTitle}</h2>
               <ul className="hero__list">
                 {copy.hero.highlights.map((item) => (

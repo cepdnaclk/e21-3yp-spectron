@@ -1,5 +1,7 @@
 ﻿import "../styles/footer.css";
 
+import BrandLogo from "./BrandLogo.jsx";
+
 const quickLinkIds = ["home", "overview", "architecture", "tech", "team"];
 
 const IconLocation = () => (
@@ -19,7 +21,7 @@ function Footer({ copy, nav }) {
     <footer className="site-footer">
       <div className="container footer-grid">
         <div className="footer-brand">
-          <h2>{copy.brand}</h2>
+          <BrandLogo className="brand-logo--footer" />
           <p>{copy.tagline}</p>
         </div>
 
