@@ -91,6 +91,38 @@ func TestDecodeAlertSensorConfigSupportsHardwareFlatShape(t *testing.T) {
 	}
 }
 
+func TestDecodeAlertSensorConfigUsesHumidityMetricForHumiditySidecar(t *testing.T) {
+	config, err := decodeAlertSensorConfig([]byte(`{
+		"temperatureWarningMax": 38,
+		"humidityWarningMax": 85
+	}`), "humidity")
+	if err != nil {
+		t.Fatalf("decode flat config: %v", err)
+	}
+
+	evaluation := evaluateThresholdBreach("humidity", 86, config)
+	if !evaluation.Triggered {
+		t.Fatal("expected humidity threshold breach")
+	}
+	if evaluation.Metric != "humidity" {
+		t.Fatalf("expected humidity metric, got %s", evaluation.Metric)
+	}
+}
+
+func TestConfigLookupSensorHWIDsIncludesParentForHumiditySidecar(t *testing.T) {
+	got := configLookupSensorHWIDs("ctrl-real-001-sensor-temp-01-humidity", "humidity")
+	want := []string{"ctrl-real-001-sensor-temp-01-humidity", "ctrl-real-001-sensor-temp-01"}
+
+	if len(got) != len(want) {
+		t.Fatalf("expected %d lookup IDs, got %d: %#v", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("lookup ID %d: expected %q, got %q", i, want[i], got[i])
+		}
+	}
+}
+
 func TestThresholdAlertMessageIncludesSensorValueAndTime(t *testing.T) {
 	readingAt := time.Date(2026, 4, 27, 12, 30, 0, 0, time.UTC)
 	message := thresholdAlertMessage(

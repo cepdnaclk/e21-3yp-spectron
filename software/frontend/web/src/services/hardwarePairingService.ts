@@ -48,6 +48,17 @@ export interface SaveHardwareSensorConfigRequest {
   appConfig: SensorConfigPayload;
 }
 
+interface HardwareSensorConfigResponse {
+  controllerId: string;
+  sensorId: string;
+  sensorType: string;
+  sensorName: string;
+  usedFor?: string;
+  dashboardView?: string;
+  config?: Record<string, unknown>;
+  appConfig?: SensorConfigPayload;
+}
+
 type StoredHardwareController = HardwarePairingResponse & {
   updatedAt: string;
 };
@@ -363,6 +374,34 @@ export const getHardwareSensor = async (sensorId: string, controllerId?: string)
     const sensor = (Array.isArray(stored?.sensors) ? stored?.sensors : [])?.find((item) => item.id === sensorId);
     if (sensor) {
       return toAppSensor(controllerId, sensor);
+    }
+
+    if (/^CTRL-/i.test(controllerId)) {
+      const sensors = await getHardwareSensors(controllerId);
+      const hardwareSensor = sensors.find((item) => item.id === sensorId || item.hw_id === sensorId);
+      if (!hardwareSensor) {
+        return getSensor(sensorId);
+      }
+
+      try {
+        const configResponse = await api.get<HardwareSensorConfigResponse>(
+          `/api/controllers/${encodeURIComponent(controllerId)}/sensors/${encodeURIComponent(sensorId)}/config`
+        );
+        const config = configResponse.data;
+        return {
+          ...hardwareSensor,
+          name: config.sensorName || hardwareSensor.name,
+          purpose: config.usedFor || hardwareSensor.purpose,
+          config_active: true,
+          active_config: config.appConfig || hardwareSensor.active_config,
+        };
+      } catch (error: any) {
+        if (error?.response?.status !== 404) {
+          throw error;
+        }
+      }
+
+      return hardwareSensor;
     }
   }
 
