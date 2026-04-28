@@ -90,6 +90,7 @@ type TypeSpecificField = {
   label: string;
   type: 'number' | 'text';
   required?: boolean;
+  description?: string;
 };
 
 const toNumberOrUndefined = (value: string): number | undefined => {
@@ -179,34 +180,130 @@ const getTypeSpecificFieldsForSensorType = (sensorType: string): TypeSpecificFie
   switch (sensorType.toLowerCase()) {
     case 'ultrasonic':
       return [
-        { key: 'tankHeight', label: 'Tank Height', type: 'number', required: true },
-        { key: 'emptyDistance', label: 'Empty Distance', type: 'number', required: true },
-        { key: 'fullDistance', label: 'Full Distance', type: 'number', required: true },
-        { key: 'lowLevelAlert', label: 'Low Level Alert', type: 'number', required: true },
-        { key: 'highLevelAlert', label: 'High Level Alert', type: 'number', required: true },
-        { key: 'unit', label: 'Unit', type: 'text', required: true },
+        {
+          key: 'tankHeight',
+          label: 'Tank Height',
+          type: 'number',
+          required: true,
+          description: 'Total height or depth of the tank or container.',
+        },
+        {
+          key: 'emptyDistance',
+          label: 'Empty Distance',
+          type: 'number',
+          required: true,
+          description: 'Distance measured by the sensor when the tank is empty.',
+        },
+        {
+          key: 'fullDistance',
+          label: 'Full Distance',
+          type: 'number',
+          required: true,
+          description: 'Distance measured by the sensor when the tank is full.',
+        },
+        {
+          key: 'lowLevelAlert',
+          label: 'Low Level Alert',
+          type: 'number',
+          required: true,
+          description: 'Level threshold where the dashboard should warn that the tank is low.',
+        },
+        {
+          key: 'highLevelAlert',
+          label: 'High Level Alert',
+          type: 'number',
+          required: true,
+          description: 'Level threshold where the dashboard should warn that the tank is almost full or too high.',
+        },
+        {
+          key: 'unit',
+          label: 'Unit',
+          type: 'text',
+          required: true,
+          description: 'Measurement unit for these distance and level values, usually cm.',
+        },
       ];
     case 'vl53l0x':
     case 'distance':
       return [
-        { key: 'maxDistance', label: 'Maximum Distance', type: 'number', required: false },
-        { key: 'unit', label: 'Unit', type: 'text', required: false },
+        {
+          key: 'maxDistance',
+          label: 'Maximum Distance',
+          type: 'number',
+          required: false,
+          description: 'Farthest distance this sensor should normally measure.',
+        },
+        {
+          key: 'unit',
+          label: 'Unit',
+          type: 'text',
+          required: false,
+          description: 'Measurement unit for distance values, usually cm.',
+        },
       ];
     case 'load':
     case 'load_cell':
       return [
-        { key: 'maximumWeight', label: 'Maximum Weight', type: 'number', required: true },
-        { key: 'minimumWeight', label: 'Minimum Weight', type: 'number', required: true },
-        { key: 'overloadAlert', label: 'Overload Alert', type: 'number', required: true },
-        { key: 'unit', label: 'Unit', type: 'text', required: true },
+        {
+          key: 'maximumWeight',
+          label: 'Maximum Weight',
+          type: 'number',
+          required: true,
+          description: 'Highest weight the sensor or system should expect to measure.',
+        },
+        {
+          key: 'minimumWeight',
+          label: 'Minimum Weight',
+          type: 'number',
+          required: true,
+          description: 'Lowest valid weight for this setup, usually 0.',
+        },
+        {
+          key: 'overloadAlert',
+          label: 'Overload Alert',
+          type: 'number',
+          required: true,
+          description: 'Weight value where the system should warn that the load is too high.',
+        },
+        {
+          key: 'unit',
+          label: 'Unit',
+          type: 'text',
+          required: true,
+          description: 'Measurement unit for weight values, usually kg.',
+        },
       ];
     case 'gas':
     case 'gas_sensor':
       return [
-        { key: 'gasType', label: 'Gas Type', type: 'text', required: true },
-        { key: 'warningThreshold', label: 'Warning Threshold', type: 'number', required: true },
-        { key: 'dangerThreshold', label: 'Danger Threshold', type: 'number', required: true },
-        { key: 'unit', label: 'Unit', type: 'text', required: true },
+        {
+          key: 'gasType',
+          label: 'Gas Type',
+          type: 'text',
+          required: true,
+          description: 'Gas or air-quality value this sensor is tracking.',
+        },
+        {
+          key: 'warningThreshold',
+          label: 'Warning Threshold',
+          type: 'number',
+          required: true,
+          description: 'Reading where the dashboard should show an early warning.',
+        },
+        {
+          key: 'dangerThreshold',
+          label: 'Danger Threshold',
+          type: 'number',
+          required: true,
+          description: 'Reading where the dashboard should show a critical danger alert.',
+        },
+        {
+          key: 'unit',
+          label: 'Unit',
+          type: 'text',
+          required: true,
+          description: 'Measurement unit for gas readings, usually ppm.',
+        },
       ];
     default:
       return [];
@@ -376,6 +473,68 @@ const getAllowedProfilesForUseCase = (
   }
 };
 
+const pageKickerSx = {
+  color: 'secondary.main',
+  fontWeight: 900,
+  letterSpacing: 1,
+} as const;
+
+const pageTitleSx = {
+  color: 'text.primary',
+  fontWeight: 900,
+  letterSpacing: 0,
+  lineHeight: 1.15,
+} as const;
+
+const sectionSx = {
+  mt: 3,
+  pt: 3,
+  borderTop: '1px solid rgba(60, 57, 17, 0.12)',
+} as const;
+
+const sectionTitleSx = {
+  mb: 1,
+  color: 'primary.main',
+  fontWeight: 900,
+  textTransform: 'uppercase',
+  letterSpacing: 0.6,
+  borderBottom: '1px solid rgba(60, 57, 17, 0.14)',
+  pb: 0.75,
+} as const;
+
+const sectionIntroSx = {
+  color: 'text.secondary',
+  lineHeight: 1.6,
+  maxWidth: 820,
+} as const;
+
+const fieldGroupTitleSx = {
+  mb: 1,
+  color: 'text.primary',
+  fontWeight: 800,
+  borderLeft: '4px solid rgba(108, 137, 48, 0.55)',
+  pl: 1.25,
+  lineHeight: 1.35,
+} as const;
+
+const fieldGroupIntroSx = {
+  mb: 1.5,
+  color: 'text.secondary',
+  lineHeight: 1.55,
+} as const;
+
+const captionTextSx = {
+  color: 'text.secondary',
+  display: 'block',
+  lineHeight: 1.5,
+  mt: -0.25,
+} as const;
+
+const alertTitleSx = {
+  mb: 0.5,
+  fontWeight: 800,
+} as const;
+
 const SensorConfig: React.FC = () => {
   const { id, controllerId, sensorId } = useParams<{
     id?: string;
@@ -408,7 +567,7 @@ const SensorConfig: React.FC = () => {
   const [primaryMetric, setPrimaryMetric] = useState('');
   const [metricThresholds, setMetricThresholds] = useState<Record<string, MetricThresholdInput>>({});
   const [typeSpecificValues, setTypeSpecificValues] = useState<Record<string, string>>({});
-  const [reportsPerDay, setReportsPerDay] = useState('');
+  const [reportsPerDay, setReportsPerDay] = useState('24');
   const [readingFlowType, setReadingFlowType] = useState<'CONSTANT_PER_DAY' | 'TRIGGER'>('CONSTANT_PER_DAY');
   const [validationStatus, setValidationStatus] = useState('');
   const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
@@ -513,7 +672,7 @@ const SensorConfig: React.FC = () => {
         setLocationLabel(sensorData.context?.location?.label || '');
         setHistoricalWindowDays(sensorData.context?.historical_window_days?.toString() || '');
         setInstallationNotes(sensorData.context?.installation_notes || '');
-        setReportsPerDay(sensorData.active_config?.report_interval_per_day?.toString() || '');
+        setReportsPerDay(sensorData.active_config?.report_interval_per_day?.toString() || '24');
         setUseCase(
           (sensorData.active_config?.use_case as UseCaseOption | undefined) ||
             getDefaultUseCaseForSensorType(sensorData.type || '')
@@ -958,10 +1117,10 @@ const SensorConfig: React.FC = () => {
         </Box>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} sx={{ mb: 2 }}>
           <Box>
-            <Typography variant="overline" color="secondary" fontWeight={800}>
+            <Typography variant="overline" sx={pageKickerSx}>
               Sensor setup
             </Typography>
-            <Typography variant="h4">
+            <Typography variant="h4" sx={pageTitleSx}>
               Configure {sensor.type} Sensor
             </Typography>
           </Box>
@@ -972,7 +1131,7 @@ const SensorConfig: React.FC = () => {
 
         {sensor.config_active && sensor.observation && (
           <Alert severity={observationSeverity} sx={{ mt: 2 }}>
-            <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+            <Typography variant="subtitle2" sx={alertTitleSx}>
               Current observation status
             </Typography>
             <Typography variant="body2">{sensor.observation.message}</Typography>
@@ -994,7 +1153,7 @@ const SensorConfig: React.FC = () => {
 
         {validationWarnings.length > 0 && (
           <Alert severity={validationStatus === 'adjusted' ? 'warning' : 'info'} sx={{ mt: 2 }}>
-            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            <Typography variant="subtitle2" sx={{ ...alertTitleSx, mb: 1 }}>
               {validationStatus ? `Validation status: ${validationStatus}` : 'Validation feedback'}
             </Typography>
             <Box component="ul" sx={{ pl: 2, mb: 0 }}>
@@ -1007,11 +1166,11 @@ const SensorConfig: React.FC = () => {
           </Alert>
         )}
 
-        <Box sx={{ mt: 3, pt: 3, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
-          <Typography variant="subtitle1" gutterBottom>
+        <Box sx={sectionSx}>
+          <Typography variant="subtitle1" sx={sectionTitleSx}>
             Setup Mode
           </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={sectionIntroSx}>
             Manual setup is the default. AI support is optional and only helps draft a starting
             configuration that you can still adjust before saving.
           </Typography>
@@ -1040,16 +1199,16 @@ const SensorConfig: React.FC = () => {
         </Box>
 
         {isAiAssisted && (
-          <Box sx={{ mt: 3, pt: 3, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
-            <Typography variant="subtitle1" gutterBottom>
+          <Box sx={sectionSx}>
+            <Typography variant="subtitle1" sx={sectionTitleSx}>
               Context
             </Typography>
-            <Typography variant="body2" color="text.secondary" gutterBottom>
+            <Typography variant="body2" sx={sectionIntroSx}>
               Optional but recommended. These details help with AI suggestions now and with better
               improvement recommendations after live data starts coming in.
             </Typography>
 
-            <Grid container spacing={2} sx={{ mt: 0.5 }}>
+            <Grid container spacing={2} sx={{ mt: 1.5 }}>
               <Grid item xs={12} md={4}>
                 <FormControl fullWidth>
                   <InputLabel id="domain-label">Domain</InputLabel>
@@ -1165,11 +1324,11 @@ const SensorConfig: React.FC = () => {
         )}
 
         {setupMode === 'ai_assisted' && (
-          <Box sx={{ mt: 3, pt: 3, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
-          <Typography variant="subtitle1" gutterBottom>
-            AI Support
-          </Typography>
-            <Typography variant="body2" color="text.secondary" gutterBottom>
+          <Box sx={sectionSx}>
+            <Typography variant="subtitle1" sx={sectionTitleSx}>
+              AI Support
+            </Typography>
+            <Typography variant="body2" sx={sectionIntroSx}>
               Describe what this sensor is for, then let AI draft threshold and reporting values that
               you can still fine-tune manually.
             </Typography>
@@ -1196,7 +1355,7 @@ const SensorConfig: React.FC = () => {
 
             {aiDraftSummary && (
               <Alert severity={aiDraftSummary.warnings.length > 0 ? 'warning' : 'success'} sx={{ mt: 2 }}>
-                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                <Typography variant="subtitle2" sx={alertTitleSx}>
                   AI draft ready
                 </Typography>
                 <Typography variant="body2">{aiDraftSummary.explanation}</Typography>
@@ -1223,14 +1382,14 @@ const SensorConfig: React.FC = () => {
           </Box>
         )}
 
-        <Box sx={{ mt: 4, pt: 3, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
-          <Typography variant="subtitle1" gutterBottom>
+        <Box sx={{ ...sectionSx, mt: 4 }}>
+          <Typography variant="subtitle1" sx={sectionTitleSx}>
             Configuration
           </Typography>
 
           <TextField
             fullWidth
-            label="System Name *"
+            label="System Name"
             value={systemName}
             onChange={(e) => setSystemName(e.target.value)}
             margin="normal"
@@ -1240,7 +1399,7 @@ const SensorConfig: React.FC = () => {
 
           <TextField
             fullWidth
-            label="Sensor Name *"
+            label="Sensor Name"
             value={friendlyName}
             onChange={(e) => setFriendlyName(e.target.value)}
             margin="normal"
@@ -1268,7 +1427,7 @@ const SensorConfig: React.FC = () => {
                   ))}
                 </Select>
               </FormControl>
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption" sx={captionTextSx}>
                 {USE_CASE_OPTIONS.find((option) => option.value === useCase)?.description}
               </Typography>
             </Grid>
@@ -1292,7 +1451,7 @@ const SensorConfig: React.FC = () => {
                   ))}
                 </Select>
               </FormControl>
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption" sx={captionTextSx}>
                 {
                   PRESENTATION_PROFILE_OPTIONS.find(
                     (option) => option.value === presentationProfile
@@ -1303,11 +1462,11 @@ const SensorConfig: React.FC = () => {
           </Grid>
 
           {sensorMetrics.map((metric) => (
-            <Box key={metric.key} sx={{ mt: 2 }}>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            <Box key={metric.key} sx={{ mt: 3, pt: 2.25, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
+              <Typography variant="subtitle2" sx={fieldGroupTitleSx}>
                 {metric.label} Thresholds
               </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              <Typography variant="body2" sx={fieldGroupIntroSx}>
                 Choose whether this sensor should enforce a lower limit, an upper limit, or both.
               </Typography>
               <ToggleButtonGroup
@@ -1374,7 +1533,7 @@ const SensorConfig: React.FC = () => {
                 )}
               </Grid>
 
-              <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+              <Typography variant="subtitle2" sx={{ ...fieldGroupTitleSx, mt: 2.5 }}>
                 {metric.label} Warning Thresholds (Optional)
               </Typography>
               <Grid container spacing={2}>
@@ -1421,8 +1580,8 @@ const SensorConfig: React.FC = () => {
           ))}
 
           {typeSpecificFields.length > 0 && (
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            <Box sx={{ mt: 3, pt: 2.25, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
+              <Typography variant="subtitle2" sx={fieldGroupTitleSx}>
                 Sensor Details
               </Typography>
               <Grid container spacing={2}>
@@ -1430,10 +1589,11 @@ const SensorConfig: React.FC = () => {
                   <Grid item xs={12} md={6} key={field.key}>
                     <TextField
                       fullWidth
-                      label={`${field.label}${field.required ? ' *' : ''}`}
+                      label={field.label}
                       type={field.type}
                       value={typeSpecificValues[field.key] || ''}
                       placeholder={getTypeSpecificPlaceholder(sensor?.type || navigationState?.sensorType || '', field.key)}
+                      helperText={field.description}
                       onChange={(e) =>
                         setTypeSpecificValues((current) => ({
                           ...current,
@@ -1448,7 +1608,10 @@ const SensorConfig: React.FC = () => {
             </Box>
           )}
 
-          <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+          <Typography
+            variant="subtitle2"
+            sx={{ ...fieldGroupTitleSx, mt: 3, pt: 2.25, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}
+          >
             Reading & Power Settings
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ color: 'primary.main', mb: 1 }}>
@@ -1495,6 +1658,12 @@ const SensorConfig: React.FC = () => {
           Saving activates this configuration immediately. After live readings start coming in, the
           system will keep observing in the background and can suggest better refinements later.
         </Alert>
+
+        {pageError && (
+          <Alert severity="error" sx={{ mt: 2 }}>
+            {pageError}
+          </Alert>
+        )}
 
         <Button
           variant="contained"
