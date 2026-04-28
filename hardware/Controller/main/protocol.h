@@ -6,8 +6,11 @@
 #define MODULE_HEADER_MAGIC    0x534D4F44u
 #define MODULE_HEADER_VERSION  1
 
-#define SENSOR_TYPE_NONE   0
-#define SENSOR_TYPE_SHT30  1
+#define SENSOR_TYPE_NONE     0
+#define SENSOR_TYPE_SHT30    1
+#define SENSOR_TYPE_BME280   2
+#define SENSOR_TYPE_BMP280   3
+#define SENSOR_TYPE_VL53L0X  4
 
 #define MSG_BASE_HELLO     1
 #define MSG_BASE_ACK       2

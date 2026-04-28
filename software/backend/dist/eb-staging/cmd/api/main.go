@@ -19,6 +19,8 @@ import (
 )
 
 func main() {
+	log.Println("BOOT_MARKER backend 2026-04-29-fix2")
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("load config: %v", err)
@@ -51,7 +53,7 @@ func main() {
 	}
 
 	r := chi.NewRouter()
-	httpapi.RegisterRoutes(r, pool, cfg.AllowedOrigins, rawReadingsPublisher)
+	httpapi.RegisterRoutes(r, pool, cfg.AllowedOrigins, rawReadingsPublisher, cfg.Email)
 
 	monitorCtx, stopMonitor := context.WithCancel(context.Background())
 	defer stopMonitor()

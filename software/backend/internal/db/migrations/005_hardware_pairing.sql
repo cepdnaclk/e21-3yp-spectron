@@ -45,7 +45,12 @@ CREATE TABLE IF NOT EXISTS controller_sensors (
         'gas',
         'weight',
         'temperature',
-        'humidity'
+        'humidity',
+        'pressure',
+        'bme280',
+        'bmp280',
+        'vl53l0x',
+        'distance'
     )),
     status TEXT NOT NULL DEFAULT 'live',
     configured BOOLEAN NOT NULL DEFAULT false,

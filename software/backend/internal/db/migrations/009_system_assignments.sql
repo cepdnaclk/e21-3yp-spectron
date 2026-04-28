@@ -51,7 +51,12 @@ CREATE TABLE IF NOT EXISTS system_sensors (
         'gas',
         'weight',
         'temperature',
-        'humidity'
+        'humidity',
+        'pressure',
+        'bme280',
+        'bmp280',
+        'vl53l0x',
+        'distance'
     )),
     status TEXT NOT NULL DEFAULT 'pending_discovery' CHECK (status IN (
         'pending_discovery',
@@ -296,18 +301,24 @@ upserted_system_sensors AS (
         current_sensor_uid = EXCLUDED.current_sensor_uid,
         updated_at = GREATEST(system_sensors.updated_at, EXCLUDED.updated_at)
     RETURNING id, system_id, slot_key
-)
-UPDATE controller_sensors cs
-SET system_sensor_id = ss.id
-FROM active_systems ast
-JOIN system_sensors ss
-  ON ss.system_id = ast.system_id
-WHERE cs.controller_id = ast.controller_id
-  AND ss.slot_key = CASE
+),
+controller_sensor_matches AS (
+    SELECT
+        cs.id AS controller_sensor_id,
+        ss.id AS system_sensor_id
+    FROM active_systems ast
+    JOIN controller_sensors cs ON cs.controller_id = ast.controller_id
+    JOIN system_sensors ss ON ss.system_id = ast.system_id
+    WHERE ss.slot_key = CASE
         WHEN position('-sensor-' IN lower(cs.sensor_uid)) > 0 THEN split_part(lower(cs.sensor_uid), '-sensor-', 2)
         ELSE regexp_replace(lower(cs.type), '[^a-z0-9]+', '-', 'g') || '-01'
     END
-  AND cs.system_sensor_id IS DISTINCT FROM ss.id;
+)
+UPDATE controller_sensors cs
+SET system_sensor_id = csm.system_sensor_id
+FROM controller_sensor_matches csm
+WHERE cs.id = csm.controller_sensor_id
+  AND cs.system_sensor_id IS DISTINCT FROM csm.system_sensor_id;
 
 WITH active_systems AS (
     SELECT
@@ -371,18 +382,24 @@ upserted_legacy_system_sensors AS (
         current_sensor_uid = COALESCE(system_sensors.current_sensor_uid, EXCLUDED.current_sensor_uid),
         updated_at = NOW()
     RETURNING id, system_id, slot_key
-)
-UPDATE sensors s
-SET system_sensor_id = ss.id
-FROM active_systems ast
-JOIN system_sensors ss
-  ON ss.system_id = ast.system_id
-WHERE s.controller_id = ast.controller_id
-  AND ss.slot_key = CASE
+),
+legacy_sensor_matches AS (
+    SELECT
+        s.id AS legacy_sensor_id,
+        ss.id AS system_sensor_id
+    FROM active_systems ast
+    JOIN sensors s ON s.controller_id = ast.controller_id
+    JOIN system_sensors ss ON ss.system_id = ast.system_id
+    WHERE ss.slot_key = CASE
         WHEN position('-sensor-' IN lower(s.hw_id)) > 0 THEN split_part(lower(s.hw_id), '-sensor-', 2)
         ELSE regexp_replace(lower(s.type), '[^a-z0-9]+', '-', 'g') || '-01'
     END
-  AND s.system_sensor_id IS DISTINCT FROM ss.id;
+)
+UPDATE sensors s
+SET system_sensor_id = lsm.system_sensor_id
+FROM legacy_sensor_matches lsm
+WHERE s.id = lsm.legacy_sensor_id
+  AND s.system_sensor_id IS DISTINCT FROM lsm.system_sensor_id;
 
 INSERT INTO system_sensor_assignments (
     id,
