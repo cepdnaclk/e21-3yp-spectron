@@ -20,6 +20,7 @@
   justify-content: space-between;
   gap: 24px;
   min-height: 88px;
+  min-width: 0;
   padding: 14px 0;
 }
 
@@ -131,12 +132,17 @@
   }
 
   .nav {
-    gap: 4px;
+    display: grid;
+    grid-template-columns: repeat(3, max-content);
+    gap: 6px 4px;
+    width: 100%;
+    max-width: 100%;
+    justify-content: start;
   }
 
   .nav__link {
     min-height: 34px;
     padding: 6px 7px;
-    font-size: 0.78rem;
+    font-size: 0.76rem;
   }
 }

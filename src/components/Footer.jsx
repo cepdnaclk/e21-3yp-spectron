@@ -2,7 +2,7 @@
 
 import BrandLogo from "./BrandLogo.jsx";
 
-const quickLinkIds = ["home", "overview", "architecture", "tech", "team"];
+const quickLinkIds = ["home", "overview", "architecture", "tech", "budget", "team"];
 
 const IconLocation = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">

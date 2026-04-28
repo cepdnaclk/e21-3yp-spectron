@@ -9,6 +9,7 @@ function Navbar({ copy, theme, onToggleTheme }) {
       { id: "overview", label: copy.nav.overview },
       { id: "architecture", label: copy.nav.architecture },
       { id: "tech", label: copy.nav.tech },
+      { id: "budget", label: copy.nav.budget },
       { id: "team", label: copy.nav.team },
     ],
     [copy]

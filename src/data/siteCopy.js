@@ -5,6 +5,7 @@
       overview: "Overview",
       architecture: "Architecture",
       tech: "Tech",
+      budget: "Budget",
       team: "Team",
     },
     toggles: {
@@ -82,6 +83,16 @@
         "PostgreSQL",
         "Time-Series Storage",
       ],
+    },
+    budget: {
+      eyebrow: "Cost Breakdown",
+      title: "Project Budget",
+      subtitle:
+        "The project budget tracks the hardware modules, power components, 3D printing, hosting, and miscellaneous costs required for the Spectron prototype.",
+      totalLabel: "Estimated Budget",
+      totalValue: "Rs20,481.00",
+      imageAlt:
+        "Spectron project budget table listing components, unit prices, quantity, and total price.",
     },
     team: {
       title: "Our Team",
