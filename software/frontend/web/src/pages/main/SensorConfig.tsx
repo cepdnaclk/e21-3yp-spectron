@@ -1146,10 +1146,6 @@ const SensorConfig: React.FC = () => {
           </Alert>
         )}
 
-        <AutoDismissAlert open={Boolean(pageError)} severity="error" sx={{ mt: 2 }} onCloseAlert={() => setPageError(null)}>
-            {pageError}
-        </AutoDismissAlert>
-
         {validationWarnings.length > 0 && (
           <Alert severity={validationStatus === 'adjusted' ? 'warning' : 'info'} sx={{ mt: 2 }}>
             <Typography variant="subtitle2" sx={{ ...alertTitleSx, mb: 1 }}>
