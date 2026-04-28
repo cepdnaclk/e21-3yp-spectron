@@ -38,6 +38,9 @@ function Import-DotEnvFile {
 $backendEnvPath = Join-Path $projectRoot ".env"
 Import-DotEnvFile -Path $backendEnvPath
 
+$backendLocalEnvPath = Join-Path $projectRoot ".env.local"
+Import-DotEnvFile -Path $backendLocalEnvPath
+
 $databaseEnvPath = Join-Path $projectRoot "..\database\.env"
 Import-DotEnvFile -Path $databaseEnvPath
 

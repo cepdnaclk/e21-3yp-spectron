@@ -5,6 +5,8 @@ export const API_ENDPOINTS = {
     LOGIN: '/auth/login',
     ADMIN_LOGIN: '/auth/admin/login',
     REGISTER: '/auth/register',
+    VERIFY_EMAIL: '/auth/verify-email',
+    RESEND_VERIFICATION: '/auth/resend-verification',
     ME: '/auth/me',
     CHANGE_PASSWORD: '/auth/change-password',
   },

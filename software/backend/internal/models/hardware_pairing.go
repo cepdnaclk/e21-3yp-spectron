@@ -76,6 +76,7 @@ type HardwareSensorConfigResponse struct {
 	UsedFor       string          `json:"usedFor,omitempty"`
 	DashboardView string          `json:"dashboardView,omitempty"`
 	Config        json.RawMessage `json:"config"`
+	AppConfig     *SensorConfig   `json:"appConfig,omitempty"`
 }
 
 type UserSystemResponse struct {

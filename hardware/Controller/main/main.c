@@ -38,6 +38,7 @@ static const char *TAG = "CTRL_REAL";
 #define DEVICE_ID_STR      "CTRL-REAL-001"
 #define SENSOR_TYPE_STR    "temperature_humidity"
 #define SENSOR_UID_SUFFIX  "-sensor-temp-01"
+#define HUMIDITY_UID_SUFFIX "-humidity"
 #define SENSOR_NAME_STR    "Temperature & Humidity Sensor"
 
 #define TELEMETRY_HOST     "spectron-backend-env.eba-niaes6bi.ap-south-1.elasticbeanstalk.com"
@@ -121,12 +122,13 @@ static base_record_t g_bases[MAX_BASES];
 static uint32_t g_seq = 0;
 
 /* =========================================================
- * Latest temperature cache
+ * Latest SHT30 sample cache
  * ========================================================= */
-static portMUX_TYPE g_temp_lock = portMUX_INITIALIZER_UNLOCKED;
-static bool g_have_latest_temp = false;
+static portMUX_TYPE g_sht_sample_lock = portMUX_INITIALIZER_UNLOCKED;
+static bool g_have_latest_sht_sample = false;
 static float g_latest_temp_c = 0.0f;
-static uint32_t g_latest_temp_rx_ms = 0;
+static float g_latest_humidity_rh = 0.0f;
+static uint32_t g_latest_sht_rx_ms = 0;
 
 static portMUX_TYPE g_sensor_meta_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool g_have_sensor_meta = false;
@@ -272,6 +274,12 @@ static const char *get_backend_sensor_uid(void)
 
     g_sensor_uid_ready = true;
     return g_sensor_uid;
+}
+
+static void get_backend_humidity_sensor_uid(char *buf, size_t buf_len)
+{
+    strlcpy(buf, get_backend_sensor_uid(), buf_len);
+    strlcat(buf, HUMIDITY_UID_SUFFIX, buf_len);
 }
 
 static void clear_telemetry_endpoint_cache(void)
@@ -762,35 +770,38 @@ static void add_peer_if_needed(const uint8_t *mac)
     }
 }
 
-static void set_latest_temp(float temp_c)
+static void set_latest_sht_sample(float temp_c, float humidity_rh)
 {
-    portENTER_CRITICAL(&g_temp_lock);
+    portENTER_CRITICAL(&g_sht_sample_lock);
     g_latest_temp_c = temp_c;
-    g_latest_temp_rx_ms = ms_now();
-    g_have_latest_temp = true;
-    portEXIT_CRITICAL(&g_temp_lock);
+    g_latest_humidity_rh = humidity_rh;
+    g_latest_sht_rx_ms = ms_now();
+    g_have_latest_sht_sample = true;
+    portEXIT_CRITICAL(&g_sht_sample_lock);
 }
 
-static void clear_latest_temp(void)
+static void clear_latest_sht_sample(void)
 {
-    portENTER_CRITICAL(&g_temp_lock);
-    g_have_latest_temp = false;
+    portENTER_CRITICAL(&g_sht_sample_lock);
+    g_have_latest_sht_sample = false;
     g_latest_temp_c = 0.0f;
-    g_latest_temp_rx_ms = 0;
-    portEXIT_CRITICAL(&g_temp_lock);
+    g_latest_humidity_rh = 0.0f;
+    g_latest_sht_rx_ms = 0;
+    portEXIT_CRITICAL(&g_sht_sample_lock);
 }
 
-static bool get_latest_temp(float *temp_c, uint32_t *rx_ms)
+static bool get_latest_sht_sample(float *temp_c, float *humidity_rh, uint32_t *rx_ms)
 {
     bool ok;
 
-    portENTER_CRITICAL(&g_temp_lock);
-    ok = g_have_latest_temp;
+    portENTER_CRITICAL(&g_sht_sample_lock);
+    ok = g_have_latest_sht_sample;
     if (ok) {
         *temp_c = g_latest_temp_c;
-        *rx_ms = g_latest_temp_rx_ms;
+        *humidity_rh = g_latest_humidity_rh;
+        *rx_ms = g_latest_sht_rx_ms;
     }
-    portEXIT_CRITICAL(&g_temp_lock);
+    portEXIT_CRITICAL(&g_sht_sample_lock);
 
     return ok;
 }
@@ -1304,13 +1315,16 @@ static int build_config_pull_json(char *buf, size_t buf_len)
     );
 }
 
-static int build_payload_json(float temp_value, char *buf, size_t buf_len)
+static int build_payload_json(float temp_value, float humidity_value, char *buf, size_t buf_len)
 {
     uint8_t sensor_type = SENSOR_TYPE_SHT30;
+    char humidity_sensor_uid[80];
 
     if (!get_sensor_state_snapshot(NULL, 0, &sensor_type, NULL, NULL)) {
         return -1;
     }
+
+    get_backend_humidity_sensor_uid(humidity_sensor_uid, sizeof(humidity_sensor_uid));
 
     return snprintf(
         buf, buf_len,
@@ -1322,13 +1336,20 @@ static int build_payload_json(float temp_value, char *buf, size_t buf_len)
               "\"id\":\"%s\","
               "\"type\":\"%s\","
               "\"v\":%.1f"
+            "},"
+            "{"
+              "\"id\":\"%s\","
+              "\"type\":\"humidity\","
+              "\"v\":%.1f"
             "}"
           "]"
         "}",
         (unsigned long)ts_now_seconds(),
         get_backend_sensor_uid(),
         sensor_type_to_backend_name(sensor_type),
-        temp_value
+        temp_value,
+        humidity_sensor_uid,
+        humidity_value
     );
 }
 
@@ -1352,6 +1373,12 @@ static int build_discovery_json(char *buf, size_t buf_len)
               "\"type\":\"%s\","
               "\"name\":\"%s\","
               "\"unit\":\"%s\""
+            "},"
+            "{"
+              "\"id\":\"%s" HUMIDITY_UID_SUFFIX "\","
+              "\"type\":\"humidity\","
+              "\"name\":\"Humidity\","
+              "\"unit\":\"%%RH\""
             "}"
           "]"
         "}",
@@ -1359,7 +1386,8 @@ static int build_discovery_json(char *buf, size_t buf_len)
         get_backend_sensor_uid(),
         sensor_type_to_backend_name(sensor_type),
         normalize_backend_sensor_name(sensor_name),
-        sensor_type_to_backend_unit(sensor_type)
+        sensor_type_to_backend_unit(sensor_type),
+        get_backend_sensor_uid()
     );
 }
 
@@ -1648,12 +1676,13 @@ static void handle_sensor_data(const uint8_t *mac, const mproto_frame_t *f)
     }
 
     float temp_c = pl.temperature_c_x100 / 100.0f;
+    float humidity_rh = pl.humidity_rh_x100 / 100.0f;
 
     ESP_LOGI(TAG, "SENSOR_DATA base_id=%lu sensor_id=%lu temp=%.2fC hum=%.2f%% alerts=0x%02X uptime=%lus",
              (unsigned long)f->base_id,
              (unsigned long)f->sensor_id,
              temp_c,
-             pl.humidity_rh_x100 / 100.0f,
+             humidity_rh,
              pl.alert_flags,
              (unsigned long)pl.uptime_s);
 
@@ -1673,7 +1702,7 @@ static void handle_sensor_data(const uint8_t *mac, const mproto_frame_t *f)
         }
     }
 
-    set_latest_temp(temp_c);
+    set_latest_sht_sample(temp_c, humidity_rh);
 }
 
 static void handle_config_ack(const mproto_frame_t *f)
@@ -1697,7 +1726,7 @@ static void handle_config_ack(const mproto_frame_t *f)
     mark_sensor_configured(pl.status == ACK_STATUS_OK);
     note_config_ack_result(pl.status == ACK_STATUS_OK);
     if (pl.status == ACK_STATUS_OK) {
-        clear_latest_temp();
+        clear_latest_sht_sample();
     }
 }
 
@@ -1840,7 +1869,7 @@ static void uploader_task(void *arg)
                     discovery_result.status_code < 300) {
                     discovery_transport_failures = 0;
                     mark_backend_discovered();
-                    clear_latest_temp();
+                    clear_latest_sht_sample();
                     ESP_LOGI(TAG, "Backend discovery completed");
 
                     mark_sensor_configured(false);
@@ -1896,10 +1925,11 @@ static void uploader_task(void *arg)
         }
 
         float temp_value;
+        float humidity_value;
         uint32_t rx_ms;
 
-        if (!get_latest_temp(&temp_value, &rx_ms)) {
-            ESP_LOGI(TAG, "No temperature received yet; waiting...");
+        if (!get_latest_sht_sample(&temp_value, &humidity_value, &rx_ms)) {
+            ESP_LOGI(TAG, "No SHT30 sample received yet; waiting...");
             vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
             continue;
         }
@@ -1918,12 +1948,20 @@ static void uploader_task(void *arg)
             continue;
         }
 
-        int n = build_payload_json(temp_value, g_http_post_body, sizeof(g_http_post_body));
+        int n = build_payload_json(temp_value, humidity_value, g_http_post_body, sizeof(g_http_post_body));
         if (n > 0) {
             if (have_newer_pending_reading) {
-                ESP_LOGI(TAG, "Sending latest temperature v=%.1f (rx_ms=%lu)", temp_value, (unsigned long)rx_ms);
+                ESP_LOGI(TAG,
+                         "Sending latest SHT30 sample temp=%.1f hum=%.1f (rx_ms=%lu)",
+                         temp_value,
+                         humidity_value,
+                         (unsigned long)rx_ms);
             } else {
-                ESP_LOGI(TAG, "Retrying latest pending temperature v=%.1f (rx_ms=%lu)", temp_value, (unsigned long)rx_ms);
+                ESP_LOGI(TAG,
+                         "Retrying latest pending SHT30 sample temp=%.1f hum=%.1f (rx_ms=%lu)",
+                         temp_value,
+                         humidity_value,
+                         (unsigned long)rx_ms);
             }
 
             last_attempted_rx_ms = rx_ms;
@@ -1997,7 +2035,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Hardcoded deviceId=%s", DEVICE_ID_STR);
     ESP_LOGI(TAG, "Derived sensorId=%s", get_backend_sensor_uid());
     ESP_LOGI(TAG, "Sequence: live sensor -> backend discovery -> local CONFIG_ACK -> telemetry upload");
-    ESP_LOGI(TAG, "Uploading only the latest temperature reading after each sensor wake cycle; stale retries are replaced by newer data");
+    ESP_LOGI(TAG, "Uploading only the latest temperature and humidity reading pair after each confirmed sensor wake; stale retries are replaced by newer data");
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));

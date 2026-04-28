@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import { AdminPanelSettings, Spa, Sensors, Visibility, VisibilityOff } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
+import { getApiErrorMessage } from '../../utils/apiError';
 
 const SignIn: React.FC = () => {
   const navigate = useNavigate();
@@ -43,13 +44,8 @@ const SignIn: React.FC = () => {
     try {
       await login({ email, password });
       navigate('/controllers');
-    } catch (err: any) {
-      const responseData = err?.response?.data;
-      const message =
-        typeof responseData === 'string'
-          ? responseData
-          : responseData?.message || 'Failed to sign in';
-      setError(message);
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to sign in'));
     } finally {
       setLoading(false);
     }

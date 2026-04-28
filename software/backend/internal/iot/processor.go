@@ -19,6 +19,8 @@ type RawReadingsProcessor struct {
 	db *pgxpool.Pool
 }
 
+const sensorReadingsRetentionWindow = 7 * 24 * time.Hour
+
 func NewRawReadingsProcessor(db *pgxpool.Pool) *RawReadingsProcessor {
 	return &RawReadingsProcessor{db: db}
 }
@@ -59,6 +61,10 @@ func (p *RawReadingsProcessor) ProcessEvent(ctx context.Context, event RawReadin
 		if err := p.upsertSensorReading(ctx, tx, accountID, controllerID, event, sensor); err != nil {
 			return err
 		}
+	}
+
+	if err := pruneExpiredSensorReadings(ctx, tx, time.Now().UTC()); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -114,14 +120,16 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 	}
 
 	meta, err := json.Marshal(map[string]any{
-		"event_id":      event.EventID,
-		"device_id":     event.DeviceID,
-		"sensor_hw_id":  sensorHWID,
-		"sensor_type":   sensorType,
-		"received_at":   event.ReceivedAt,
-		"reading_time":  event.ReadingTime,
-		"timestamp_raw": event.TimestampRaw,
-		"source":        event.Source,
+		"event_id":            event.EventID,
+		"device_id":           event.DeviceID,
+		"sensor_hw_id":        sensorHWID,
+		"sensor_type":         sensorType,
+		"metric":              defaultMetricForSensorType(sensorType),
+		"parent_sensor_hw_id": sidecarParentSensorHWID(sensorHWID, sensorType),
+		"received_at":         event.ReceivedAt,
+		"reading_time":        event.ReadingTime,
+		"timestamp_raw":       event.TimestampRaw,
+		"source":              event.Source,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal reading metadata: %w", err)
@@ -296,6 +304,26 @@ func upsertSystemSensorState(
 	return systemSensorID, nil
 }
 
+func pruneExpiredSensorReadings(ctx context.Context, tx pgx.Tx, now time.Time) error {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+
+	_, err := tx.Exec(ctx, `
+		DELETE FROM sensor_readings
+		WHERE time < $1
+	`, sensorReadingsRetentionCutoff(now))
+	if err != nil {
+		return fmt.Errorf("prune expired sensor readings: %w", err)
+	}
+
+	return nil
+}
+
+func sensorReadingsRetentionCutoff(now time.Time) time.Time {
+	return now.UTC().Add(-sensorReadingsRetentionWindow)
+}
+
 type thresholdAlertInput struct {
 	AccountID    uuid.UUID
 	ControllerID uuid.UUID
@@ -382,9 +410,47 @@ func loadActiveSensorConfig(ctx context.Context, tx pgx.Tx, sensorID uuid.UUID, 
 		`, controllerID, strings.TrimSpace(sensorHWID)).Scan(&rawConfig)
 		if err != nil {
 			if err == pgx.ErrNoRows {
-				return models.SensorConfig{}, false, nil
+				for _, candidateHWID := range configLookupSensorHWIDs(sensorHWID, sensorType) {
+					err = tx.QueryRow(ctx, `
+						SELECT sc.config_json
+						FROM sensors s
+						JOIN sensor_configs sc ON sc.sensor_id = s.id
+						WHERE s.controller_id = $1
+						  AND s.hw_id = $2
+						  AND sc.active = true
+						ORDER BY sc.created_at DESC
+						LIMIT 1
+					`, controllerID, candidateHWID).Scan(&rawConfig)
+					if err == nil {
+						break
+					}
+					if err != pgx.ErrNoRows {
+						return models.SensorConfig{}, false, err
+					}
+
+					err = tx.QueryRow(ctx, `
+						SELECT sc.config_json
+						FROM sensor_configurations sc
+						JOIN controller_sensors cs ON cs.id = sc.sensor_id
+						WHERE sc.controller_id = $1
+						  AND cs.sensor_uid = $2
+						ORDER BY sc.updated_at DESC
+						LIMIT 1
+					`, controllerID, candidateHWID).Scan(&rawConfig)
+					if err == nil {
+						break
+					}
+					if err != pgx.ErrNoRows {
+						return models.SensorConfig{}, false, err
+					}
+				}
+
+				if err == pgx.ErrNoRows {
+					return models.SensorConfig{}, false, nil
+				}
+			} else {
+				return models.SensorConfig{}, false, err
 			}
-			return models.SensorConfig{}, false, err
 		}
 	}
 	if len(rawConfig) == 0 || string(rawConfig) == "null" {
@@ -396,6 +462,32 @@ func loadActiveSensorConfig(ctx context.Context, tx pgx.Tx, sensorID uuid.UUID, 
 		return models.SensorConfig{}, false, err
 	}
 	return config, true, nil
+}
+
+func configLookupSensorHWIDs(sensorHWID string, sensorType string) []string {
+	trimmed := strings.TrimSpace(sensorHWID)
+	if trimmed == "" {
+		return nil
+	}
+
+	parent := sidecarParentSensorHWID(trimmed, sensorType)
+	if parent == "" || parent == trimmed {
+		return []string{trimmed}
+	}
+
+	return []string{trimmed, parent}
+}
+
+func sidecarParentSensorHWID(sensorHWID string, sensorType string) string {
+	trimmed := strings.TrimSpace(sensorHWID)
+	if trimmed == "" || defaultMetricForSensorType(sensorType) != "humidity" {
+		return ""
+	}
+	if !strings.HasSuffix(trimmed, "-humidity") {
+		return ""
+	}
+
+	return strings.TrimSuffix(trimmed, "-humidity")
 }
 
 func decodeAlertSensorConfig(rawConfig []byte, sensorType string) (models.SensorConfig, error) {

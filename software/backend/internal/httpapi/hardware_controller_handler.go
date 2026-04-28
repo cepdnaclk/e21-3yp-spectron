@@ -964,10 +964,35 @@ func (h *ControllerHandler) GetSensorConfigAPI(w http.ResponseWriter, r *http.Re
 	`, sensor.id).Scan(&usedFor, &dashboardView, &configJSON)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			http.Error(w, "configuration not found", http.StatusNotFound)
+			parentUID := humiditySidecarParentUID(sensor.uid, sensor.sensorType)
+			if parentUID == "" {
+				http.Error(w, "configuration not found", http.StatusNotFound)
+				return
+			}
+
+			err = h.db.QueryRow(r.Context(), `
+				SELECT COALESCE(sc.used_for, ''), COALESCE(sc.dashboard_view, ''), sc.config_json
+				FROM sensor_configurations sc
+				JOIN controller_sensors cs ON cs.id = sc.sensor_id
+				WHERE sc.controller_id = $1 AND cs.sensor_uid = $2
+			`, controller.id, parentUID).Scan(&usedFor, &dashboardView, &configJSON)
+			if err != nil {
+				if err == pgx.ErrNoRows {
+					http.Error(w, "configuration not found", http.StatusNotFound)
+					return
+				}
+				http.Error(w, "database error", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
-		http.Error(w, "database error", http.StatusInternalServerError)
+	}
+
+	appConfig, err := hardwareConfigToAppConfig(configJSON, sensor.sensorType, sensor.name, usedFor, dashboardView)
+	if err != nil {
+		http.Error(w, "invalid configuration", http.StatusInternalServerError)
 		return
 	}
 
@@ -981,6 +1006,7 @@ func (h *ControllerHandler) GetSensorConfigAPI(w http.ResponseWriter, r *http.Re
 		UsedFor:       usedFor,
 		DashboardView: dashboardView,
 		Config:        json.RawMessage(configJSON),
+		AppConfig:     appConfig,
 	})
 }
 
@@ -1613,6 +1639,43 @@ func defaultHardwareSensorName(sensorType string, sensorUID string) string {
 	default:
 		return "Sensor " + strings.TrimSpace(sensorUID)
 	}
+}
+
+func humiditySidecarParentUID(sensorUID string, sensorType string) string {
+	trimmed := strings.TrimSpace(sensorUID)
+	if normalizeHardwareSensorType(sensorType) != "humidity" || !strings.HasSuffix(trimmed, "-humidity") {
+		return ""
+	}
+	return strings.TrimSuffix(trimmed, "-humidity")
+}
+
+func hardwareConfigToAppConfig(configJSON []byte, sensorType string, sensorName string, usedFor string, dashboardView string) (*models.SensorConfig, error) {
+	if len(configJSON) == 0 || string(configJSON) == "null" {
+		return nil, nil
+	}
+
+	appConfig, err := decodeDeviceSensorConfig(configJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	if strings.TrimSpace(appConfig.FriendlyName) == "" {
+		appConfig.FriendlyName = strings.TrimSpace(sensorName)
+	}
+	if strings.TrimSpace(appConfig.UseCase) == "" {
+		appConfig.UseCase = strings.TrimSpace(usedFor)
+	}
+	if strings.TrimSpace(appConfig.PresentationProfile) == "" {
+		appConfig.PresentationProfile = strings.TrimSpace(dashboardView)
+	}
+	if normalizeHardwareSensorType(sensorType) == "humidity" {
+		appConfig.PrimaryMetric = "humidity"
+		if humidityThreshold, ok := appConfig.MetricThresholds["humidity"]; ok {
+			appConfig.Thresholds = humidityThreshold
+		}
+	}
+
+	return &appConfig, nil
 }
 
 func buildLegacySensorConfig(req models.SaveHardwareSensorConfigRequest) models.SensorConfig {

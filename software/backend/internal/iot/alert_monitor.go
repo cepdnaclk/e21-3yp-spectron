@@ -143,7 +143,28 @@ func markStaleSensorsOffline(ctx context.Context, db *pgxpool.Pool, offlineAfter
 		return err
 	}
 
+	if err := markStaleControllerSensorsOffline(ctx, tx, offlineAfter); err != nil {
+		return err
+	}
+
 	return tx.Commit(ctx)
+}
+
+func markStaleControllerSensorsOffline(ctx context.Context, tx interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}, offlineAfter time.Duration) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE controller_sensors cs
+		SET status = 'offline',
+		    updated_at = NOW()
+		FROM controllers c
+		WHERE cs.controller_id = c.id
+		  AND c.owner_user_id IS NOT NULL
+		  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
+		  AND UPPER(COALESCE(cs.status, '')) = 'live'
+		  AND cs.updated_at < NOW() - ($1::double precision * INTERVAL '1 second')
+	`, offlineAfter.Seconds())
+	return err
 }
 
 type alertExecutor interface {

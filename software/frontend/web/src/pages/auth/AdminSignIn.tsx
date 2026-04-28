@@ -21,6 +21,7 @@ import {
   VisibilityOff,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
+import { getApiErrorMessage } from '../../utils/apiError';
 
 const AdminSignIn: React.FC = () => {
   const navigate = useNavigate();
@@ -53,9 +54,8 @@ const AdminSignIn: React.FC = () => {
         return;
       }
       navigate('/admin');
-    } catch (err: any) {
-      const responseData = err?.response?.data;
-      setError(typeof responseData === 'string' ? responseData : responseData?.message || 'Failed to sign in as admin');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to sign in as admin'));
     } finally {
       setLoading(false);
     }

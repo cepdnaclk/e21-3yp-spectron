@@ -15,6 +15,7 @@ import {
 } from '@mui/material';
 import { PersonAddAlt, Spa, Visibility, VisibilityOff } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
+import { getApiErrorMessage } from '../../utils/apiError';
 
 const SignUp: React.FC = () => {
   const navigate = useNavigate();
@@ -74,15 +75,10 @@ const SignUp: React.FC = () => {
         name: name || undefined,
         organizationName: organizationName || undefined,
       });
-      setSuccess('Signup request submitted. You can log in after the system admin approves your owner account.');
+      setSuccess('Account created. Please check your email to verify your account.');
       setTimeout(() => navigate('/signin'), 1800);
-    } catch (err: any) {
-      const responseData = err?.response?.data;
-      const message =
-        typeof responseData === 'string'
-          ? responseData
-          : responseData?.message || 'Failed to create account';
-      setError(message);
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to create account'));
     } finally {
       setLoading(false);
     }
@@ -115,7 +111,7 @@ const SignUp: React.FC = () => {
           <Box sx={{ position: 'relative', maxWidth: 520 }}>
             <Typography variant="h4">Build a clearer sensing workspace.</Typography>
             <Typography sx={{ mt: 1.5, color: 'rgba(255, 253, 248, 0.76)' }}>
-            Request an owner account. Once approved, you can pair controllers and invite viewers.
+            Create an owner account, verify your email, and then pair controllers or invite viewers.
             </Typography>
           </Box>
           <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative', color: '#e1c7a3' }}>
@@ -129,7 +125,7 @@ const SignUp: React.FC = () => {
             Create Account
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-            Submit an owner account request for admin approval.
+            Create an owner account and verify your email before signing in.
           </Typography>
 
           {error && (

@@ -66,7 +66,7 @@ export interface SaveHardwareSensorConfigRequest {
   appConfig: SensorConfigPayload;
 }
 
-type HardwareSensorConfigResponse = {
+interface HardwareSensorConfigResponse {
   controllerId: string;
   systemId?: string;
   sensorId: string;
@@ -75,8 +75,9 @@ type HardwareSensorConfigResponse = {
   sensorName: string;
   usedFor?: string;
   dashboardView?: string;
-  config: Record<string, unknown>;
-};
+  config?: Record<string, unknown>;
+  appConfig?: SensorConfigPayload;
+}
 
 type StoredHardwareController = HardwarePairingResponse & {
   updatedAt: string;
@@ -495,29 +496,30 @@ export const getHardwareSensor = async (sensorId: string, controllerId?: string)
 
     if (/^CTRL-/i.test(controllerId)) {
       const sensors = await getHardwareSensors(controllerId);
-      const matchedSensor = sensors.find((item) => item.id === sensorId);
-      if (!matchedSensor) {
-        throw new Error('Sensor not found');
+      const hardwareSensor = sensors.find((item) => item.id === sensorId || item.hw_id === sensorId);
+      if (!hardwareSensor) {
+        return getSensor(sensorId);
       }
 
       try {
         const configResponse = await api.get<HardwareSensorConfigResponse>(
           `/api/controllers/${encodeURIComponent(controllerId)}/sensors/${encodeURIComponent(sensorId)}/config`
         );
-
+        const config = configResponse.data;
         return {
-          ...matchedSensor,
-          name: configResponse.data.sensorName || matchedSensor.name,
-          purpose: configResponse.data.usedFor || matchedSensor.purpose,
+          ...hardwareSensor,
+          name: config.sensorName || hardwareSensor.name,
+          purpose: config.usedFor || hardwareSensor.purpose,
           config_active: true,
-          active_config: toHardwareAppConfig(configResponse.data),
+          active_config: config.appConfig || toHardwareAppConfig(config),
         };
       } catch (error: any) {
-        if (error?.response?.status === 404) {
-          return matchedSensor;
+        if (error?.response?.status !== 404) {
+          throw error;
         }
-        throw error;
       }
+
+      return hardwareSensor;
     }
   }
 

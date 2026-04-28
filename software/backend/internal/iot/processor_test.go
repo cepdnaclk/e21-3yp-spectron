@@ -91,6 +91,51 @@ func TestDecodeAlertSensorConfigSupportsHardwareFlatShape(t *testing.T) {
 	}
 }
 
+func TestDecodeAlertSensorConfigUsesHumidityMetricForHumiditySidecar(t *testing.T) {
+	config, err := decodeAlertSensorConfig([]byte(`{
+		"temperatureWarningMax": 38,
+		"humidityWarningMax": 85
+	}`), "humidity")
+	if err != nil {
+		t.Fatalf("decode flat config: %v", err)
+	}
+
+	evaluation := evaluateThresholdBreach("humidity", 86, config)
+	if !evaluation.Triggered {
+		t.Fatal("expected humidity threshold breach")
+	}
+	if evaluation.Metric != "humidity" {
+		t.Fatalf("expected humidity metric, got %s", evaluation.Metric)
+	}
+}
+
+func TestConfigLookupSensorHWIDsIncludesParentForHumiditySidecar(t *testing.T) {
+	got := configLookupSensorHWIDs("ctrl-real-001-sensor-temp-01-humidity", "humidity")
+	want := []string{"ctrl-real-001-sensor-temp-01-humidity", "ctrl-real-001-sensor-temp-01"}
+
+	if len(got) != len(want) {
+		t.Fatalf("expected %d lookup IDs, got %d: %#v", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("lookup ID %d: expected %q, got %q", i, want[i], got[i])
+		}
+	}
+}
+
+func TestSensorReadingsRetentionCutoffKeepsSevenDays(t *testing.T) {
+	now := time.Date(2026, 4, 28, 9, 30, 0, 0, time.FixedZone("LKT", 5*60*60+30*60))
+	cutoff := sensorReadingsRetentionCutoff(now)
+
+	expected := now.UTC().Add(-7 * 24 * time.Hour)
+	if !cutoff.Equal(expected) {
+		t.Fatalf("expected cutoff %s, got %s", expected, cutoff)
+	}
+	if cutoff.Location() != time.UTC {
+		t.Fatalf("expected UTC cutoff, got %s", cutoff.Location())
+	}
+}
+
 func TestThresholdAlertMessageIncludesSensorValueAndTime(t *testing.T) {
 	readingAt := time.Date(2026, 4, 27, 12, 30, 0, 0, time.UTC)
 	message := thresholdAlertMessage(

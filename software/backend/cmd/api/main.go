@@ -51,7 +51,7 @@ func main() {
 	}
 
 	r := chi.NewRouter()
-	httpapi.RegisterRoutes(r, pool, cfg.AllowedOrigins, rawReadingsPublisher)
+	httpapi.RegisterRoutes(r, pool, cfg.AllowedOrigins, rawReadingsPublisher, cfg.Email)
 
 	monitorCtx, stopMonitor := context.WithCancel(context.Background())
 	defer stopMonitor()
