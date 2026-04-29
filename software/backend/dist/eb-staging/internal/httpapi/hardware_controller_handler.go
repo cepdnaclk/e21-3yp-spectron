@@ -1105,6 +1105,97 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 	})
 }
 
+func (h *ControllerHandler) AISuggestHardwareSensorConfigAPI(w http.ResponseWriter, r *http.Request) {
+	accountID := GetAccountID(r).(uuid.UUID)
+	controllerParam := strings.TrimSpace(chi.URLParam(r, "controllerId"))
+	sensorParam := strings.TrimSpace(chi.URLParam(r, "sensorId"))
+
+	controller, err := h.lookupAccountHardwareController(r.Context(), accountID, controllerParam)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	sensor, err := h.lookupHardwareSensor(r.Context(), controller.id, sensorParam)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	var req models.AISuggestRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	req.Purpose = strings.TrimSpace(req.Purpose)
+	req.Context = normalizeSensorContext(req.Context)
+	if req.Purpose == "" {
+		http.Error(w, "purpose is required", http.StatusBadRequest)
+		return
+	}
+
+	metadata, err := h.lookupHardwareSensorMetadata(r.Context(), controller.id, sensor)
+	if err != nil {
+		http.Error(w, "failed to load hardware sensor metadata", http.StatusInternalServerError)
+		return
+	}
+
+	mergedContext := mergeSensorContext(req.Context, metadata.StoredContext)
+	req.Context = mergedContext
+	historyDays := 14
+	if mergedContext != nil && mergedContext.HistoricalWindowDays != nil && *mergedContext.HistoricalWindowDays > 0 {
+		historyDays = *mergedContext.HistoricalWindowDays
+	}
+	historySummary := h.loadHardwareSensorHistorySummary(r.Context(), sensor.id, sensor.legacyID, historyDays)
+
+	sensorHelper := SensorHandler{db: h.db}
+
+	var suggestedConfig models.SensorConfig
+	explanation := "Configuration suggested based on your purpose, context, and sensor type."
+
+	hostedConfig, hostedExplanation, hostedErr := sensorHelper.generateHostedAISuggestion(
+		r.Context(),
+		metadata.SensorType,
+		req,
+		historySummary,
+	)
+	if hostedErr == nil {
+		suggestedConfig = hostedConfig
+		if hostedExplanation != "" {
+			explanation = hostedExplanation
+		} else {
+			explanation = "Configuration suggested by hosted AI model."
+		}
+	} else {
+		log.Printf("hosted AI unavailable for hardware sensor, using fallback: %v", hostedErr)
+		suggestedConfig = sensorHelper.generateAISuggestion(metadata.SensorType, req)
+		explanation = fmt.Sprintf("Configuration suggested by local fallback logic (%v).", hostedErr)
+	}
+
+	validation := validateAndFinalizeConfig(
+		metadata.SensorType,
+		req.Purpose,
+		mergedContext,
+		suggestedConfig,
+		metadata.ControllerCapability,
+		metadata.CalibrationStatus,
+	)
+	if validation.ValidationStatus == "adjusted" {
+		explanation = strings.TrimSpace(explanation + " The backend safety validator adjusted one or more values before returning the final recommendation.")
+	}
+
+	json.NewEncoder(w).Encode(models.AISuggestResponse{
+		SuggestedConfig:          suggestedConfig,
+		ValidatedConfig:          validation.FinalConfig,
+		Explanation:              explanation,
+		ValidationStatus:         validation.ValidationStatus,
+		Warnings:                 validation.Warnings,
+		AppliedRules:             validation.AppliedRules,
+		ConfidenceScore:          validation.ConfidenceScore,
+		RequiresUserConfirmation: validation.RequiresUserConfirmation,
+	})
+}
+
 func (h *ControllerHandler) GetSensorConfigAPI(w http.ResponseWriter, r *http.Request) {
 	accountID := GetAccountID(r).(uuid.UUID)
 	controllerParam := strings.TrimSpace(chi.URLParam(r, "controllerId"))
@@ -1131,6 +1222,7 @@ func (h *ControllerHandler) GetSensorConfigAPI(w http.ResponseWriter, r *http.Re
 	var usedFor string
 	var dashboardView string
 	var configJSON []byte
+	missingConfig := false
 	err = h.db.QueryRow(r.Context(), `
 		SELECT COALESCE(used_for, ''), COALESCE(dashboard_view, ''), config_json
 		FROM system_sensor_configurations
@@ -1143,23 +1235,22 @@ func (h *ControllerHandler) GetSensorConfigAPI(w http.ResponseWriter, r *http.Re
 		if err == pgx.ErrNoRows {
 			parentUID := humiditySidecarParentUID(sensor.uid, sensor.sensorType)
 			if parentUID == "" {
-				http.Error(w, "configuration not found", http.StatusNotFound)
-				return
-			}
-
-			err = h.db.QueryRow(r.Context(), `
-				SELECT COALESCE(sc.used_for, ''), COALESCE(sc.dashboard_view, ''), sc.config_json
-				FROM sensor_configurations sc
-				JOIN controller_sensors cs ON cs.id = sc.sensor_id
-				WHERE sc.controller_id = $1 AND cs.sensor_uid = $2
-			`, controller.id, parentUID).Scan(&usedFor, &dashboardView, &configJSON)
-			if err != nil {
-				if err == pgx.ErrNoRows {
-					http.Error(w, "configuration not found", http.StatusNotFound)
-					return
+				missingConfig = true
+			} else {
+				err = h.db.QueryRow(r.Context(), `
+					SELECT COALESCE(sc.used_for, ''), COALESCE(sc.dashboard_view, ''), sc.config_json
+					FROM sensor_configurations sc
+					JOIN controller_sensors cs ON cs.id = sc.sensor_id
+					WHERE sc.controller_id = $1 AND cs.sensor_uid = $2
+				`, controller.id, parentUID).Scan(&usedFor, &dashboardView, &configJSON)
+				if err != nil {
+					if err == pgx.ErrNoRows {
+						missingConfig = true
+					} else {
+						http.Error(w, "database error", http.StatusInternalServerError)
+						return
+					}
 				}
-				http.Error(w, "database error", http.StatusInternalServerError)
-				return
 			}
 		} else {
 			http.Error(w, "database error", http.StatusInternalServerError)
@@ -1167,10 +1258,50 @@ func (h *ControllerHandler) GetSensorConfigAPI(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	appConfig, err := hardwareConfigToAppConfig(configJSON, sensor.sensorType, sensor.name, usedFor, dashboardView)
-	if err != nil {
-		http.Error(w, "invalid configuration", http.StatusInternalServerError)
-		return
+	var appConfig *models.SensorConfig
+	if missingConfig {
+		defaultReq := models.SaveHardwareSensorConfigRequest{
+			SensorType:    sensor.sensorType,
+			SensorName:    sensor.name,
+			UsedFor:       usedFor,
+			DashboardView: dashboardView,
+			Config: map[string]interface{}{
+				"temperatureMin":        nil,
+				"temperatureMax":        nil,
+				"temperatureWarningMin": nil,
+				"temperatureWarningMax": nil,
+				"humidityMin":           nil,
+				"humidityMax":           nil,
+				"humidityWarningMin":    nil,
+				"humidityWarningMax":    nil,
+				"pressureMin":           nil,
+				"pressureMax":           nil,
+				"pressureWarningMin":    nil,
+				"pressureWarningMax":    nil,
+				"distanceMin":           nil,
+				"distanceMax":           nil,
+				"distanceWarningMin":    nil,
+				"distanceWarningMax":    nil,
+				"reportsPerDay":         24,
+				"estimatedBatteryLifeDays": 77,
+			},
+		}
+		configJSON, err = json.Marshal(defaultReq.Config)
+		if err != nil {
+			http.Error(w, "invalid default configuration", http.StatusInternalServerError)
+			return
+		}
+		appConfig, err = hardwareConfigToAppConfig(configJSON, sensor.sensorType, sensor.name, usedFor, dashboardView)
+		if err != nil {
+			http.Error(w, "invalid default configuration", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		appConfig, err = hardwareConfigToAppConfig(configJSON, sensor.sensorType, sensor.name, usedFor, dashboardView)
+		if err != nil {
+			http.Error(w, "invalid configuration", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	json.NewEncoder(w).Encode(models.HardwareSensorConfigResponse{
@@ -1775,6 +1906,106 @@ func lookupLegacySensorRecord(ctx context.Context, q queryRower, controllerID uu
 		&sensor.status,
 	)
 	return sensor, err
+}
+
+func (h *ControllerHandler) lookupHardwareSensorMetadata(ctx context.Context, controllerID uuid.UUID, sensor hardwareSensorRecord) (sensorMetadata, error) {
+	var metadata sensorMetadata
+	var rawContext []byte
+	var rawProfile []byte
+
+	err := h.db.QueryRow(ctx, `
+		SELECT
+			c.id,
+			COALESCE(s.purpose, ''),
+			COALESCE(s.context_json, '{}'::jsonb),
+			COALESCE(s.calibration_status, 'UNKNOWN'),
+			LEAST(COALESCE(c.min_reporting_interval_sec, 300), 300),
+			COALESCE(c.supports_adaptive_sampling, false),
+			COALESCE(c.supports_local_alerts, false),
+			COALESCE(c.offline_buffer_capacity, 2000),
+			COALESCE(c.capability_profile_json, '{}'::jsonb)
+		FROM controllers c
+		LEFT JOIN sensors s ON s.id = $2
+		WHERE c.id = $1
+	`, controllerID, sensor.legacyID).Scan(
+		&metadata.ControllerID,
+		&metadata.StoredPurpose,
+		&rawContext,
+		&metadata.CalibrationStatus,
+		&metadata.ControllerCapability.MinReportingIntervalSec,
+		&metadata.ControllerCapability.SupportsAdaptiveSampling,
+		&metadata.ControllerCapability.SupportsLocalAlerts,
+		&metadata.ControllerCapability.OfflineBufferCapacity,
+		&rawProfile,
+	)
+	if err != nil {
+		return sensorMetadata{}, err
+	}
+
+	metadata.SensorID = sensor.id
+	metadata.SensorType = sensor.sensorType
+	metadata.StoredContext = parseSensorContext(rawContext)
+	metadata.ControllerCapability.Profile = map[string]any{}
+	if len(rawProfile) > 0 {
+		_ = json.Unmarshal(rawProfile, &metadata.ControllerCapability.Profile)
+	}
+
+	return metadata, nil
+}
+
+func (h *ControllerHandler) loadHardwareSensorHistorySummary(
+	ctx context.Context,
+	systemSensorID uuid.UUID,
+	legacySensorID *uuid.UUID,
+	days int,
+) string {
+	if days <= 0 {
+		days = 14
+	}
+	if days > 90 {
+		days = 90
+	}
+
+	var count int
+	var minValue *float64
+	var maxValue *float64
+	var avgValue *float64
+	var lastValue *float64
+
+	err := h.db.QueryRow(ctx, `
+		SELECT
+			COUNT(*),
+			MIN(value),
+			MAX(value),
+			AVG(value),
+			(
+				SELECT value
+				FROM sensor_readings
+				WHERE (system_sensor_id = $1 OR ($2::uuid IS NOT NULL AND sensor_id = $2))
+				  AND time >= NOW() - ($3 * INTERVAL '1 day')
+				ORDER BY time DESC
+				LIMIT 1
+			)
+		FROM sensor_readings
+		WHERE (system_sensor_id = $1 OR ($2::uuid IS NOT NULL AND sensor_id = $2))
+		  AND time >= NOW() - ($3 * INTERVAL '1 day')
+	`, systemSensorID, legacySensorID, days).Scan(&count, &minValue, &maxValue, &avgValue, &lastValue)
+	if err != nil || count == 0 {
+		return "no recent historical readings available"
+	}
+
+	parts := []string{fmt.Sprintf("%d readings in the last %d days", count, days)}
+	if avgValue != nil {
+		parts = append(parts, fmt.Sprintf("average %.2f", *avgValue))
+	}
+	if minValue != nil && maxValue != nil {
+		parts = append(parts, fmt.Sprintf("range %.2f to %.2f", *minValue, *maxValue))
+	}
+	if lastValue != nil {
+		parts = append(parts, fmt.Sprintf("latest %.2f", *lastValue))
+	}
+
+	return strings.Join(parts, ", ")
 }
 
 func normalizeHardwareSensorType(sensorType string) string {

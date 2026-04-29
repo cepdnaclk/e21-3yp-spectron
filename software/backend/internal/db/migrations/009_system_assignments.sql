@@ -251,11 +251,34 @@ candidate_sensors AS (
         cs.created_at,
         cs.updated_at,
         CASE
+            WHEN position('-base-' IN lower(cs.sensor_uid)) > 0 THEN ltrim(substr(lower(cs.sensor_uid), position('-base-' IN lower(cs.sensor_uid)) + 1), '- ')
             WHEN position('-sensor-' IN lower(cs.sensor_uid)) > 0 THEN split_part(lower(cs.sensor_uid), '-sensor-', 2)
             ELSE regexp_replace(lower(cs.type), '[^a-z0-9]+', '-', 'g') || '-01'
         END AS slot_key
     FROM active_systems ast
     JOIN controller_sensors cs ON cs.controller_id = ast.controller_id
+),
+deduped_candidate_sensors AS (
+    SELECT DISTINCT ON (cs.system_id, cs.slot_key)
+        cs.system_id,
+        cs.controller_id,
+        cs.controller_sensor_id,
+        cs.sensor_uid,
+        cs.name,
+        cs.type,
+        cs.status,
+        cs.configured,
+        cs.created_at,
+        cs.updated_at,
+        cs.slot_key
+    FROM candidate_sensors cs
+    ORDER BY
+        cs.system_id,
+        cs.slot_key,
+        cs.configured DESC,
+        cs.updated_at DESC,
+        cs.created_at DESC,
+        cs.controller_sensor_id DESC
 ),
 upserted_system_sensors AS (
     INSERT INTO system_sensors (
@@ -291,7 +314,7 @@ upserted_system_sensors AS (
         cs.created_at,
         cs.updated_at,
         NULL
-    FROM candidate_sensors cs
+    FROM deduped_candidate_sensors cs
     ON CONFLICT (system_id, slot_key) DO UPDATE
     SET name = EXCLUDED.name,
         type = EXCLUDED.type,
@@ -310,6 +333,7 @@ controller_sensor_matches AS (
     JOIN controller_sensors cs ON cs.controller_id = ast.controller_id
     JOIN system_sensors ss ON ss.system_id = ast.system_id
     WHERE ss.slot_key = CASE
+        WHEN position('-base-' IN lower(cs.sensor_uid)) > 0 THEN ltrim(substr(lower(cs.sensor_uid), position('-base-' IN lower(cs.sensor_uid)) + 1), '- ')
         WHEN position('-sensor-' IN lower(cs.sensor_uid)) > 0 THEN split_part(lower(cs.sensor_uid), '-sensor-', 2)
         ELSE regexp_replace(lower(cs.type), '[^a-z0-9]+', '-', 'g') || '-01'
     END
@@ -336,11 +360,27 @@ legacy_candidates AS (
         COALESCE(NULLIF(s.name, ''), s.hw_id, 'Sensor') AS sensor_name,
         s.type,
         CASE
+            WHEN position('-base-' IN lower(s.hw_id)) > 0 THEN ltrim(substr(lower(s.hw_id), position('-base-' IN lower(s.hw_id)) + 1), '- ')
             WHEN position('-sensor-' IN lower(s.hw_id)) > 0 THEN split_part(lower(s.hw_id), '-sensor-', 2)
             ELSE regexp_replace(lower(s.type), '[^a-z0-9]+', '-', 'g') || '-01'
         END AS slot_key
     FROM active_systems ast
     JOIN sensors s ON s.controller_id = ast.controller_id
+),
+deduped_legacy_candidates AS (
+    SELECT DISTINCT ON (lc.system_id, lc.slot_key)
+        lc.system_id,
+        lc.controller_id,
+        lc.legacy_sensor_id,
+        lc.hw_id,
+        lc.sensor_name,
+        lc.type,
+        lc.slot_key
+    FROM legacy_candidates lc
+    ORDER BY
+        lc.system_id,
+        lc.slot_key,
+        lc.legacy_sensor_id DESC
 ),
 upserted_legacy_system_sensors AS (
     INSERT INTO system_sensors (
@@ -376,7 +416,7 @@ upserted_legacy_system_sensors AS (
         NOW(),
         NOW(),
         NULL
-    FROM legacy_candidates lc
+    FROM deduped_legacy_candidates lc
     ON CONFLICT (system_id, slot_key) DO UPDATE
     SET current_controller_id = COALESCE(system_sensors.current_controller_id, EXCLUDED.current_controller_id),
         current_sensor_uid = COALESCE(system_sensors.current_sensor_uid, EXCLUDED.current_sensor_uid),
@@ -391,6 +431,7 @@ legacy_sensor_matches AS (
     JOIN sensors s ON s.controller_id = ast.controller_id
     JOIN system_sensors ss ON ss.system_id = ast.system_id
     WHERE ss.slot_key = CASE
+        WHEN position('-base-' IN lower(s.hw_id)) > 0 THEN ltrim(substr(lower(s.hw_id), position('-base-' IN lower(s.hw_id)) + 1), '- ')
         WHEN position('-sensor-' IN lower(s.hw_id)) > 0 THEN split_part(lower(s.hw_id), '-sensor-', 2)
         ELSE regexp_replace(lower(s.type), '[^a-z0-9]+', '-', 'g') || '-01'
     END
@@ -401,6 +442,28 @@ FROM legacy_sensor_matches lsm
 WHERE s.id = lsm.legacy_sensor_id
   AND s.system_sensor_id IS DISTINCT FROM lsm.system_sensor_id;
 
+WITH controller_assignment_candidates AS (
+    SELECT DISTINCT ON (cs.system_sensor_id)
+        cs.system_sensor_id,
+        cs.controller_id,
+        cs.id AS controller_sensor_id,
+        s.id AS legacy_sensor_id,
+        cs.sensor_uid,
+        COALESCE(cs.updated_at, NOW()) AS assigned_at
+    FROM controller_sensors cs
+    JOIN system_sensors ss ON ss.id = cs.system_sensor_id
+    LEFT JOIN sensors s
+      ON s.controller_id = cs.controller_id
+     AND s.hw_id = cs.sensor_uid
+    WHERE cs.system_sensor_id IS NOT NULL
+    ORDER BY
+        cs.system_sensor_id,
+        (lower(cs.sensor_uid) = lower(COALESCE(ss.current_sensor_uid, ''))) DESC,
+        cs.configured DESC,
+        cs.updated_at DESC,
+        cs.created_at DESC,
+        cs.id DESC
+)
 INSERT INTO system_sensor_assignments (
     id,
     system_sensor_id,
@@ -412,31 +475,49 @@ INSERT INTO system_sensor_assignments (
 )
 SELECT
     (
-        substr(md5('system-sensor-assignment:' || cs.id::text), 1, 8) || '-' ||
-        substr(md5('system-sensor-assignment:' || cs.id::text), 9, 4) || '-' ||
-        substr(md5('system-sensor-assignment:' || cs.id::text), 13, 4) || '-' ||
-        substr(md5('system-sensor-assignment:' || cs.id::text), 17, 4) || '-' ||
-        substr(md5('system-sensor-assignment:' || cs.id::text), 21, 12)
+        substr(md5('system-sensor-assignment:' || cac.controller_sensor_id::text), 1, 8) || '-' ||
+        substr(md5('system-sensor-assignment:' || cac.controller_sensor_id::text), 9, 4) || '-' ||
+        substr(md5('system-sensor-assignment:' || cac.controller_sensor_id::text), 13, 4) || '-' ||
+        substr(md5('system-sensor-assignment:' || cac.controller_sensor_id::text), 17, 4) || '-' ||
+        substr(md5('system-sensor-assignment:' || cac.controller_sensor_id::text), 21, 12)
     )::uuid,
-    cs.system_sensor_id,
-    cs.controller_id,
-    cs.id,
-    s.id,
-    cs.sensor_uid,
-    COALESCE(cs.updated_at, NOW())
-FROM controller_sensors cs
-LEFT JOIN sensors s
-  ON s.controller_id = cs.controller_id
- AND s.hw_id = cs.sensor_uid
-WHERE cs.system_sensor_id IS NOT NULL
+    cac.system_sensor_id,
+    cac.controller_id,
+    cac.controller_sensor_id,
+    cac.legacy_sensor_id,
+    cac.sensor_uid,
+    cac.assigned_at
+FROM controller_assignment_candidates cac
+WHERE NOT EXISTS (
+      SELECT 1
+      FROM system_sensor_assignments ssa
+      WHERE ssa.controller_sensor_id = cac.controller_sensor_id
+        AND ssa.unassigned_at IS NULL
+  )
   AND NOT EXISTS (
       SELECT 1
       FROM system_sensor_assignments ssa
-      WHERE ssa.controller_sensor_id = cs.id
+      WHERE ssa.system_sensor_id = cac.system_sensor_id
         AND ssa.unassigned_at IS NULL
   )
 ON CONFLICT (id) DO NOTHING;
 
+WITH legacy_assignment_candidates AS (
+    SELECT DISTINCT ON (s.system_sensor_id)
+        s.system_sensor_id,
+        s.controller_id,
+        s.id AS legacy_sensor_id,
+        s.hw_id AS sensor_uid,
+        COALESCE(s.last_seen, NOW()) AS assigned_at
+    FROM sensors s
+    JOIN system_sensors ss ON ss.id = s.system_sensor_id
+    WHERE s.system_sensor_id IS NOT NULL
+    ORDER BY
+        s.system_sensor_id,
+        (lower(s.hw_id) = lower(COALESCE(ss.current_sensor_uid, ''))) DESC,
+        s.last_seen DESC,
+        s.id DESC
+)
 INSERT INTO system_sensor_assignments (
     id,
     system_sensor_id,
@@ -447,23 +528,28 @@ INSERT INTO system_sensor_assignments (
 )
 SELECT
     (
-        substr(md5('system-sensor-assignment-legacy:' || s.id::text), 1, 8) || '-' ||
-        substr(md5('system-sensor-assignment-legacy:' || s.id::text), 9, 4) || '-' ||
-        substr(md5('system-sensor-assignment-legacy:' || s.id::text), 13, 4) || '-' ||
-        substr(md5('system-sensor-assignment-legacy:' || s.id::text), 17, 4) || '-' ||
-        substr(md5('system-sensor-assignment-legacy:' || s.id::text), 21, 12)
+        substr(md5('system-sensor-assignment-legacy:' || lac.legacy_sensor_id::text), 1, 8) || '-' ||
+        substr(md5('system-sensor-assignment-legacy:' || lac.legacy_sensor_id::text), 9, 4) || '-' ||
+        substr(md5('system-sensor-assignment-legacy:' || lac.legacy_sensor_id::text), 13, 4) || '-' ||
+        substr(md5('system-sensor-assignment-legacy:' || lac.legacy_sensor_id::text), 17, 4) || '-' ||
+        substr(md5('system-sensor-assignment-legacy:' || lac.legacy_sensor_id::text), 21, 12)
     )::uuid,
-    s.system_sensor_id,
-    s.controller_id,
-    s.id,
-    s.hw_id,
-    COALESCE(s.last_seen, NOW())
-FROM sensors s
-WHERE s.system_sensor_id IS NOT NULL
+    lac.system_sensor_id,
+    lac.controller_id,
+    lac.legacy_sensor_id,
+    lac.sensor_uid,
+    lac.assigned_at
+FROM legacy_assignment_candidates lac
+WHERE NOT EXISTS (
+      SELECT 1
+      FROM system_sensor_assignments ssa
+      WHERE ssa.legacy_sensor_id = lac.legacy_sensor_id
+        AND ssa.unassigned_at IS NULL
+  )
   AND NOT EXISTS (
       SELECT 1
       FROM system_sensor_assignments ssa
-      WHERE ssa.legacy_sensor_id = s.id
+      WHERE ssa.system_sensor_id = lac.system_sensor_id
         AND ssa.unassigned_at IS NULL
   )
 ON CONFLICT (id) DO NOTHING;

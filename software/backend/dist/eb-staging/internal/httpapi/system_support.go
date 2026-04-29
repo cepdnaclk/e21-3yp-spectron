@@ -457,14 +457,19 @@ func ensureSystemSensorBinding(
 			}
 			return record, nil
 		}
+	}
 
-		if _, err := exec.Exec(ctx, `
-			UPDATE system_sensor_assignments
-			SET unassigned_at = NOW()
-			WHERE id = $1
-		`, existingAssignment); err != nil {
-			return systemSensorRecord{}, err
-		}
+	if _, err := exec.Exec(ctx, `
+		UPDATE system_sensor_assignments
+		SET unassigned_at = NOW()
+		WHERE unassigned_at IS NULL
+		  AND (
+		        system_sensor_id = $1
+		        OR ($2::uuid IS NOT NULL AND controller_sensor_id = $2)
+		        OR ($3::uuid IS NOT NULL AND legacy_sensor_id = $3)
+		  )
+	`, record.id, controllerSensorID, legacySensorID); err != nil {
+		return systemSensorRecord{}, err
 	}
 
 	_, err = exec.Exec(ctx, `

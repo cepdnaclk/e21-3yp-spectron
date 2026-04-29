@@ -43,7 +43,7 @@ static const char *TAG = "CTRL_REAL";
 #define SENSOR_NAME_STR    "Temperature & Humidity Sensor"
 
 #define TELEMETRY_HOST     "spectron-backend-env.eba-niaes6bi.ap-south-1.elasticbeanstalk.com"
-#define TELEMETRY_FALLBACK_IP_COUNT 2
+#define TELEMETRY_MAX_IPS  4
 #define CONFIG_PATH        "/api/iot/config"
 #define DISCOVERY_PATH     "/api/iot/discover"
 #define TELEMETRY_PATH     "/api/iot/upload"
@@ -51,15 +51,20 @@ static const char *TAG = "CTRL_REAL";
 #define CONFIG_POLL_FAST_MS        15000
 #define CONFIG_POLL_STABLE_MIN_MS 300000
 #define CONFIG_POLL_STABLE_MAX_MS 900000
+#define DISCOVERY_RETRY_BASE_MS    30000
+#define DISCOVERY_RETRY_FAIL1_MS   60000
+#define DISCOVERY_RETRY_FAIL2_MS   180000
 #define CONFIG_PUSH_RETRY_MS      15000
 #define SEND_RETRY_MS      5000
 #define TELEMETRY_RETRY_MS 15000
-#define DISCOVERY_HTTP_TIMEOUT_MS 12000
-#define TELEMETRY_HTTP_TIMEOUT_MS 20000
+#define DISCOVERY_HTTP_TIMEOUT_MS 30000
+#define CONFIG_HTTP_TIMEOUT_MS    30000
+#define TELEMETRY_HTTP_TIMEOUT_MS 30000
 #define SNTP_TIMEOUT_MS    15000
 #define SNTP_RETRY_MS      60000
 #define HTTP_TIMEOUT_MS    30000
 #define HTTP_MAX_ATTEMPTS  3
+#define HTTP_CONNECT_RECONNECT_THRESHOLD 3
 #define MIN_VALID_UNIX_TS  1700000000LL
 
 /* =========================================================
@@ -132,6 +137,7 @@ typedef struct {
     uint32_t last_seen_ms;
 
     controller_sensor_config_t remote_cfg;
+    uint32_t last_discovery_attempt_ms;
     uint32_t last_config_poll_ms;
     uint32_t last_config_push_ms;
     bool waiting_for_config_ack;
@@ -145,6 +151,7 @@ typedef struct {
     uint32_t last_attempted_rx_ms;
     uint32_t last_upload_attempt_ms;
     uint8_t discovery_transport_failures;
+    uint8_t config_transport_failures;
     uint8_t upload_transport_failures;
 
     char backend_sensor_uid[96];
@@ -183,12 +190,15 @@ static char g_tx_buf[160];
 static char g_http_resp[HTTP_RESP_BUF_SIZE];
 static char g_http_post_body[HTTP_POST_BUF_SIZE];
 static char g_telemetry_ip[16];
+static char g_telemetry_ip_list[TELEMETRY_MAX_IPS][16];
 static bool g_have_telemetry_ip = false;
-static size_t g_fallback_ip_index = 0;
+static size_t g_telemetry_ip_count = 0;
+static size_t g_telemetry_ip_index = 0;
 
 static bool send_config_set(const uint8_t *mac, uint32_t base_id, uint32_t sensor_id);
 static void force_ppp_reconnect(const char *reason);
 static const char *sensor_identity_to_backend_type(uint32_t sensor_id, const char *sensor_name, uint8_t sensor_type);
+static bool sensor_has_applyable_config(const controller_sensor_config_t *cfg);
 
 typedef struct {
     char *buf;
@@ -274,25 +284,78 @@ static void clear_telemetry_endpoint_cache(void)
 {
     g_have_telemetry_ip = false;
     g_telemetry_ip[0] = '\0';
+    g_telemetry_ip_count = 0;
+    g_telemetry_ip_index = 0;
+    memset(g_telemetry_ip_list, 0, sizeof(g_telemetry_ip_list));
 }
 
-static bool use_next_fallback_telemetry_ip(const char *reason)
+static void set_active_telemetry_ip_from_index(void)
 {
-    static const char *fallback_ips[TELEMETRY_FALLBACK_IP_COUNT] = {
-        "13.206.7.238",
-        "65.1.37.104",
-    };
+    if (g_telemetry_ip_count == 0 || g_telemetry_ip_index >= g_telemetry_ip_count) {
+        clear_telemetry_endpoint_cache();
+        return;
+    }
 
-    const char *selected = fallback_ips[g_fallback_ip_index % TELEMETRY_FALLBACK_IP_COUNT];
-    g_fallback_ip_index = (g_fallback_ip_index + 1U) % TELEMETRY_FALLBACK_IP_COUNT;
-
-    strlcpy(g_telemetry_ip, selected, sizeof(g_telemetry_ip));
+    strlcpy(g_telemetry_ip, g_telemetry_ip_list[g_telemetry_ip_index], sizeof(g_telemetry_ip));
     g_have_telemetry_ip = true;
+}
+
+static bool rotate_cached_telemetry_ip(const char *reason)
+{
+    if (g_telemetry_ip_count <= 1) {
+        return false;
+    }
+
+    g_telemetry_ip_index = (g_telemetry_ip_index + 1U) % g_telemetry_ip_count;
+    set_active_telemetry_ip_from_index();
 
     ESP_LOGW(TAG,
-             "Using fallback backend IP %s (%s)",
+             "Switching backend IP to %s (%s)",
              g_telemetry_ip,
-             reason ? reason : "fallback");
+             reason ? reason : "rotation");
+    return true;
+}
+
+static bool cache_resolved_telemetry_ips(struct addrinfo *res)
+{
+    size_t count = 0;
+
+    for (struct addrinfo *it = res; it != NULL && count < TELEMETRY_MAX_IPS; it = it->ai_next) {
+        if (it->ai_family != AF_INET || it->ai_addr == NULL) {
+            continue;
+        }
+
+        char ip[16] = {0};
+        struct sockaddr_in *addr = (struct sockaddr_in *)it->ai_addr;
+        if (inet_ntoa_r(addr->sin_addr, ip, sizeof(ip)) == NULL) {
+            continue;
+        }
+
+        bool duplicate = false;
+        for (size_t existing = 0; existing < count; existing++) {
+            if (strcmp(g_telemetry_ip_list[existing], ip) == 0) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) {
+            continue;
+        }
+
+        strlcpy(g_telemetry_ip_list[count], ip, sizeof(g_telemetry_ip_list[count]));
+        count++;
+    }
+
+    if (count == 0) {
+        clear_telemetry_endpoint_cache();
+        return false;
+    }
+
+    g_telemetry_ip_count = count;
+    if (g_telemetry_ip_index >= g_telemetry_ip_count) {
+        g_telemetry_ip_index = 0;
+    }
+    set_active_telemetry_ip_from_index();
     return true;
 }
 
@@ -303,9 +366,13 @@ static bool resolve_telemetry_endpoint(bool force_refresh)
     }
 
     char previous_ip[sizeof(g_telemetry_ip)] = {0};
+    char previous_ip_list[TELEMETRY_MAX_IPS][16] = {{0}};
     bool had_cached_ip = g_have_telemetry_ip;
+    size_t previous_ip_count = g_telemetry_ip_count;
+    size_t previous_ip_index = g_telemetry_ip_index;
     if (had_cached_ip) {
         strlcpy(previous_ip, g_telemetry_ip, sizeof(previous_ip));
+        memcpy(previous_ip_list, g_telemetry_ip_list, sizeof(previous_ip_list));
     }
 
     struct addrinfo hints = {
@@ -314,31 +381,49 @@ static bool resolve_telemetry_endpoint(bool force_refresh)
     };
     struct addrinfo *res = NULL;
 
+    if (force_refresh) {
+        clear_telemetry_endpoint_cache();
+    }
+
     int err = getaddrinfo(TELEMETRY_HOST, NULL, &hints, &res);
     if (err != 0 || res == NULL) {
         ESP_LOGW(TAG, "Failed to resolve %s: getaddrinfo=%d", TELEMETRY_HOST, err);
         if (res != NULL) {
             freeaddrinfo(res);
         }
-        if (force_refresh) {
-            return use_next_fallback_telemetry_ip("DNS refresh failed");
-        }
-        if (had_cached_ip) {
+        if (had_cached_ip && !force_refresh) {
+            memcpy(g_telemetry_ip_list, previous_ip_list, sizeof(g_telemetry_ip_list));
+            g_telemetry_ip_count = previous_ip_count;
+            g_telemetry_ip_index = previous_ip_index;
             strlcpy(g_telemetry_ip, previous_ip, sizeof(g_telemetry_ip));
             g_have_telemetry_ip = true;
             ESP_LOGW(TAG, "Keeping last known backend IP %s despite DNS failure", g_telemetry_ip);
             return true;
         }
 
+        if (had_cached_ip && previous_ip_count > 0) {
+            memcpy(g_telemetry_ip_list, previous_ip_list, sizeof(g_telemetry_ip_list));
+            g_telemetry_ip_count = previous_ip_count;
+            g_telemetry_ip_index = previous_ip_index;
+            set_active_telemetry_ip_from_index();
+            if (force_refresh && rotate_cached_telemetry_ip("DNS refresh failed; rotating cached IP")) {
+                return true;
+            }
+            ESP_LOGW(TAG, "Keeping cached backend IP %s after DNS failure", g_telemetry_ip);
+            return true;
+        }
+
         clear_telemetry_endpoint_cache();
-        return use_next_fallback_telemetry_ip("initial DNS failed");
+        return false;
     }
 
-    struct sockaddr_in *addr = (struct sockaddr_in *)res->ai_addr;
-    if (inet_ntoa_r(addr->sin_addr, g_telemetry_ip, sizeof(g_telemetry_ip)) == NULL) {
-        ESP_LOGW(TAG, "Failed to format resolved IPv4 address for %s", TELEMETRY_HOST);
+    if (!cache_resolved_telemetry_ips(res)) {
+        ESP_LOGW(TAG, "Failed to cache resolved IPv4 addresses for %s", TELEMETRY_HOST);
         freeaddrinfo(res);
-        if (had_cached_ip) {
+        if (had_cached_ip && !force_refresh) {
+            memcpy(g_telemetry_ip_list, previous_ip_list, sizeof(g_telemetry_ip_list));
+            g_telemetry_ip_count = previous_ip_count;
+            g_telemetry_ip_index = previous_ip_index;
             strlcpy(g_telemetry_ip, previous_ip, sizeof(g_telemetry_ip));
             g_have_telemetry_ip = true;
             ESP_LOGW(TAG, "Keeping last known backend IP %s after format failure", g_telemetry_ip);
@@ -350,8 +435,21 @@ static bool resolve_telemetry_endpoint(bool force_refresh)
     }
 
     freeaddrinfo(res);
-    g_have_telemetry_ip = true;
-    ESP_LOGI(TAG, "Telemetry host %s resolved to %s", TELEMETRY_HOST, g_telemetry_ip);
+    if (force_refresh && previous_ip[0] != '\0' && g_telemetry_ip_count > 1) {
+        for (size_t idx = 0; idx < g_telemetry_ip_count; idx++) {
+            if (strcmp(g_telemetry_ip_list[idx], previous_ip) == 0) {
+                g_telemetry_ip_index = (idx + 1U) % g_telemetry_ip_count;
+                set_active_telemetry_ip_from_index();
+                break;
+            }
+        }
+    }
+
+    ESP_LOGI(TAG,
+             "Telemetry host %s resolved to %s (%u IPs cached)",
+             TELEMETRY_HOST,
+             g_telemetry_ip,
+             (unsigned int)g_telemetry_ip_count);
     return true;
 }
 
@@ -571,8 +669,19 @@ static void add_peer_if_needed(const uint8_t *mac)
 
 static uint32_t get_config_poll_interval_ms(const controller_sensor_config_t *cfg, bool backend_discovered, bool sensor_configured)
 {
-    if (cfg == NULL || !backend_discovered || !cfg->has_active_config || !sensor_configured) {
+    (void)backend_discovered;
+
+    if (cfg == NULL || !cfg->valid || !sensor_configured) {
         return CONFIG_POLL_FAST_MS;
+    }
+
+    /*
+     * If the sensor is already running on a local/default config, avoid
+     * hammering the cellular uplink every 15 seconds forever. We still poll
+     * reasonably often so a backend-side config change gets picked up.
+     */
+    if (!cfg->has_active_config) {
+        return 60000;
     }
 
     uint32_t adaptive_ms = cfg->sample_period_ms / 4U;
@@ -584,6 +693,49 @@ static uint32_t get_config_poll_interval_ms(const controller_sensor_config_t *cf
     }
 
     return adaptive_ms;
+}
+
+static uint32_t get_discovery_retry_interval_ms(const controller_sensor_state_t *sensor)
+{
+    if (sensor == NULL) {
+        return DISCOVERY_RETRY_BASE_MS;
+    }
+
+    if (sensor->discovery_transport_failures >= 2) {
+        return DISCOVERY_RETRY_FAIL2_MS;
+    }
+
+    if (sensor->discovery_transport_failures >= 1) {
+        return DISCOVERY_RETRY_FAIL1_MS;
+    }
+
+    return DISCOVERY_RETRY_BASE_MS;
+}
+
+static bool is_discovery_retry_due(const controller_sensor_state_t *sensor, uint32_t now_ms)
+{
+    if (sensor == NULL) {
+        return false;
+    }
+
+    if (sensor->last_discovery_attempt_ms == 0) {
+        return true;
+    }
+
+    return (now_ms - sensor->last_discovery_attempt_ms) >= get_discovery_retry_interval_ms(sensor);
+}
+
+static void note_discovery_attempt_for_sensor(int idx, uint32_t now_ms)
+{
+    if (idx < 0 || idx >= MAX_TRACKED_SENSORS) {
+        return;
+    }
+
+    portENTER_CRITICAL(&g_sensor_state_lock);
+    if (g_sensor_states[idx].in_use) {
+        g_sensor_states[idx].last_discovery_attempt_ms = now_ms;
+    }
+    portEXIT_CRITICAL(&g_sensor_state_lock);
 }
 
 static int find_sensor_state_idx(const uint8_t *mac, uint32_t sensor_id)
@@ -779,6 +931,15 @@ static bool is_config_retry_due_for_sensor(const controller_sensor_state_t *sens
            (now_ms - sensor->last_config_push_ms) >= CONFIG_PUSH_RETRY_MS;
 }
 
+static bool sensor_has_applyable_config(const controller_sensor_config_t *cfg)
+{
+    if (cfg == NULL || !cfg->valid) {
+        return false;
+    }
+
+    return cfg->sample_period_ms > 0;
+}
+
 static void note_config_ack_result_for_sensor(int idx, bool success)
 {
     portENTER_CRITICAL(&g_sensor_state_lock);
@@ -788,6 +949,7 @@ static void note_config_ack_result_for_sensor(int idx, bool success)
             g_sensor_states[idx].waiting_for_config_ack = false;
             g_sensor_states[idx].last_config_push_ms = 0;
             g_sensor_states[idx].pending_config_id[0] = '\0';
+            g_sensor_states[idx].config_transport_failures = 0;
         } else {
             g_sensor_states[idx].configured = false;
             g_sensor_states[idx].waiting_for_config_ack = true;
@@ -807,6 +969,7 @@ static void mark_sensor_backend_discovered(int idx)
         g_sensor_states[idx].have_latest_sample = false;
         g_sensor_states[idx].latest_rx_ms = 0;
         g_sensor_states[idx].discovery_transport_failures = 0;
+        g_sensor_states[idx].config_transport_failures = 0;
     }
     portEXIT_CRITICAL(&g_sensor_state_lock);
 }
@@ -1194,13 +1357,16 @@ static http_post_result_t http_post_json_once_with_timeout(const char *path, con
     };
 
     bool have_cached_ip = resolve_telemetry_endpoint(false);
+    if (!have_cached_ip || !g_have_telemetry_ip) {
+        ESP_LOGW(TAG, "No usable backend IP cached; deferring POST until DNS/PPP recovers");
+        return (http_post_result_t) {
+            .err = ESP_ERR_NOT_FOUND,
+            .status_code = 0,
+        };
+    }
 
     char request_url[128];
-    if (have_cached_ip && g_have_telemetry_ip) {
-        snprintf(request_url, sizeof(request_url), "http://%s%s", g_telemetry_ip, path);
-    } else {
-        snprintf(request_url, sizeof(request_url), "http://%s%s", TELEMETRY_HOST, path);
-    }
+    snprintf(request_url, sizeof(request_url), "http://%s%s", g_telemetry_ip, path);
 
     esp_http_client_config_t config = {
         .url = request_url,
@@ -1221,9 +1387,7 @@ static http_post_result_t http_post_json_once_with_timeout(const char *path, con
 
     esp_http_client_set_header(client, "Content-Type", "application/json");
     esp_http_client_set_header(client, "Connection", "close");
-    if (have_cached_ip && g_have_telemetry_ip) {
-        esp_http_client_set_header(client, "Host", TELEMETRY_HOST);
-    }
+    esp_http_client_set_header(client, "Host", TELEMETRY_HOST);
     esp_http_client_set_post_field(client, json_payload, (int)strlen(json_payload));
 
     ESP_LOGI(TAG, "POST url: %s", request_url);
@@ -1256,6 +1420,23 @@ static http_post_result_t http_post_json_once_with_timeout(const char *path, con
 static http_post_result_t http_post_json_once(const char *path, const char *json_payload)
 {
     return http_post_json_once_with_timeout(path, json_payload, HTTP_TIMEOUT_MS);
+}
+
+static bool should_force_ppp_reconnect_for_http_error(esp_err_t err, uint8_t failures)
+{
+    if (failures >= HTTP_MAX_ATTEMPTS) {
+        return true;
+    }
+
+    if (failures >= HTTP_CONNECT_RECONNECT_THRESHOLD &&
+        (err == ESP_ERR_HTTP_CONNECT ||
+         err == ESP_ERR_HTTP_EAGAIN ||
+         err == ESP_ERR_TIMEOUT ||
+         err == ESP_ERR_NOT_FOUND)) {
+        return true;
+    }
+
+    return false;
 }
 
 static bool http_post_json(const char *path, const char *json_payload)
@@ -1491,13 +1672,13 @@ static int build_discovery_json(const controller_sensor_state_t *sensor, char *b
               "\"id\":\"%s\","
               "\"type\":\"temperature_humidity\","
               "\"name\":\"%s\","
-              "\"unit\":\"C/%RH\""
+              "\"unit\":\"C/%%RH\""
             "},"
             "{"
               "\"id\":\"%s\","
               "\"type\":\"humidity\","
               "\"name\":\"Humidity\","
-              "\"unit\":\"%RH\""
+              "\"unit\":\"%%RH\""
             "}"
           "]"
         "}",
@@ -1528,10 +1709,49 @@ static bool maybe_refresh_sensor_config(int idx, const controller_sensor_state_t
     portEXIT_CRITICAL(&g_sensor_state_lock);
 
     ESP_LOGI(TAG, "Polling backend for sensor_id=%lu current config...", (unsigned long)sensor->sensor_id);
-    if (!http_post_json(CONFIG_PATH, g_http_post_body)) {
-        ESP_LOGW(TAG, "Config pull failed for sensor_id=%lu; keeping cached config", (unsigned long)sensor->sensor_id);
+    http_post_result_t config_result =
+        http_post_json_once_with_timeout(CONFIG_PATH, g_http_post_body, CONFIG_HTTP_TIMEOUT_MS);
+
+    if (config_result.err != ESP_OK) {
+        bool reconnect_needed = false;
+        uint8_t failures = 0;
+
+        portENTER_CRITICAL(&g_sensor_state_lock);
+        if (g_sensor_states[idx].in_use) {
+            g_sensor_states[idx].config_transport_failures++;
+            failures = g_sensor_states[idx].config_transport_failures;
+            if (should_force_ppp_reconnect_for_http_error(config_result.err, failures)) {
+                g_sensor_states[idx].config_transport_failures = 0;
+                reconnect_needed = true;
+            }
+        }
+        portEXIT_CRITICAL(&g_sensor_state_lock);
+
+        ESP_LOGW(TAG,
+                 "Config pull transport failed for sensor_id=%lu (%u/%d); keeping cached config",
+                 (unsigned long)sensor->sensor_id,
+                 (unsigned int)failures,
+                 HTTP_MAX_ATTEMPTS);
+        resolve_telemetry_endpoint(true);
+        if (reconnect_needed) {
+            force_ppp_reconnect("Config pull retries exhausted");
+        }
         return false;
     }
+
+    if (config_result.status_code < 200 || config_result.status_code >= 300) {
+        ESP_LOGW(TAG,
+                 "Config pull backend returned status=%d for sensor_id=%lu; keeping cached config",
+                 config_result.status_code,
+                 (unsigned long)sensor->sensor_id);
+        return false;
+    }
+
+    portENTER_CRITICAL(&g_sensor_state_lock);
+    if (g_sensor_states[idx].in_use) {
+        g_sensor_states[idx].config_transport_failures = 0;
+    }
+    portEXIT_CRITICAL(&g_sensor_state_lock);
 
     char config_id[64] = {0};
     long sample_period_ms = 0;
@@ -1689,7 +1909,7 @@ static bool send_config_set(const uint8_t *mac, uint32_t base_id, uint32_t senso
     }
 
     controller_sensor_config_t cfg = sensor.remote_cfg;
-    if (!cfg.has_active_config) {
+    if (!sensor_has_applyable_config(&cfg)) {
         return false;
     }
 
@@ -1847,17 +2067,21 @@ static void handle_sensor_data(const uint8_t *mac, const mproto_frame_t *f)
     portEXIT_CRITICAL(&g_sensor_state_lock);
 
     if (!sensor.configured) {
-        if (!sensor.backend_discovered) {
-            ESP_LOGI(TAG, "Live sensor detected. Waiting for backend discovery acknowledgement before sending CONFIG_SET");
-        } else if (sensor.remote_cfg.has_active_config) {
+        if (sensor_has_applyable_config(&sensor.remote_cfg)) {
             if (is_config_retry_due_for_sensor(&sensor, ms_now(), false) && send_config_set(mac, f->base_id, f->sensor_id)) {
                 note_config_push_sent_for_sensor(sensor_idx, sensor.remote_cfg.config_id, ms_now());
-                ESP_LOGI(TAG, "Sensor wake detected while config is pending; sending CONFIG_SET and waiting for CONFIG_ACK");
+                if (!sensor.backend_discovered) {
+                    ESP_LOGI(TAG, "Sensor wake detected while discovery is still pending; sending CONFIG_SET using cached/default backend config");
+                } else {
+                    ESP_LOGI(TAG, "Sensor wake detected while config is pending; sending CONFIG_SET and waiting for CONFIG_ACK");
+                }
             } else {
                 ESP_LOGI(TAG, "CONFIG_SET already pending ACK; waiting before retry");
             }
+        } else if (!sensor.backend_discovered) {
+            ESP_LOGI(TAG, "Live sensor detected. Discovery is still pending, but controller will continue polling backend for config");
         } else {
-            ESP_LOGI(TAG, "Sensor wake detected but no active backend config exists yet; keeping sensor visible as not configured");
+            ESP_LOGI(TAG, "Sensor wake detected but no usable backend config exists yet; waiting before CONFIG_SET");
         }
     }
 }
@@ -1999,6 +2223,7 @@ static void uploader_task(void *arg)
         uint32_t now_ms = ms_now();
         bool have_online_sensor = false;
         bool action_taken = false;
+        bool discovery_attempted = false;
 
         for (int idx = 0; idx < MAX_TRACKED_SENSORS; idx++) {
             controller_sensor_state_t sensor;
@@ -2009,15 +2234,23 @@ static void uploader_task(void *arg)
             have_online_sensor = true;
 
             if (!sensor.backend_discovered) {
+                if (!is_discovery_retry_due(&sensor, now_ms)) {
+                    continue;
+                }
+
                 int discovery_len = build_discovery_json(&sensor, g_http_post_body, sizeof(g_http_post_body));
                 if (discovery_len <= 0) {
                     continue;
                 }
 
+                discovery_attempted = true;
+                note_discovery_attempt_for_sensor(idx, now_ms);
+
                 ESP_LOGI(TAG,
-                         "Sending controller/sensor discovery for sensor_id=%lu name=%s",
+                         "Sending controller/sensor discovery for sensor_id=%lu name=%s retry_ms=%lu",
                          (unsigned long)sensor.sensor_id,
-                         sensor.sensor_name);
+                         sensor.sensor_name,
+                         (unsigned long)get_discovery_retry_interval_ms(&sensor));
 
                 http_post_result_t discovery_result =
                     http_post_json_once_with_timeout(DISCOVERY_PATH, g_http_post_body, DISCOVERY_HTTP_TIMEOUT_MS);
@@ -2033,24 +2266,32 @@ static void uploader_task(void *arg)
                     }
                     portEXIT_CRITICAL(&g_sensor_state_lock);
                 } else if (discovery_result.err != ESP_OK) {
+                    bool reconnect_needed = false;
+                    uint8_t failures = 0;
+
                     portENTER_CRITICAL(&g_sensor_state_lock);
                     if (g_sensor_states[idx].in_use) {
                         g_sensor_states[idx].discovery_transport_failures++;
-                        ESP_LOGW(TAG,
-                                 "Discovery transport failed for sensor_id=%lu (%u/%d)",
-                                 (unsigned long)sensor.sensor_id,
-                                 (unsigned int)g_sensor_states[idx].discovery_transport_failures,
-                                 HTTP_MAX_ATTEMPTS);
-                        if (g_sensor_states[idx].discovery_transport_failures >= HTTP_MAX_ATTEMPTS) {
+                        failures = g_sensor_states[idx].discovery_transport_failures;
+                        if (should_force_ppp_reconnect_for_http_error(discovery_result.err, failures)) {
                             g_sensor_states[idx].discovery_transport_failures = 0;
-                            portEXIT_CRITICAL(&g_sensor_state_lock);
-                            force_ppp_reconnect("Discovery retries exhausted");
-                            action_taken = true;
-                            break;
+                            reconnect_needed = true;
                         }
                     }
                     portEXIT_CRITICAL(&g_sensor_state_lock);
+
+                    ESP_LOGW(TAG,
+                             "Discovery transport failed for sensor_id=%lu (%u/%d)",
+                             (unsigned long)sensor.sensor_id,
+                             (unsigned int)failures,
+                             HTTP_MAX_ATTEMPTS);
                     resolve_telemetry_endpoint(true);
+
+                    if (reconnect_needed) {
+                        force_ppp_reconnect("Discovery retries exhausted");
+                        action_taken = true;
+                        break;
+                    }
                 } else if (discovery_result.status_code >= 500) {
                     ESP_LOGW(TAG,
                              "Discovery backend returned %d for sensor_id=%lu; will retry",
@@ -2063,7 +2304,11 @@ static void uploader_task(void *arg)
                              discovery_result.status_code);
                 }
 
-                action_taken = true;
+                if (discovery_result.err == ESP_OK &&
+                    discovery_result.status_code >= 200 &&
+                    discovery_result.status_code < 300) {
+                    action_taken = true;
+                }
                 break;
             }
         }
@@ -2079,9 +2324,17 @@ static void uploader_task(void *arg)
             continue;
         }
 
+        /*
+         * A discovery transport failure should not starve already-discovered
+         * sensors from receiving config or uploading data in the same cycle.
+         */
+        if (discovery_attempted) {
+            now_ms = ms_now();
+        }
+
         for (int idx = 0; idx < MAX_TRACKED_SENSORS; idx++) {
             controller_sensor_state_t sensor;
-            if (!get_sensor_snapshot(idx, &sensor) || !is_sensor_online(&sensor, now_ms) || !sensor.backend_discovered) {
+            if (!get_sensor_snapshot(idx, &sensor) || !is_sensor_online(&sensor, now_ms)) {
                 continue;
             }
 
@@ -2090,7 +2343,7 @@ static void uploader_task(void *arg)
                 continue;
             }
 
-            if (!sensor.remote_cfg.has_active_config) {
+            if (!sensor_has_applyable_config(&sensor.remote_cfg)) {
                 continue;
             }
 
@@ -2099,7 +2352,7 @@ static void uploader_task(void *arg)
                     send_config_set(sensor.mac, sensor.base_id, sensor.sensor_id)) {
                     note_config_push_sent_for_sensor(idx, sensor.remote_cfg.config_id, now_ms);
                     ESP_LOGI(TAG,
-                             "Active backend config available; waiting for CONFIG_ACK on sensor_id=%lu",
+                             "Backend config available; waiting for CONFIG_ACK on sensor_id=%lu",
                              (unsigned long)sensor.sensor_id);
                     action_taken = true;
                     break;
@@ -2116,7 +2369,6 @@ static void uploader_task(void *arg)
             controller_sensor_state_t sensor;
             if (!get_sensor_snapshot(idx, &sensor) ||
                 !is_sensor_online(&sensor, now_ms) ||
-                !sensor.backend_discovered ||
                 !sensor.configured ||
                 !sensor.have_latest_sample) {
                 continue;
@@ -2176,20 +2428,24 @@ static void uploader_task(void *arg)
                 portEXIT_CRITICAL(&g_sensor_state_lock);
             } else if (upload_result.err != ESP_OK) {
                 bool reconnect_needed = false;
+                uint8_t failures = 0;
+
                 portENTER_CRITICAL(&g_sensor_state_lock);
                 if (g_sensor_states[idx].in_use) {
                     g_sensor_states[idx].upload_transport_failures++;
-                    ESP_LOGW(TAG,
-                             "Telemetry transport failed sensor_id=%lu (%u/%d); newer readings may replace this retry",
-                             (unsigned long)sensor.sensor_id,
-                             (unsigned int)g_sensor_states[idx].upload_transport_failures,
-                             HTTP_MAX_ATTEMPTS);
-                    if (g_sensor_states[idx].upload_transport_failures >= HTTP_MAX_ATTEMPTS) {
+                    failures = g_sensor_states[idx].upload_transport_failures;
+                    if (should_force_ppp_reconnect_for_http_error(upload_result.err, failures)) {
                         g_sensor_states[idx].upload_transport_failures = 0;
                         reconnect_needed = true;
                     }
                 }
                 portEXIT_CRITICAL(&g_sensor_state_lock);
+
+                ESP_LOGW(TAG,
+                         "Telemetry transport failed sensor_id=%lu (%u/%d); newer readings may replace this retry",
+                         (unsigned long)sensor.sensor_id,
+                         (unsigned int)failures,
+                         HTTP_MAX_ATTEMPTS);
                 resolve_telemetry_endpoint(true);
 
                 if (reconnect_needed) {

@@ -4,6 +4,12 @@ import "strings"
 
 func NormalizeSystemSensorSlotKey(sensorUID string, sensorType string) string {
 	trimmedUID := strings.ToLower(strings.TrimSpace(sensorUID))
+	if idx := strings.LastIndex(trimmedUID, "-base-"); idx >= 0 {
+		slot := strings.Trim(trimmedUID[idx+1:], "- ")
+		if slot != "" {
+			return slot
+		}
+	}
 	if idx := strings.LastIndex(trimmedUID, "-sensor-"); idx >= 0 {
 		slot := strings.Trim(trimmedUID[idx+len("-sensor-"):], "- ")
 		if slot != "" {

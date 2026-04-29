@@ -29,6 +29,8 @@ import {
   SensorContext,
 } from '../../services/sensorService';
 import {
+  findHardwareControllerIdForSensor,
+  getHardwareAISuggestedConfig,
   getHardwareController,
   getHardwareSensor,
   saveHardwareSensorConfiguration,
@@ -574,10 +576,12 @@ const SensorConfig: React.FC = () => {
   const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
   const [pageError, setPageError] = useState<string | null>(null);
   const [aiDraftSummary, setAiDraftSummary] = useState<AiDraftSummary | null>(null);
+  const [resolvedHardwareControllerId, setResolvedHardwareControllerId] = useState('');
   const initializedSensorIdRef = useRef<string | null>(null);
   const activeSensorId = sensorId || id || navigationState?.sensorId || '';
-  const activeControllerId = controllerId || navigationState?.controllerId || sensor?.controller_id || '';
-  const isHardwareRoute = Boolean(controllerId && sensorId);
+  const activeControllerId =
+    controllerId || navigationState?.controllerId || resolvedHardwareControllerId || sensor?.controller_id || '';
+  const isHardwareContext = Boolean(activeControllerId && /^CTRL-/i.test(activeControllerId));
 
   const sensorMetrics = useMemo(() => getSensorMetrics(sensor?.type || ''), [sensor?.type]);
   const typeSpecificFields = useMemo(
@@ -605,7 +609,7 @@ const SensorConfig: React.FC = () => {
       return;
     }
 
-    if (isHardwareRoute && activeControllerId) {
+    if (isHardwareContext && activeControllerId) {
       navigate(`/hardware/${activeControllerId}/sensors`);
       return;
     }
@@ -650,11 +654,30 @@ const SensorConfig: React.FC = () => {
 
     try {
       setPageError(null);
+      if (!isHardwareContext && !controllerId && !navigationState?.controllerId) {
+        let discoveredHardwareControllerId: string | null = null;
+        try {
+          discoveredHardwareControllerId = await findHardwareControllerIdForSensor(activeSensorId);
+        } catch {
+          discoveredHardwareControllerId = null;
+        }
+        if (discoveredHardwareControllerId) {
+          setResolvedHardwareControllerId(discoveredHardwareControllerId);
+          navigate(`/hardware/${discoveredHardwareControllerId}/sensors/${activeSensorId}/configure`, {
+            replace: true,
+            state: {
+              ...navigationState,
+              controllerId: discoveredHardwareControllerId,
+              sensorId: activeSensorId,
+            },
+          });
+          return;
+        }
+      }
+
       const [sensorData, controllerData] = await Promise.all([
-        isHardwareRoute || activeControllerId
-          ? getHardwareSensor(activeSensorId, activeControllerId)
-          : getSensor(activeSensorId),
-        isHardwareRoute && activeControllerId
+        isHardwareContext && activeControllerId ? getHardwareSensor(activeSensorId, activeControllerId) : getSensor(activeSensorId),
+        isHardwareContext && activeControllerId
           ? getHardwareController(activeControllerId)
           : Promise.resolve(null),
       ]);
@@ -729,7 +752,15 @@ const SensorConfig: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [activeSensorId, activeControllerId, isHardwareRoute, navigationState?.preferredSetupMode]);
+  }, [
+    activeSensorId,
+    activeControllerId,
+    controllerId,
+    isHardwareContext,
+    navigate,
+    navigationState,
+    navigationState?.preferredSetupMode,
+  ]);
 
   useEffect(() => {
     initializedSensorIdRef.current = null;
@@ -812,7 +843,10 @@ const SensorConfig: React.FC = () => {
         context: buildContextPayload(),
       };
 
-      const response = await getAISuggestedConfig(activeSensorId, request);
+      const response =
+        isHardwareContext && activeControllerId
+          ? await getHardwareAISuggestedConfig(activeControllerId, activeSensorId, request)
+          : await getAISuggestedConfig(activeSensorId, request);
       const config = response.validated_config || response.suggested_config;
 
       setFriendlyName(config.friendly_name);
@@ -870,7 +904,7 @@ const SensorConfig: React.FC = () => {
       return;
     }
 
-    if (isHardwareRoute && !systemName.trim()) {
+    if (isHardwareContext && !systemName.trim()) {
       setPageError('Please enter a system name before saving.');
       return;
     }
@@ -880,7 +914,7 @@ const SensorConfig: React.FC = () => {
       return;
     }
 
-    if (isHardwareRoute) {
+    if (isHardwareContext) {
       const missingMetric = sensorMetrics.find((metric) => {
         const values = metricThresholds[metric.key] || emptyMetricThresholdInput();
         if (values.mode === 'min') {
@@ -960,7 +994,7 @@ const SensorConfig: React.FC = () => {
         },
       };
 
-      if (isHardwareRoute && activeControllerId) {
+      if (isHardwareContext && activeControllerId) {
         const flattenedMetricConfig = Object.entries(metricThresholdPayload).reduce<Record<string, unknown>>(
           (acc, [metricKey, threshold]) => {
             if (threshold.min !== undefined) {
@@ -1060,7 +1094,7 @@ const SensorConfig: React.FC = () => {
     } catch (error: any) {
       setPageError(
         error.response?.data?.message ||
-          (isHardwareRoute ? 'Configuration save failed' : 'Failed to save configuration.')
+          (isHardwareContext ? 'Configuration save failed' : 'Failed to save configuration.')
       );
     } finally {
       setSaving(false);
@@ -1388,7 +1422,7 @@ const SensorConfig: React.FC = () => {
             value={systemName}
             onChange={(e) => setSystemName(e.target.value)}
             margin="normal"
-            required={isHardwareRoute}
+            required={isHardwareContext}
             helperText="This name will represent the monitoring system in dashboards and future controller reattachment."
           />
 

@@ -275,14 +275,19 @@ func upsertSystemSensorState(
 			}
 			return systemSensorID, nil
 		}
+	}
 
-		if _, err := tx.Exec(ctx, `
-			UPDATE system_sensor_assignments
-			SET unassigned_at = NOW()
-			WHERE id = $1
-		`, existingAssignmentID); err != nil {
-			return uuid.Nil, err
-		}
+	if _, err := tx.Exec(ctx, `
+		UPDATE system_sensor_assignments
+		SET unassigned_at = NOW()
+		WHERE unassigned_at IS NULL
+		  AND (
+		        system_sensor_id = $1
+		        OR ($2::uuid IS NOT NULL AND controller_sensor_id = $2)
+		        OR legacy_sensor_id = $3
+		  )
+	`, systemSensorID, controllerSensorID, legacySensorID); err != nil {
+		return uuid.Nil, err
 	}
 
 	_, err = tx.Exec(ctx, `

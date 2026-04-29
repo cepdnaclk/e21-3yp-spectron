@@ -1,0 +1,425 @@
+2026/04/18 16:51:19.860154 [INFO] Cleaning log publish record...
+2026/04/18 16:51:19.860180 [INFO] Start log publish job.
+2026/04/18 16:51:19.860183 [INFO] Start publish file /tmp/TailLogs-1776531079851.txt
+2026/04/18 16:51:19.907011 [INFO] Successful upload file /tmp/TailLogs-1776531079851.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1776531079851.txt
+2026/04/18 16:51:19.907153 [INFO] Finished log publish job.
+2026/04/18 17:02:35.936768 [INFO] Cleaning log publish record...
+2026/04/18 17:02:35.936807 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/18 17:02:35.936810 [INFO] Start log publish job.
+2026/04/18 17:02:35.936813 [INFO] Start publish file /tmp/TailLogs-1776531755929.txt
+2026/04/18 17:02:35.988228 [INFO] Successful upload file /tmp/TailLogs-1776531755929.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1776531755929.txt
+2026/04/18 17:02:35.988386 [INFO] Finished log publish job.
+2026/04/18 17:08:56.245590 [INFO] Cleaning log publish record...
+2026/04/18 17:08:56.245647 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/18 17:08:56.245655 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/18 17:08:56.245682 [INFO] Start log publish job.
+2026/04/18 17:08:56.245687 [INFO] Start publish file /tmp/TailLogs-1776532136237.txt
+2026/04/18 17:08:56.296747 [INFO] Successful upload file /tmp/TailLogs-1776532136237.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1776532136237.txt
+2026/04/18 17:08:56.296901 [INFO] Finished log publish job.
+2026/04/20 15:13:23.606891 [INFO] Cleaning log publish record...
+2026/04/20 15:13:23.606932 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/20 15:13:23.606937 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/20 15:13:23.606942 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/20 15:13:23.606944 [INFO] Start log publish job.
+2026/04/20 15:13:23.606946 [INFO] Start publish file /tmp/TailLogs-1776698003598.txt
+2026/04/20 15:13:23.661686 [INFO] Successful upload file /tmp/TailLogs-1776698003598.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1776698003598.txt
+2026/04/20 15:13:23.661835 [INFO] Finished log publish job.
+2026/04/21 00:30:51.454957 [INFO] Cleaning log publish record...
+2026/04/21 00:30:51.455019 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/21 00:30:51.455026 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/21 00:30:51.455030 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/21 00:30:51.455035 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/21 00:30:51.455037 [INFO] Start log publish job.
+2026/04/21 00:30:51.455039 [INFO] Start publish file /tmp/BundleLogs-1776731451269.zip
+2026/04/21 00:30:51.528311 [INFO] Successful upload file /tmp/BundleLogs-1776731451269.zip to s3 resources/environments/logs/bundle/e-t33mkqmxis/i-0ddc4f773aa572236/BundleLogs-1776731451269.zip
+2026/04/21 00:30:51.528505 [INFO] Finished log publish job.
+2026/04/21 00:30:59.869905 [INFO] Cleaning log publish record...
+2026/04/21 00:30:59.869945 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/21 00:30:59.869950 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/21 00:30:59.869955 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/21 00:30:59.869959 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/21 00:30:59.869964 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/21 00:30:59.869966 [INFO] Start log publish job.
+2026/04/21 00:30:59.869968 [INFO] Start publish file /tmp/TailLogs-1776731459862.txt
+2026/04/21 00:30:59.925529 [INFO] Successful upload file /tmp/TailLogs-1776731459862.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1776731459862.txt
+2026/04/21 00:30:59.925690 [INFO] Finished log publish job.
+2026/04/21 00:38:44.986108 [INFO] Cleaning log publish record...
+2026/04/21 00:38:44.986154 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/21 00:38:44.986159 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/21 00:38:44.986164 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/21 00:38:44.986168 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/21 00:38:44.986172 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/21 00:38:44.986177 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/21 00:38:44.986179 [INFO] Start log publish job.
+2026/04/21 00:38:44.986181 [INFO] Start publish file /tmp/TailLogs-1776731924978.txt
+2026/04/21 00:38:45.029299 [INFO] Successful upload file /tmp/TailLogs-1776731924978.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1776731924978.txt
+2026/04/21 00:38:45.029461 [INFO] Finished log publish job.
+2026/04/21 00:56:03.417734 [INFO] Cleaning log publish record...
+2026/04/21 00:56:03.417783 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/21 00:56:03.417788 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/21 00:56:03.417792 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/21 00:56:03.417796 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/21 00:56:03.417802 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/21 00:56:03.417808 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/21 00:56:03.417812 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/21 00:56:03.417814 [INFO] Start log publish job.
+2026/04/21 00:56:03.417816 [INFO] Start publish file /tmp/TailLogs-1776732963409.txt
+2026/04/21 00:56:03.467678 [INFO] Successful upload file /tmp/TailLogs-1776732963409.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1776732963409.txt
+2026/04/21 00:56:03.467830 [INFO] Finished log publish job.
+2026/04/21 01:01:53.265403 [INFO] Cleaning log publish record...
+2026/04/21 01:01:53.265453 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/21 01:01:53.265459 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/21 01:01:53.265463 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/21 01:01:53.265467 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/21 01:01:53.265472 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/21 01:01:53.265476 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/21 01:01:53.265480 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/21 01:01:53.265483 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/21 01:01:53.265485 [INFO] Start log publish job.
+2026/04/21 01:01:53.265488 [INFO] Start publish file /tmp/TailLogs-1776733313256.txt
+2026/04/21 01:01:53.334836 [INFO] Successful upload file /tmp/TailLogs-1776733313256.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1776733313256.txt
+2026/04/21 01:01:53.334979 [INFO] Finished log publish job.
+2026/04/21 01:05:59.733505 [INFO] Cleaning log publish record...
+2026/04/21 01:05:59.733563 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/21 01:05:59.733569 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/21 01:05:59.733574 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/21 01:05:59.733578 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/21 01:05:59.733582 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/21 01:05:59.733586 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/21 01:05:59.733590 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/21 01:05:59.733600 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/21 01:05:59.733604 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/21 01:05:59.733606 [INFO] Start log publish job.
+2026/04/21 01:05:59.733608 [INFO] Start publish file /tmp/BundleLogs-1776733559563.zip
+2026/04/21 01:05:59.787217 [INFO] Successful upload file /tmp/BundleLogs-1776733559563.zip to s3 resources/environments/logs/bundle/e-t33mkqmxis/i-0ddc4f773aa572236/BundleLogs-1776733559563.zip
+2026/04/21 01:05:59.787358 [INFO] Finished log publish job.
+2026/04/21 07:30:34.747032 [INFO] Cleaning log publish record...
+2026/04/21 07:30:34.747681 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/21 07:30:34.747689 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/21 07:30:34.747694 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/21 07:30:34.747698 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/21 07:30:34.747703 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/21 07:30:34.747707 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/21 07:30:34.747711 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/21 07:30:34.747715 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/21 07:30:34.747720 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/21 07:30:34.747724 [INFO] /tmp/BundleLogs-1776733559563.zip exists, no need for clean up
+2026/04/21 07:30:34.747727 [INFO] Start log publish job.
+2026/04/21 07:30:34.747729 [INFO] Start publish file /tmp/TailLogs-1776756634735.txt
+2026/04/21 07:30:34.796269 [INFO] Successful upload file /tmp/TailLogs-1776756634735.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1776756634735.txt
+2026/04/21 07:30:34.796439 [INFO] Finished log publish job.
+2026/04/21 07:30:48.093859 [INFO] Cleaning log publish record...
+2026/04/21 07:30:48.093924 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/21 07:30:48.093931 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/21 07:30:48.093936 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/21 07:30:48.093941 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/21 07:30:48.093946 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/21 07:30:48.093950 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/21 07:30:48.093954 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/21 07:30:48.093958 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/21 07:30:48.093962 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/21 07:30:48.093966 [INFO] /tmp/BundleLogs-1776733559563.zip exists, no need for clean up
+2026/04/21 07:30:48.093970 [INFO] /tmp/TailLogs-1776756634735.txt exists, no need for clean up
+2026/04/21 07:30:48.093972 [INFO] Start log publish job.
+2026/04/21 07:30:48.093974 [INFO] Start publish file /tmp/BundleLogs-1776756647878.zip
+2026/04/21 07:30:48.149875 [INFO] Successful upload file /tmp/BundleLogs-1776756647878.zip to s3 resources/environments/logs/bundle/e-t33mkqmxis/i-0ddc4f773aa572236/BundleLogs-1776756647878.zip
+2026/04/21 07:30:48.150021 [INFO] Finished log publish job.
+2026/04/23 11:16:18.443132 [INFO] Cleaning log publish record...
+2026/04/23 11:16:18.443700 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/23 11:16:18.443710 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/23 11:16:18.443715 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/23 11:16:18.443720 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/23 11:16:18.443725 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/23 11:16:18.443736 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/23 11:16:18.443740 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/23 11:16:18.443744 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/23 11:16:18.443749 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/23 11:16:18.443753 [INFO] /tmp/BundleLogs-1776733559563.zip exists, no need for clean up
+2026/04/23 11:16:18.443757 [INFO] /tmp/TailLogs-1776756634735.txt exists, no need for clean up
+2026/04/23 11:16:18.443761 [INFO] /tmp/BundleLogs-1776756647878.zip exists, no need for clean up
+2026/04/23 11:16:18.443764 [INFO] Start log publish job.
+2026/04/23 11:16:18.443766 [INFO] Start publish file /tmp/TailLogs-1776942978434.txt
+2026/04/23 11:16:18.496681 [INFO] Successful upload file /tmp/TailLogs-1776942978434.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1776942978434.txt
+2026/04/23 11:16:18.496837 [INFO] Finished log publish job.
+2026/04/23 11:16:48.303807 [INFO] Cleaning log publish record...
+2026/04/23 11:16:48.303881 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/23 11:16:48.303889 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/23 11:16:48.303894 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/23 11:16:48.303899 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/23 11:16:48.303904 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/23 11:16:48.303909 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/23 11:16:48.303913 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/23 11:16:48.303917 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/23 11:16:48.303921 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/23 11:16:48.303925 [INFO] /tmp/BundleLogs-1776733559563.zip exists, no need for clean up
+2026/04/23 11:16:48.303929 [INFO] /tmp/TailLogs-1776756634735.txt exists, no need for clean up
+2026/04/23 11:16:48.303934 [INFO] /tmp/BundleLogs-1776756647878.zip exists, no need for clean up
+2026/04/23 11:16:48.303938 [INFO] /tmp/TailLogs-1776942978434.txt exists, no need for clean up
+2026/04/23 11:16:48.303940 [INFO] Start log publish job.
+2026/04/23 11:16:48.303943 [INFO] Start publish file /tmp/BundleLogs-1776943007915.zip
+2026/04/23 11:16:48.377049 [INFO] Successful upload file /tmp/BundleLogs-1776943007915.zip to s3 resources/environments/logs/bundle/e-t33mkqmxis/i-0ddc4f773aa572236/BundleLogs-1776943007915.zip
+2026/04/23 11:16:48.377195 [INFO] Finished log publish job.
+2026/04/23 17:14:45.509066 [INFO] Cleaning log publish record...
+2026/04/23 17:14:45.509798 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/23 17:14:45.509805 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/23 17:14:45.509809 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/23 17:14:45.509813 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/23 17:14:45.509818 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/23 17:14:45.509822 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/23 17:14:45.509828 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/23 17:14:45.509832 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/23 17:14:45.509836 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/23 17:14:45.509840 [INFO] /tmp/BundleLogs-1776733559563.zip exists, no need for clean up
+2026/04/23 17:14:45.509844 [INFO] /tmp/TailLogs-1776756634735.txt exists, no need for clean up
+2026/04/23 17:14:45.509848 [INFO] /tmp/BundleLogs-1776756647878.zip exists, no need for clean up
+2026/04/23 17:14:45.509854 [INFO] /tmp/TailLogs-1776942978434.txt exists, no need for clean up
+2026/04/23 17:14:45.509858 [INFO] /tmp/BundleLogs-1776943007915.zip exists, no need for clean up
+2026/04/23 17:14:45.509865 [INFO] Start log publish job.
+2026/04/23 17:14:45.509867 [INFO] Start publish file /tmp/TailLogs-1776964485499.txt
+2026/04/23 17:14:45.564558 [INFO] Successful upload file /tmp/TailLogs-1776964485499.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1776964485499.txt
+2026/04/23 17:14:45.564707 [INFO] Finished log publish job.
+2026/04/23 17:31:06.493242 [INFO] Cleaning log publish record...
+2026/04/23 17:31:06.493301 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/23 17:31:06.493309 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/23 17:31:06.493317 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/23 17:31:06.493324 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/23 17:31:06.493337 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/23 17:31:06.493344 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/23 17:31:06.493350 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/23 17:31:06.493356 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/23 17:31:06.493362 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/23 17:31:06.493368 [INFO] /tmp/BundleLogs-1776733559563.zip exists, no need for clean up
+2026/04/23 17:31:06.493374 [INFO] /tmp/TailLogs-1776756634735.txt exists, no need for clean up
+2026/04/23 17:31:06.493381 [INFO] /tmp/BundleLogs-1776756647878.zip exists, no need for clean up
+2026/04/23 17:31:06.493391 [INFO] /tmp/TailLogs-1776942978434.txt exists, no need for clean up
+2026/04/23 17:31:06.493398 [INFO] /tmp/BundleLogs-1776943007915.zip exists, no need for clean up
+2026/04/23 17:31:06.493404 [INFO] /tmp/TailLogs-1776964485499.txt exists, no need for clean up
+2026/04/23 17:31:06.493407 [INFO] Start log publish job.
+2026/04/23 17:31:06.493411 [INFO] Start publish file /tmp/TailLogs-1776965466485.txt
+2026/04/23 17:31:06.557064 [INFO] Successful upload file /tmp/TailLogs-1776965466485.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1776965466485.txt
+2026/04/23 17:31:06.557208 [INFO] Finished log publish job.
+2026/04/23 17:31:27.209415 [INFO] Cleaning log publish record...
+2026/04/23 17:31:27.209475 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/23 17:31:27.209482 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/23 17:31:27.209486 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/23 17:31:27.209490 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/23 17:31:27.209495 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/23 17:31:27.209499 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/23 17:31:27.209503 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/23 17:31:27.209507 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/23 17:31:27.209511 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/23 17:31:27.209515 [INFO] /tmp/BundleLogs-1776733559563.zip exists, no need for clean up
+2026/04/23 17:31:27.209519 [INFO] /tmp/TailLogs-1776756634735.txt exists, no need for clean up
+2026/04/23 17:31:27.209523 [INFO] /tmp/BundleLogs-1776756647878.zip exists, no need for clean up
+2026/04/23 17:31:27.209527 [INFO] /tmp/TailLogs-1776942978434.txt exists, no need for clean up
+2026/04/23 17:31:27.209533 [INFO] /tmp/BundleLogs-1776943007915.zip exists, no need for clean up
+2026/04/23 17:31:27.209537 [INFO] /tmp/TailLogs-1776964485499.txt exists, no need for clean up
+2026/04/23 17:31:27.209541 [INFO] /tmp/TailLogs-1776965466485.txt exists, no need for clean up
+2026/04/23 17:31:27.209543 [INFO] Start log publish job.
+2026/04/23 17:31:27.209545 [INFO] Start publish file /tmp/BundleLogs-1776965486781.zip
+2026/04/23 17:31:27.277160 [INFO] Successful upload file /tmp/BundleLogs-1776965486781.zip to s3 resources/environments/logs/bundle/e-t33mkqmxis/i-0ddc4f773aa572236/BundleLogs-1776965486781.zip
+2026/04/23 17:31:27.277319 [INFO] Finished log publish job.
+2026/04/23 17:52:14.317931 [INFO] Cleaning log publish record...
+2026/04/23 17:52:14.317980 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/23 17:52:14.317987 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/23 17:52:14.317991 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/23 17:52:14.317996 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/23 17:52:14.318000 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/23 17:52:14.318005 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/23 17:52:14.318009 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/23 17:52:14.318013 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/23 17:52:14.318018 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/23 17:52:14.318022 [INFO] /tmp/BundleLogs-1776733559563.zip exists, no need for clean up
+2026/04/23 17:52:14.318026 [INFO] /tmp/TailLogs-1776756634735.txt exists, no need for clean up
+2026/04/23 17:52:14.318031 [INFO] /tmp/BundleLogs-1776756647878.zip exists, no need for clean up
+2026/04/23 17:52:14.318035 [INFO] /tmp/TailLogs-1776942978434.txt exists, no need for clean up
+2026/04/23 17:52:14.318039 [INFO] /tmp/BundleLogs-1776943007915.zip exists, no need for clean up
+2026/04/23 17:52:14.318043 [INFO] /tmp/TailLogs-1776964485499.txt exists, no need for clean up
+2026/04/23 17:52:14.318047 [INFO] /tmp/TailLogs-1776965466485.txt exists, no need for clean up
+2026/04/23 17:52:14.318051 [INFO] /tmp/BundleLogs-1776965486781.zip exists, no need for clean up
+2026/04/23 17:52:14.318053 [INFO] Start log publish job.
+2026/04/23 17:52:14.318056 [INFO] Start publish file /tmp/TailLogs-1776966734309.txt
+2026/04/23 17:52:14.371240 [INFO] Successful upload file /tmp/TailLogs-1776966734309.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1776966734309.txt
+2026/04/23 17:52:14.371382 [INFO] Finished log publish job.
+2026/04/23 17:53:07.790327 [INFO] Cleaning log publish record...
+2026/04/23 17:53:07.790389 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/23 17:53:07.790396 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/23 17:53:07.790400 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/23 17:53:07.790405 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/23 17:53:07.790409 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/23 17:53:07.790414 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/23 17:53:07.790418 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/23 17:53:07.790422 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/23 17:53:07.790426 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/23 17:53:07.790430 [INFO] /tmp/BundleLogs-1776733559563.zip exists, no need for clean up
+2026/04/23 17:53:07.790435 [INFO] /tmp/TailLogs-1776756634735.txt exists, no need for clean up
+2026/04/23 17:53:07.790439 [INFO] /tmp/BundleLogs-1776756647878.zip exists, no need for clean up
+2026/04/23 17:53:07.790443 [INFO] /tmp/TailLogs-1776942978434.txt exists, no need for clean up
+2026/04/23 17:53:07.790447 [INFO] /tmp/BundleLogs-1776943007915.zip exists, no need for clean up
+2026/04/23 17:53:07.790451 [INFO] /tmp/TailLogs-1776964485499.txt exists, no need for clean up
+2026/04/23 17:53:07.790457 [INFO] /tmp/TailLogs-1776965466485.txt exists, no need for clean up
+2026/04/23 17:53:07.790461 [INFO] /tmp/BundleLogs-1776965486781.zip exists, no need for clean up
+2026/04/23 17:53:07.790465 [INFO] /tmp/TailLogs-1776966734309.txt exists, no need for clean up
+2026/04/23 17:53:07.790472 [INFO] Start log publish job.
+2026/04/23 17:53:07.790475 [INFO] Start publish file /tmp/BundleLogs-1776966787408.zip
+2026/04/23 17:53:07.849027 [INFO] Successful upload file /tmp/BundleLogs-1776966787408.zip to s3 resources/environments/logs/bundle/e-t33mkqmxis/i-0ddc4f773aa572236/BundleLogs-1776966787408.zip
+2026/04/23 17:53:07.849174 [INFO] Finished log publish job.
+2026/04/25 07:06:25.354459 [INFO] Cleaning log publish record...
+2026/04/25 07:06:25.354508 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/25 07:06:25.354514 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/25 07:06:25.354518 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/25 07:06:25.354523 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/25 07:06:25.354529 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/25 07:06:25.354534 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/25 07:06:25.354539 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/25 07:06:25.354543 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/25 07:06:25.354547 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/25 07:06:25.354551 [INFO] /tmp/BundleLogs-1776733559563.zip exists, no need for clean up
+2026/04/25 07:06:25.354556 [INFO] /tmp/TailLogs-1776756634735.txt exists, no need for clean up
+2026/04/25 07:06:25.354560 [INFO] /tmp/BundleLogs-1776756647878.zip exists, no need for clean up
+2026/04/25 07:06:25.354565 [INFO] /tmp/TailLogs-1776942978434.txt exists, no need for clean up
+2026/04/25 07:06:25.354569 [INFO] /tmp/BundleLogs-1776943007915.zip exists, no need for clean up
+2026/04/25 07:06:25.354573 [INFO] /tmp/TailLogs-1776964485499.txt exists, no need for clean up
+2026/04/25 07:06:25.354577 [INFO] /tmp/TailLogs-1776965466485.txt exists, no need for clean up
+2026/04/25 07:06:25.354581 [INFO] /tmp/BundleLogs-1776965486781.zip exists, no need for clean up
+2026/04/25 07:06:25.354585 [INFO] /tmp/TailLogs-1776966734309.txt exists, no need for clean up
+2026/04/25 07:06:25.354589 [INFO] /tmp/BundleLogs-1776966787408.zip exists, no need for clean up
+2026/04/25 07:06:25.354591 [INFO] Start log publish job.
+2026/04/25 07:06:25.354594 [INFO] Start publish file /tmp/TailLogs-1777100785346.txt
+2026/04/25 07:06:25.406377 [INFO] Successful upload file /tmp/TailLogs-1777100785346.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1777100785346.txt
+2026/04/25 07:06:25.406530 [INFO] Finished log publish job.
+2026/04/25 07:32:54.250175 [INFO] Cleaning log publish record...
+2026/04/25 07:32:54.250242 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/25 07:32:54.250249 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/25 07:32:54.250253 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/25 07:32:54.250258 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/25 07:32:54.250262 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/25 07:32:54.250266 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/25 07:32:54.250270 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/25 07:32:54.250274 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/25 07:32:54.250278 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/25 07:32:54.250282 [INFO] /tmp/BundleLogs-1776733559563.zip exists, no need for clean up
+2026/04/25 07:32:54.250287 [INFO] /tmp/TailLogs-1776756634735.txt exists, no need for clean up
+2026/04/25 07:32:54.250291 [INFO] /tmp/BundleLogs-1776756647878.zip exists, no need for clean up
+2026/04/25 07:32:54.250295 [INFO] /tmp/TailLogs-1776942978434.txt exists, no need for clean up
+2026/04/25 07:32:54.250300 [INFO] /tmp/BundleLogs-1776943007915.zip exists, no need for clean up
+2026/04/25 07:32:54.250309 [INFO] /tmp/TailLogs-1776964485499.txt exists, no need for clean up
+2026/04/25 07:32:54.250313 [INFO] /tmp/TailLogs-1776965466485.txt exists, no need for clean up
+2026/04/25 07:32:54.250317 [INFO] /tmp/BundleLogs-1776965486781.zip exists, no need for clean up
+2026/04/25 07:32:54.250321 [INFO] /tmp/TailLogs-1776966734309.txt exists, no need for clean up
+2026/04/25 07:32:54.250325 [INFO] /tmp/BundleLogs-1776966787408.zip exists, no need for clean up
+2026/04/25 07:32:54.250331 [INFO] /tmp/TailLogs-1777100785346.txt exists, no need for clean up
+2026/04/25 07:32:54.250333 [INFO] Start log publish job.
+2026/04/25 07:32:54.250335 [INFO] Start publish file /tmp/BundleLogs-1777102373734.zip
+2026/04/25 07:32:54.306219 [INFO] Successful upload file /tmp/BundleLogs-1777102373734.zip to s3 resources/environments/logs/bundle/e-t33mkqmxis/i-0ddc4f773aa572236/BundleLogs-1777102373734.zip
+2026/04/25 07:32:54.306373 [INFO] Finished log publish job.
+2026/04/25 08:01:30.928933 [INFO] Cleaning log publish record...
+2026/04/25 08:01:30.928987 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/25 08:01:30.928993 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/25 08:01:30.928997 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/25 08:01:30.929001 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/25 08:01:30.929006 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/25 08:01:30.929010 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/25 08:01:30.929014 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/25 08:01:30.929018 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/25 08:01:30.929022 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/25 08:01:30.929026 [INFO] /tmp/BundleLogs-1776733559563.zip exists, no need for clean up
+2026/04/25 08:01:30.929031 [INFO] /tmp/TailLogs-1776756634735.txt exists, no need for clean up
+2026/04/25 08:01:30.929035 [INFO] /tmp/BundleLogs-1776756647878.zip exists, no need for clean up
+2026/04/25 08:01:30.929039 [INFO] /tmp/TailLogs-1776942978434.txt exists, no need for clean up
+2026/04/25 08:01:30.929043 [INFO] /tmp/BundleLogs-1776943007915.zip exists, no need for clean up
+2026/04/25 08:01:30.929047 [INFO] /tmp/TailLogs-1776964485499.txt exists, no need for clean up
+2026/04/25 08:01:30.929051 [INFO] /tmp/TailLogs-1776965466485.txt exists, no need for clean up
+2026/04/25 08:01:30.929055 [INFO] /tmp/BundleLogs-1776965486781.zip exists, no need for clean up
+2026/04/25 08:01:30.929060 [INFO] /tmp/TailLogs-1776966734309.txt exists, no need for clean up
+2026/04/25 08:01:30.929065 [INFO] /tmp/BundleLogs-1776966787408.zip exists, no need for clean up
+2026/04/25 08:01:30.929069 [INFO] /tmp/TailLogs-1777100785346.txt exists, no need for clean up
+2026/04/25 08:01:30.929073 [INFO] /tmp/BundleLogs-1777102373734.zip exists, no need for clean up
+2026/04/25 08:01:30.929075 [INFO] Start log publish job.
+2026/04/25 08:01:30.929077 [INFO] Start publish file /tmp/TailLogs-1777104090920.txt
+2026/04/25 08:01:30.978360 [INFO] Successful upload file /tmp/TailLogs-1777104090920.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1777104090920.txt
+2026/04/25 08:01:30.978514 [INFO] Finished log publish job.
+2026/04/28 18:22:57.724130 [INFO] Cleaning log publish record...
+2026/04/28 18:22:57.724201 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/28 18:22:57.724209 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/28 18:22:57.724213 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/28 18:22:57.724217 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/28 18:22:57.724221 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/28 18:22:57.724225 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/28 18:22:57.724229 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/28 18:22:57.724239 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/28 18:22:57.724243 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/28 18:22:57.724247 [INFO] /tmp/BundleLogs-1776733559563.zip exists, no need for clean up
+2026/04/28 18:22:57.724252 [INFO] /tmp/TailLogs-1776756634735.txt exists, no need for clean up
+2026/04/28 18:22:57.724256 [INFO] /tmp/BundleLogs-1776756647878.zip exists, no need for clean up
+2026/04/28 18:22:57.724260 [INFO] /tmp/TailLogs-1776942978434.txt exists, no need for clean up
+2026/04/28 18:22:57.724265 [INFO] /tmp/BundleLogs-1776943007915.zip exists, no need for clean up
+2026/04/28 18:22:57.724269 [INFO] /tmp/TailLogs-1776964485499.txt exists, no need for clean up
+2026/04/28 18:22:57.724273 [INFO] /tmp/TailLogs-1776965466485.txt exists, no need for clean up
+2026/04/28 18:22:57.724277 [INFO] /tmp/BundleLogs-1776965486781.zip exists, no need for clean up
+2026/04/28 18:22:57.724281 [INFO] /tmp/TailLogs-1776966734309.txt exists, no need for clean up
+2026/04/28 18:22:57.724285 [INFO] /tmp/BundleLogs-1776966787408.zip exists, no need for clean up
+2026/04/28 18:22:57.724290 [INFO] /tmp/TailLogs-1777100785346.txt exists, no need for clean up
+2026/04/28 18:22:57.724294 [INFO] /tmp/BundleLogs-1777102373734.zip exists, no need for clean up
+2026/04/28 18:22:57.724298 [INFO] /tmp/TailLogs-1777104090920.txt exists, no need for clean up
+2026/04/28 18:22:57.724300 [INFO] Start log publish job.
+2026/04/28 18:22:57.724302 [INFO] Start publish file /tmp/BundleLogs-1777400577102.zip
+2026/04/28 18:22:57.794092 [INFO] Successful upload file /tmp/BundleLogs-1777400577102.zip to s3 resources/environments/logs/bundle/e-t33mkqmxis/i-0ddc4f773aa572236/BundleLogs-1777400577102.zip
+2026/04/28 18:22:57.794240 [INFO] Finished log publish job.
+2026/04/28 18:47:24.307776 [INFO] Cleaning log publish record...
+2026/04/28 18:47:24.307828 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/28 18:47:24.307833 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/28 18:47:24.307838 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/28 18:47:24.307842 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/28 18:47:24.307847 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/28 18:47:24.307851 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/28 18:47:24.307855 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/28 18:47:24.307926 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/28 18:47:24.307932 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/28 18:47:24.307938 [INFO] /tmp/BundleLogs-1776733559563.zip exists, no need for clean up
+2026/04/28 18:47:24.307944 [INFO] /tmp/TailLogs-1776756634735.txt exists, no need for clean up
+2026/04/28 18:47:24.307949 [INFO] /tmp/BundleLogs-1776756647878.zip exists, no need for clean up
+2026/04/28 18:47:24.307956 [INFO] /tmp/TailLogs-1776942978434.txt exists, no need for clean up
+2026/04/28 18:47:24.307961 [INFO] /tmp/BundleLogs-1776943007915.zip exists, no need for clean up
+2026/04/28 18:47:24.307967 [INFO] /tmp/TailLogs-1776964485499.txt exists, no need for clean up
+2026/04/28 18:47:24.307973 [INFO] /tmp/TailLogs-1776965466485.txt exists, no need for clean up
+2026/04/28 18:47:24.307978 [INFO] /tmp/BundleLogs-1776965486781.zip exists, no need for clean up
+2026/04/28 18:47:24.307984 [INFO] /tmp/TailLogs-1776966734309.txt exists, no need for clean up
+2026/04/28 18:47:24.307988 [INFO] /tmp/BundleLogs-1776966787408.zip exists, no need for clean up
+2026/04/28 18:47:24.307993 [INFO] /tmp/TailLogs-1777100785346.txt exists, no need for clean up
+2026/04/28 18:47:24.307997 [INFO] /tmp/BundleLogs-1777102373734.zip exists, no need for clean up
+2026/04/28 18:47:24.308001 [INFO] /tmp/TailLogs-1777104090920.txt exists, no need for clean up
+2026/04/28 18:47:24.308005 [INFO] /tmp/BundleLogs-1777400577102.zip exists, no need for clean up
+2026/04/28 18:47:24.308013 [INFO] Start log publish job.
+2026/04/28 18:47:24.308015 [INFO] Start publish file /tmp/TailLogs-1777402044299.txt
+2026/04/28 18:47:24.356640 [INFO] Successful upload file /tmp/TailLogs-1777402044299.txt to s3 resources/environments/logs/tail/e-t33mkqmxis/i-0ddc4f773aa572236/TailLogs-1777402044299.txt
+2026/04/28 18:47:24.356793 [INFO] Finished log publish job.
+2026/04/28 18:48:36.958197 [INFO] Cleaning log publish record...
+2026/04/28 18:48:36.958265 [INFO] /tmp/TailLogs-1776531079851.txt exists, no need for clean up
+2026/04/28 18:48:36.958272 [INFO] /tmp/TailLogs-1776531755929.txt exists, no need for clean up
+2026/04/28 18:48:36.958277 [INFO] /tmp/TailLogs-1776532136237.txt exists, no need for clean up
+2026/04/28 18:48:36.958281 [INFO] /tmp/TailLogs-1776698003598.txt exists, no need for clean up
+2026/04/28 18:48:36.958285 [INFO] /tmp/BundleLogs-1776731451269.zip exists, no need for clean up
+2026/04/28 18:48:36.958289 [INFO] /tmp/TailLogs-1776731459862.txt exists, no need for clean up
+2026/04/28 18:48:36.958293 [INFO] /tmp/TailLogs-1776731924978.txt exists, no need for clean up
+2026/04/28 18:48:36.958297 [INFO] /tmp/TailLogs-1776732963409.txt exists, no need for clean up
+2026/04/28 18:48:36.958301 [INFO] /tmp/TailLogs-1776733313256.txt exists, no need for clean up
+2026/04/28 18:48:36.958305 [INFO] /tmp/BundleLogs-1776733559563.zip exists, no need for clean up
+2026/04/28 18:48:36.958310 [INFO] /tmp/TailLogs-1776756634735.txt exists, no need for clean up
+2026/04/28 18:48:36.958315 [INFO] /tmp/BundleLogs-1776756647878.zip exists, no need for clean up
+2026/04/28 18:48:36.958319 [INFO] /tmp/TailLogs-1776942978434.txt exists, no need for clean up
+2026/04/28 18:48:36.958323 [INFO] /tmp/BundleLogs-1776943007915.zip exists, no need for clean up
+2026/04/28 18:48:36.958327 [INFO] /tmp/TailLogs-1776964485499.txt exists, no need for clean up
+2026/04/28 18:48:36.958331 [INFO] /tmp/TailLogs-1776965466485.txt exists, no need for clean up
+2026/04/28 18:48:36.958335 [INFO] /tmp/BundleLogs-1776965486781.zip exists, no need for clean up
+2026/04/28 18:48:36.958340 [INFO] /tmp/TailLogs-1776966734309.txt exists, no need for clean up
+2026/04/28 18:48:36.958344 [INFO] /tmp/BundleLogs-1776966787408.zip exists, no need for clean up
+2026/04/28 18:48:36.958348 [INFO] /tmp/TailLogs-1777100785346.txt exists, no need for clean up
+2026/04/28 18:48:36.958352 [INFO] /tmp/BundleLogs-1777102373734.zip exists, no need for clean up
+2026/04/28 18:48:36.958358 [INFO] /tmp/TailLogs-1777104090920.txt exists, no need for clean up
+2026/04/28 18:48:36.958362 [INFO] /tmp/BundleLogs-1777400577102.zip exists, no need for clean up
+2026/04/28 18:48:36.958366 [INFO] /tmp/TailLogs-1777402044299.txt exists, no need for clean up
+2026/04/28 18:48:36.958369 [INFO] Start log publish job.
+2026/04/28 18:48:36.958371 [INFO] Start publish file /tmp/BundleLogs-1777402116333.zip
+2026/04/28 18:48:37.024259 [INFO] Successful upload file /tmp/BundleLogs-1777402116333.zip to s3 resources/environments/logs/bundle/e-t33mkqmxis/i-0ddc4f773aa572236/BundleLogs-1777402116333.zip
+2026/04/28 18:48:37.024398 [INFO] Finished log publish job.

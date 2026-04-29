@@ -4,9 +4,10 @@ import { API_ENDPOINTS } from '../config/api';
 import {
   getSensor,
   getSensors,
-  saveSensorConfig,
   updateSensor,
   Sensor,
+  AISuggestRequest,
+  AISuggestResponse,
   SensorConfig as SensorConfigPayload,
 } from './sensorService';
 
@@ -53,6 +54,19 @@ export interface HardwareSystemSummary {
   activeControllerHw?: string;
   sensorCount: number;
   configuredSensors: number;
+}
+
+interface UserHardwareController {
+  controllerId: string;
+  systemId?: string;
+  systemName?: string;
+  name: string;
+  status: string;
+  sensors: HardwarePairingSensor[];
+}
+
+interface UserHardwareControllersResponse {
+  controllers: UserHardwareController[];
 }
 
 export interface SaveHardwareSensorConfigRequest {
@@ -122,6 +136,36 @@ export const getStoredHardware = (controllerId: string): StoredHardwareControlle
     return null;
   }
   return readStore()[controllerId] || null;
+};
+
+export const findHardwareControllerIdForSensor = async (sensorId: string): Promise<string | null> => {
+  const trimmedSensorId = sensorId.trim();
+  if (!trimmedSensorId) {
+    return null;
+  }
+
+  if (isMockMode()) {
+    const state = readStore();
+    for (const controller of Object.values(state)) {
+      const sensors = Array.isArray(controller.sensors) ? controller.sensors : [];
+      if (sensors.some((sensor) => sensor.id === trimmedSensorId || sensor.sensorUid === trimmedSensorId)) {
+        return controller.controllerId;
+      }
+    }
+    return null;
+  }
+
+  const response = await api.get<UserHardwareControllersResponse>('/api/controllers/my');
+  const controllers = Array.isArray(response.data?.controllers) ? response.data.controllers : [];
+
+  for (const controller of controllers) {
+    const sensors = Array.isArray(controller.sensors) ? controller.sensors : [];
+    if (sensors.some((sensor) => sensor.id === trimmedSensorId || sensor.sensorUid === trimmedSensorId)) {
+      return controller.controllerId;
+    }
+  }
+
+  return null;
 };
 
 const normalizeControllerStatus = (status: string | undefined): 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' => {
@@ -695,15 +739,15 @@ export const saveHardwareSensorConfiguration = async (
   if (!isMockMode()) {
     try {
       await api.post(`/api/controllers/${request.controllerId}/sensors/${request.sensorId}/config`, request);
-    } catch {
-      try {
-        await saveSensorConfig(request.sensorId, {
-          purpose: request.usedFor,
-          config: request.appConfig,
-        });
-      } catch {
-        // Persist locally if neither backend shape is available.
-      }
+      return;
+    } catch (error: any) {
+      /*
+       * Hardware routes and legacy /sensors/{id}/config routes are not
+       * interchangeable. Falling back with the hardware logical sensor UUID
+       * produces misleading 404s and makes the UI look like save succeeded
+       * even when the backend rejected it.
+       */
+      throw error;
     }
   }
 
@@ -731,4 +775,16 @@ export const saveHardwareSensorConfiguration = async (
     updatedAt: new Date().toISOString(),
   };
   writeStore(state);
+};
+
+export const getHardwareAISuggestedConfig = async (
+  controllerId: string,
+  sensorId: string,
+  request: AISuggestRequest
+): Promise<AISuggestResponse> => {
+  const response = await api.post<AISuggestResponse>(
+    `/api/controllers/${encodeURIComponent(controllerId)}/sensors/${encodeURIComponent(sensorId)}/ai-suggest-config`,
+    request
+  );
+  return response.data;
 };

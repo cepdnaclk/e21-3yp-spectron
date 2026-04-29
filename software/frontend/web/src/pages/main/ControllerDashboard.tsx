@@ -65,7 +65,7 @@ const ControllerDashboard: React.FC = () => {
     (controller?.hw_id && /^CTRL-/i.test(controller.hw_id) ? controller.hw_id : '') ||
     navigationState?.controllerId ||
     activeControllerId;
-  const isHardwareRoute = Boolean(controllerId);
+  const isHardwareContext = Boolean(activeControllerId && /^CTRL-/i.test(activeControllerId));
   const canManageControllers = user?.accounts?.some((account) => account.role === 'OWNER' || account.role === 'ADMIN');
 
   useEffect(() => {
@@ -630,7 +630,7 @@ const ControllerDashboard: React.FC = () => {
                         sx={{ mt: 2 }}
                         onClick={() =>
                           navigate(
-                            isHardwareRoute
+                            isHardwareContext
                               ? `/hardware/${activeControllerId}/sensors/${sensor.id}/configure`
                               : `/sensors/${sensor.id}/config`,
                             {
@@ -640,7 +640,7 @@ const ControllerDashboard: React.FC = () => {
                                 sensorType: sensor.type,
                                 sensorName: sensor.name || `${sensor.type} Sensor`,
                                 configured: Boolean(sensor.config_active),
-                                returnTo: isHardwareRoute
+                                returnTo: isHardwareContext
                                   ? `/hardware/${activeControllerId}/sensors`
                                   : `/controllers/${activeControllerId}`,
                               },

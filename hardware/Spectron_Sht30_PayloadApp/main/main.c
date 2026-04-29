@@ -66,8 +66,16 @@ static const char *TAG = "BASE_PAYLOAD";
 
 #define I2C_PORT                        I2C_NUM_0
 #define I2C_FREQ_HZ                     100000
+#if CONFIG_IDF_TARGET_ESP32
+#define DEFAULT_I2C_SDA_GPIO            21
+#define DEFAULT_I2C_SCL_GPIO            22
+#elif CONFIG_IDF_TARGET_ESP32C3
 #define DEFAULT_I2C_SDA_GPIO            6
 #define DEFAULT_I2C_SCL_GPIO            7
+#else
+#define DEFAULT_I2C_SDA_GPIO            6
+#define DEFAULT_I2C_SCL_GPIO            7
+#endif
 
 #define SHT30_ADDR_1                    0x44
 #define SHT30_ADDR_2                    0x45
@@ -331,6 +339,12 @@ static esp_err_t save_sensor_runtime_cfg(const payload_sensor_t *sensor)
 
 static esp_err_t i2c_master_init_dynamic(void)
 {
+    ESP_LOGI(TAG,
+             "Initializing I2C on SDA=%d SCL=%d for target %s",
+             g_i2c_sda_gpio,
+             g_i2c_scl_gpio,
+             CONFIG_IDF_TARGET);
+
     i2c_config_t conf = {
         .mode = I2C_MODE_MASTER,
         .sda_io_num = g_i2c_sda_gpio,
@@ -1266,7 +1280,13 @@ static payload_sensor_t *select_next_module_sensor(void)
         if (!sensor->in_use) {
             continue;
         }
-        if (!sensor->module_acked || !sensor->config_received) {
+        /*
+         * After controller ACKs MODULE_INFO, stop re-sending it every cycle.
+         * The controller already owns per-sensor state and can retry CONFIG_SET
+         * independently, so repeated MODULE_INFO only creates extra traffic
+         * when another sensor is waiting on backend discovery.
+         */
+        if (!sensor->module_acked) {
             g_next_module_idx = (idx + 1U) % g_sensor_count;
             return sensor;
         }
