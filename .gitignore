@@ -6,6 +6,7 @@ backups/
 **/backups/
 certs/
 *.sql
+!3YP_Market/backend/db/schema.sql
 !software/backend/internal/db/migrations/*.sql
 *.sql.enc
 *.key
@@ -2412,3 +2413,7 @@ hardware/Controller/build/log/idf_py_stdout_output_22848
 hardware/Controller/build/log/idf_py_stdout_output_23440
 hardware/Controller/build/log/idf_py_stdout_output_28568
 hardware/Spectron_Sht30_PayloadApp/build/esp-idf/esp_hal_timg/libesp_hal_timg.a
+3YP_Market/start-spectron.ps1
+3YP_Market/backend/db/schema.sql
+3YP_Market/start-spectron.ps1
+3YP_Market/start-spectron.ps1
