@@ -933,7 +933,7 @@ const Monitoring: React.FC = () => {
     loadMonitoringData({ showSkeleton: true });
     const intervalId = window.setInterval(() => {
       loadMonitoringData({ showSkeleton: false });
-    }, 20000);
+    }, 5000);
 
     return () => {
       window.clearInterval(intervalId);
