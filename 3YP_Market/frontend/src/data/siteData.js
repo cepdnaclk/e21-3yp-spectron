@@ -86,16 +86,26 @@ export const features = [
 export const sensorModules = [
   {
     icon: 'Sprout',
-    name: 'Temperature + Humidity',
+    name: 'SHT30 Temperature + Humidity',
     category: 'Environment',
     summary: 'Room comfort, greenhouse climate, cold-room, storage, archive, and incubation monitoring.',
+    limitations: [
+      'Measures temperature and humidity only; it does not measure pressure, gas, light, or occupancy.',
+      'Humidity readings can be affected by condensation, very fast airflow changes, or long exposure to harsh environments.',
+      'Best suited for environmental monitoring rather than direct process control.',
+    ],
     useCases: ['room comfort', 'greenhouse climate', 'cold-room', 'medicine storage', 'archive preservation', 'museum preservation', 'incubator monitoring'],
   },
   {
     icon: 'Factory',
-    name: 'Pressure',
+    name: 'BME280 / BMP280 Pressure',
     category: 'Trend monitoring',
     summary: 'Barometric, sealed-room drift, ventilation/filter condition, and process pressure trends.',
+    limitations: [
+      'BMP280 measures pressure and temperature only; it does not measure humidity.',
+      'BME280 adds humidity, but it is still best for trends and alerts rather than precision industrial metrology.',
+      'Pressure readings need calibration and altitude compensation if you want stable barometric results.',
+    ],
     useCases: ['barometric trend', 'sealed-room drift', 'ventilation filter trend', 'tank pressure trend', 'line pressure trend'],
   },
   {
@@ -103,6 +113,11 @@ export const sensorModules = [
     name: 'Ultrasonic Distance',
     category: 'Level / occupancy',
     summary: 'Bin fill level, water tank level, silo/container level, queue buildup, and simple occupancy.',
+    limitations: [
+      'Raw distance must be interpreted into fill-level or occupancy logic.',
+      'Performance can drop on soft, angled, or irregular surfaces.',
+      'Environmental noise, foam, or heavy dust can reduce measurement quality in some installations.',
+    ],
     useCases: ['garbage bin fill level', 'water tank level', 'silo level', 'parking slot occupancy', 'queue buildup', 'classroom seat presence'],
   },
   {
@@ -110,6 +125,11 @@ export const sensorModules = [
     name: 'Odour / Gas',
     category: 'Air safety',
     summary: 'Odour escalation, restroom cleaning need, waste-room smell alert, and calibrated gas warnings.',
+    limitations: [
+      'Odour sensors usually provide relative trend or risk bands, not exact smell or gas concentration names.',
+      'Many gas sensors need warm-up and calibration before the readings are trustworthy.',
+      'Humidity, temperature, and airflow can affect stability, so threshold tuning is important.',
+    ],
     useCases: ['garbage odor', 'restroom cleaning need', 'kitchen waste room smell', 'sewer odor alert', 'gas leak', 'unsafe air warning'],
   },
   {

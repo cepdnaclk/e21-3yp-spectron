@@ -50,6 +50,22 @@ export default function SensorModules() {
 
               <p className="mt-4 text-sm leading-6 text-slate-600">{module.summary}</p>
 
+              {module.limitations ? (
+                <div className="mt-5 rounded-lg border border-slate-200 bg-white/80 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                    Limitations
+                  </p>
+                  <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                    {module.limitations.map((limitation) => (
+                      <li key={limitation} className="flex gap-2">
+                        <span className={isGreenModule(module) ? 'mt-2 h-2 w-2 rounded-full bg-emerald-500' : 'mt-2 h-2 w-2 rounded-full bg-teal-500'} aria-hidden="true" />
+                        <span>{limitation}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
               <div className="mt-5">
                 <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
                   Example use cases
