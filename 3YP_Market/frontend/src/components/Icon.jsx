@@ -1,0 +1,58 @@
+import {
+  Activity,
+  BatteryCharging,
+  BellRing,
+  Building2,
+  CheckCircle2,
+  ChevronDown,
+  CircuitBoard,
+  CloudCog,
+  Cpu,
+  Factory,
+  IdCard,
+  LockKeyhole,
+  MonitorSmartphone,
+  Puzzle,
+  RadioTower,
+  Repeat2,
+  Send,
+  Settings2,
+  ShieldCheck,
+  SlidersHorizontal,
+  Snowflake,
+  Sprout,
+  Warehouse,
+  Wifi,
+} from 'lucide-react'
+
+const icons = {
+  Activity,
+  BatteryCharging,
+  BellRing,
+  Building2,
+  CheckCircle2,
+  ChevronDown,
+  CircuitBoard,
+  CloudCog,
+  Cpu,
+  Factory,
+  IdCard,
+  LockKeyhole,
+  MonitorSmartphone,
+  Puzzle,
+  RadioTower,
+  Repeat2,
+  Send,
+  Settings2,
+  ShieldCheck,
+  SlidersHorizontal,
+  Snowflake,
+  Sprout,
+  Warehouse,
+  Wifi,
+}
+
+export default function Icon({ name, className = 'h-5 w-5', strokeWidth = 1.8 }) {
+  const LucideIcon = icons[name] || CircuitBoard
+  return <LucideIcon aria-hidden="true" className={className} strokeWidth={strokeWidth} />
+}

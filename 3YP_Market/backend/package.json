@@ -1,0 +1,20 @@
+{
+  "name": "spectron-backend",
+  "version": "1.0.0",
+  "description": "Backend API for the SPECTRON contact and demo request form.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "db:schema": "node scripts/applySchema.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-validator": "^7.2.1",
+    "nodemailer": "^8.0.5",
+    "pg": "^8.13.1"
+  }
+}
