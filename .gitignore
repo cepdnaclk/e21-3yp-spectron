@@ -418,6 +418,11 @@ hardware/Controller/build/esp-idf/esp_driver_cam/CMakeFiles/__idf_esp_driver_cam
 hardware/Controller/build/esp-idf/esp_driver_dac/cmake_install.cmake
 hardware/Controller/build/esp-idf/esp_driver_dac/libesp_driver_dac.a
 hardware/Controller/build/esp-idf/esp_driver_dac/CMakeFiles/__idf_esp_driver_dac.dir/dac_common.c.obj
+
+# Ignore local VS Code workspace files
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/settings.json
 hardware/Controller/build/esp-idf/esp_driver_dac/CMakeFiles/__idf_esp_driver_dac.dir/dac_continuous.c.obj
 hardware/Controller/build/esp-idf/esp_driver_dac/CMakeFiles/__idf_esp_driver_dac.dir/dac_cosine.c.obj
 hardware/Controller/build/esp-idf/esp_driver_dac/CMakeFiles/__idf_esp_driver_dac.dir/dac_oneshot.c.obj
