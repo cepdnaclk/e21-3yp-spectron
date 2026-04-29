@@ -35,6 +35,18 @@ var migration008SeedSingleSystemAdmin string
 //go:embed migrations/009_system_assignments.sql
 var migration009SystemAssignments string
 
+//go:embed migrations/009_email_verification.sql
+var migration009EmailVerification string
+
+//go:embed migrations/010_activate_verified_email_users.sql
+var migration010ActivateVerifiedEmailUsers string
+
+//go:embed migrations/011_sensor_readings_retention.sql
+var migration011SensorReadingsRetention string
+
+//go:embed migrations/012_sensor_type_compatibility.sql
+var migration012SensorTypeCompatibility string
+
 type migration struct {
 	name string
 	sql  string
@@ -49,6 +61,10 @@ var startupMigrations = []migration{
 	{name: "007_user_status", sql: migration007UserStatus},
 	{name: "008_seed_single_system_admin", sql: migration008SeedSingleSystemAdmin},
 	{name: "009_system_assignments", sql: migration009SystemAssignments},
+	{name: "009_email_verification", sql: migration009EmailVerification},
+	{name: "010_activate_verified_email_users", sql: migration010ActivateVerifiedEmailUsers},
+	{name: "011_sensor_readings_retention", sql: migration011SensorReadingsRetention},
+	{name: "012_sensor_type_compatibility", sql: migration012SensorTypeCompatibility},
 }
 
 func ApplyStartupMigrations(ctx context.Context, pool *pgxpool.Pool) error {

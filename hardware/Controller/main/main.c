@@ -67,6 +67,8 @@ static const char *TAG = "CTRL_REAL";
  * ========================================================= */
 #define WIFI_CHANNEL               1
 #define MAX_BASES                  8
+#define MAX_TRACKED_SENSORS        40
+#define SENSOR_OFFLINE_MS          90000
 
 #define DEFAULT_CFG_SAMPLE_MS      300000
 #define DEFAULT_TEMP_HI_X100       3500
@@ -102,11 +104,8 @@ static EventGroupHandle_t s_event_group;
 typedef struct {
     bool in_use;
     bool base_acked;
-    bool module_acked;
     uint8_t mac[6];
     uint32_t base_id;
-    uint32_t sensor_id;
-    uint8_t sensor_type;
     uint32_t last_seen_ms;
 } base_record_t;
 
@@ -119,28 +118,43 @@ typedef struct {
     uint16_t humidity_threshold_hi_x100;
 } controller_sensor_config_t;
 
+typedef struct {
+    bool in_use;
+    uint8_t mac[6];
+    uint32_t base_id;
+    uint32_t sensor_id;
+    uint8_t sensor_type;
+    char sensor_name[MPROTO_SENSOR_NAME_LEN];
+
+    bool have_module_info;
+    bool backend_discovered;
+    bool configured;
+    uint32_t last_seen_ms;
+
+    controller_sensor_config_t remote_cfg;
+    uint32_t last_config_poll_ms;
+    uint32_t last_config_push_ms;
+    bool waiting_for_config_ack;
+    char pending_config_id[64];
+
+    bool have_latest_sample;
+    float latest_temp_c;
+    float latest_humidity_rh;
+    uint32_t latest_rx_ms;
+    uint32_t last_uploaded_rx_ms;
+    uint32_t last_attempted_rx_ms;
+    uint32_t last_upload_attempt_ms;
+    uint8_t discovery_transport_failures;
+    uint8_t upload_transport_failures;
+
+    char backend_sensor_uid[96];
+    bool backend_sensor_uid_ready;
+} controller_sensor_state_t;
+
 static base_record_t g_bases[MAX_BASES];
+static controller_sensor_state_t g_sensor_states[MAX_TRACKED_SENSORS];
 static uint32_t g_seq = 0;
-
-/* =========================================================
- * Latest SHT30 sample cache
- * ========================================================= */
-static portMUX_TYPE g_sht_sample_lock = portMUX_INITIALIZER_UNLOCKED;
-static bool g_have_latest_sht_sample = false;
-static float g_latest_temp_c = 0.0f;
-static float g_latest_humidity_rh = 0.0f;
-static uint32_t g_latest_sht_rx_ms = 0;
-
-static portMUX_TYPE g_sensor_meta_lock = portMUX_INITIALIZER_UNLOCKED;
-static bool g_have_sensor_meta = false;
-static bool g_sensor_configured = false;
-static bool g_backend_discovered = false;
-static uint8_t g_sensor_proto_type = SENSOR_TYPE_NONE;
-static uint32_t g_sensor_proto_id = 0;
-static char g_sensor_name[MPROTO_SENSOR_NAME_LEN] = "Temperature & Humidity Sensor";
-
-static portMUX_TYPE g_remote_cfg_lock = portMUX_INITIALIZER_UNLOCKED;
-static controller_sensor_config_t g_remote_cfg = {0};
+static portMUX_TYPE g_sensor_state_lock = portMUX_INITIALIZER_UNLOCKED;
 
 /* =========================================================
  * PPP / HTTP globals
@@ -171,22 +185,10 @@ static char g_http_post_body[HTTP_POST_BUF_SIZE];
 static char g_telemetry_ip[16];
 static bool g_have_telemetry_ip = false;
 static size_t g_fallback_ip_index = 0;
-static char g_sensor_uid[64];
-static bool g_sensor_uid_ready = false;
-static portMUX_TYPE g_config_push_lock = portMUX_INITIALIZER_UNLOCKED;
-static uint32_t g_last_config_push_ms = 0;
-static bool g_waiting_for_config_ack = false;
-static char g_pending_config_id[64];
 
 static bool send_config_set(const uint8_t *mac, uint32_t base_id, uint32_t sensor_id);
 static void force_ppp_reconnect(const char *reason);
 static const char *sensor_identity_to_backend_type(uint32_t sensor_id, const char *sensor_name, uint8_t sensor_type);
-static bool get_sensor_state_snapshot(char *sensor_name,
-                                      size_t sensor_name_len,
-                                      uint8_t *sensor_type,
-                                      uint32_t *sensor_id,
-                                      bool *configured,
-                                      bool *discovered);
 
 typedef struct {
     char *buf;
@@ -247,7 +249,6 @@ static const char *backend_type_uid_token(const char *backend_type)
     if (backend_type == NULL || backend_type[0] == '\0') {
         return "sensor";
     }
-
     if (strcmp(backend_type, "temperature_humidity") == 0) {
         return "temp-humidity";
     }
@@ -266,74 +267,7 @@ static const char *backend_type_uid_token(const char *backend_type)
     if (strcmp(backend_type, "humidity") == 0) {
         return "humidity";
     }
-
     return "sensor";
-}
-
-static const char *get_backend_sensor_uid(void)
-{
-    if (g_sensor_uid_ready) {
-        return g_sensor_uid;
-    }
-
-    uint8_t sensor_type = SENSOR_TYPE_NONE;
-    uint32_t sensor_id = 0;
-    char sensor_name[MPROTO_SENSOR_NAME_LEN] = {0};
-    const char *backend_type = SENSOR_TYPE_STR;
-    const char *type_token = NULL;
-    size_t used = 0;
-
-    if (get_sensor_state_snapshot(sensor_name, sizeof(sensor_name), &sensor_type, &sensor_id, NULL, NULL)) {
-        backend_type = sensor_identity_to_backend_type(sensor_id, sensor_name, sensor_type);
-    }
-    type_token = backend_type_uid_token(backend_type);
-
-    memset(g_sensor_uid, 0, sizeof(g_sensor_uid));
-
-    for (const char *p = DEVICE_ID_STR; *p != '\0' && used < sizeof(g_sensor_uid) - 1; ++p) {
-        char ch = *p;
-
-        if (ch >= 'A' && ch <= 'Z') {
-            ch = (char)(ch - 'A' + 'a');
-        }
-
-        if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
-            g_sensor_uid[used++] = ch;
-        }
-    }
-
-    while (used > 0 && g_sensor_uid[0] == '-') {
-        memmove(g_sensor_uid, g_sensor_uid + 1, used);
-        used--;
-    }
-    while (used > 0 && g_sensor_uid[used - 1] == '-') {
-        g_sensor_uid[--used] = '\0';
-    }
-
-    if (used == 0) {
-        strlcpy(g_sensor_uid, "sensor", sizeof(g_sensor_uid));
-        used = strlen(g_sensor_uid);
-    }
-
-    if (used < sizeof(g_sensor_uid) - 1) {
-        strlcat(g_sensor_uid, "-sensor-", sizeof(g_sensor_uid));
-        strlcat(g_sensor_uid, type_token, sizeof(g_sensor_uid));
-    }
-
-    if (sensor_id != 0 && strlen(g_sensor_uid) < sizeof(g_sensor_uid) - 6) {
-        char id_suffix[16];
-        snprintf(id_suffix, sizeof(id_suffix), "-%04lx", (unsigned long)(sensor_id & 0xFFFFu));
-        strlcat(g_sensor_uid, id_suffix, sizeof(g_sensor_uid));
-    }
-
-    g_sensor_uid_ready = true;
-    return g_sensor_uid;
-}
-
-static void get_backend_humidity_sensor_uid(char *buf, size_t buf_len)
-{
-    strlcpy(buf, get_backend_sensor_uid(), buf_len);
-    strlcat(buf, HUMIDITY_UID_SUFFIX, buf_len);
 }
 
 static void clear_telemetry_endpoint_cache(void)
@@ -416,9 +350,7 @@ static bool resolve_telemetry_endpoint(bool force_refresh)
     }
 
     freeaddrinfo(res);
-
     g_have_telemetry_ip = true;
-
     ESP_LOGI(TAG, "Telemetry host %s resolved to %s", TELEMETRY_HOST, g_telemetry_ip);
     return true;
 }
@@ -427,19 +359,15 @@ static const char *sensor_type_to_backend_name(uint8_t sensor_type)
 {
     switch (sensor_type) {
         case SENSOR_TYPE_SHT30:
-            return SENSOR_TYPE_STR;
+            return "temperature_humidity";
+        case SENSOR_TYPE_BME280:
+            return "bme280";
+        case SENSOR_TYPE_BMP280:
+            return "bmp280";
+        case SENSOR_TYPE_VL53L0X:
+            return "vl53l0x";
         default:
             return "unknown";
-    }
-}
-
-static const char *sensor_type_to_backend_unit(uint8_t sensor_type)
-{
-    switch (sensor_type) {
-        case SENSOR_TYPE_SHT30:
-            return "C/%RH";
-        default:
-            return "";
     }
 }
 
@@ -454,14 +382,27 @@ static const char *normalize_backend_sensor_name(const char *sensor_name)
 
 static const char *sensor_identity_to_backend_type(uint32_t sensor_id, const char *sensor_name, uint8_t sensor_type)
 {
-    switch (sensor_id) {
-        case 0x00003001u:
-            return "temperature_humidity";
-        case 0x00002801u:
+    switch (sensor_type) {
+        case SENSOR_TYPE_BME280:
             return "bme280";
-        case 0x00002802u:
+        case SENSOR_TYPE_BMP280:
             return "bmp280";
-        case 0x00005301u:
+        case SENSOR_TYPE_VL53L0X:
+            return "vl53l0x";
+        case SENSOR_TYPE_SHT30:
+            return "temperature_humidity";
+        default:
+            break;
+    }
+
+    switch (sensor_id & 0xFFFFFF00u) {
+        case 0x00002800u:
+            return "bme280";
+        case 0x00002900u:
+            return "bmp280";
+        case 0x00003000u:
+            return "temperature_humidity";
+        case 0x00005300u:
             return "vl53l0x";
         default:
             break;
@@ -562,182 +503,15 @@ static bool json_extract_long(const char *json, const char *key, long *out_value
     return true;
 }
 
-static void reset_config_push_tracking(void)
+static void init_remote_config_defaults(controller_sensor_config_t *cfg)
 {
-    portENTER_CRITICAL(&g_config_push_lock);
-    g_last_config_push_ms = 0;
-    g_waiting_for_config_ack = false;
-    g_pending_config_id[0] = '\0';
-    portEXIT_CRITICAL(&g_config_push_lock);
-}
-
-static bool is_config_retry_due(uint32_t now_ms, bool force)
-{
-    bool ready = false;
-
-    portENTER_CRITICAL(&g_config_push_lock);
-    ready = force ||
-            !g_waiting_for_config_ack ||
-            g_last_config_push_ms == 0 ||
-            (now_ms - g_last_config_push_ms) >= CONFIG_PUSH_RETRY_MS;
-    portEXIT_CRITICAL(&g_config_push_lock);
-
-    return ready;
-}
-
-static void note_config_push_sent(const char *config_id, uint32_t now_ms)
-{
-    portENTER_CRITICAL(&g_config_push_lock);
-    g_last_config_push_ms = now_ms;
-    g_waiting_for_config_ack = true;
-    if (config_id && config_id[0] != '\0') {
-        strlcpy(g_pending_config_id, config_id, sizeof(g_pending_config_id));
-    } else {
-        g_pending_config_id[0] = '\0';
-    }
-    portEXIT_CRITICAL(&g_config_push_lock);
-}
-
-static void note_config_ack_result(bool success)
-{
-    portENTER_CRITICAL(&g_config_push_lock);
-    if (success) {
-        g_last_config_push_ms = 0;
-        g_waiting_for_config_ack = false;
-        g_pending_config_id[0] = '\0';
-    } else {
-        g_waiting_for_config_ack = true;
-    }
-    portEXIT_CRITICAL(&g_config_push_lock);
-}
-
-static void update_sensor_meta(const char *sensor_name, uint8_t sensor_type, uint32_t sensor_id)
-{
-    portENTER_CRITICAL(&g_sensor_meta_lock);
-    bool changed = !g_have_sensor_meta ||
-                   g_sensor_proto_type != sensor_type ||
-                   g_sensor_proto_id != sensor_id;
-
-    if (sensor_name && sensor_name[0] != '\0') {
-        if (!changed && strncmp(g_sensor_name, sensor_name, sizeof(g_sensor_name)) != 0) {
-            changed = true;
-        }
-    }
-
-    if (sensor_name && sensor_name[0] != '\0') {
-        strlcpy(g_sensor_name, sensor_name, sizeof(g_sensor_name));
-    }
-    g_sensor_proto_type = sensor_type;
-    g_sensor_proto_id = sensor_id;
-    if (changed) {
-        g_sensor_configured = false;
-        g_backend_discovered = false;
-        g_sensor_uid_ready = false;
-        g_sensor_uid[0] = '\0';
-    }
-    g_have_sensor_meta = true;
-    portEXIT_CRITICAL(&g_sensor_meta_lock);
-
-    if (changed) {
-        reset_config_push_tracking();
-    }
-}
-
-static void mark_sensor_configured(bool configured)
-{
-    portENTER_CRITICAL(&g_sensor_meta_lock);
-    g_sensor_configured = configured;
-    portEXIT_CRITICAL(&g_sensor_meta_lock);
-}
-
-static void mark_backend_discovered(void)
-{
-    portENTER_CRITICAL(&g_sensor_meta_lock);
-    g_backend_discovered = true;
-    portEXIT_CRITICAL(&g_sensor_meta_lock);
-}
-
-static bool get_sensor_state_snapshot(char *sensor_name,
-                                      size_t sensor_name_len,
-                                      uint8_t *sensor_type,
-                                      uint32_t *sensor_id,
-                                      bool *configured,
-                                      bool *discovered)
-{
-    bool have_sensor;
-
-    portENTER_CRITICAL(&g_sensor_meta_lock);
-    have_sensor = g_have_sensor_meta;
-    if (have_sensor) {
-        if (sensor_name && sensor_name_len > 0) {
-            strlcpy(sensor_name, g_sensor_name, sensor_name_len);
-        }
-        if (sensor_type) {
-            *sensor_type = g_sensor_proto_type;
-        }
-        if (sensor_id) {
-            *sensor_id = g_sensor_proto_id;
-        }
-    }
-    if (configured) {
-        *configured = g_sensor_configured;
-    }
-    if (discovered) {
-        *discovered = g_backend_discovered;
-    }
-    portEXIT_CRITICAL(&g_sensor_meta_lock);
-
-    return have_sensor;
-}
-
-static void init_remote_config_defaults(void)
-{
-    portENTER_CRITICAL(&g_remote_cfg_lock);
-    memset(&g_remote_cfg, 0, sizeof(g_remote_cfg));
-    g_remote_cfg.valid = true;
-    g_remote_cfg.has_active_config = false;
-    g_remote_cfg.sample_period_ms = DEFAULT_CFG_SAMPLE_MS;
-    g_remote_cfg.temp_threshold_hi_x100 = DEFAULT_TEMP_HI_X100;
-    g_remote_cfg.humidity_threshold_hi_x100 = DEFAULT_HUM_HI_X100;
-    strlcpy(g_remote_cfg.config_id, "boot-default", sizeof(g_remote_cfg.config_id));
-    portEXIT_CRITICAL(&g_remote_cfg_lock);
-}
-
-static void get_remote_config_snapshot(controller_sensor_config_t *cfg)
-{
-    portENTER_CRITICAL(&g_remote_cfg_lock);
-    *cfg = g_remote_cfg;
-    portEXIT_CRITICAL(&g_remote_cfg_lock);
-}
-
-static bool update_remote_config(const char *config_id,
-                                 bool has_active_config,
-                                 uint32_t sample_period_ms,
-                                 int16_t temp_threshold_hi_x100,
-                                 uint16_t humidity_threshold_hi_x100)
-{
-    bool changed = false;
-
-    portENTER_CRITICAL(&g_remote_cfg_lock);
-
-    if (!g_remote_cfg.valid ||
-        g_remote_cfg.has_active_config != has_active_config ||
-        g_remote_cfg.sample_period_ms != sample_period_ms ||
-        g_remote_cfg.temp_threshold_hi_x100 != temp_threshold_hi_x100 ||
-        g_remote_cfg.humidity_threshold_hi_x100 != humidity_threshold_hi_x100 ||
-        strncmp(g_remote_cfg.config_id, config_id, sizeof(g_remote_cfg.config_id)) != 0) {
-        changed = true;
-        g_remote_cfg.valid = true;
-        g_remote_cfg.has_active_config = has_active_config;
-        g_remote_cfg.sample_period_ms = sample_period_ms;
-        g_remote_cfg.temp_threshold_hi_x100 = temp_threshold_hi_x100;
-        g_remote_cfg.humidity_threshold_hi_x100 = humidity_threshold_hi_x100;
-        strlcpy(g_remote_cfg.config_id, config_id, sizeof(g_remote_cfg.config_id));
-    }
-
-    portEXIT_CRITICAL(&g_remote_cfg_lock);
-
-    return changed;
+    memset(cfg, 0, sizeof(*cfg));
+    cfg->valid = true;
+    cfg->has_active_config = false;
+    cfg->sample_period_ms = DEFAULT_CFG_SAMPLE_MS;
+    cfg->temp_threshold_hi_x100 = DEFAULT_TEMP_HI_X100;
+    cfg->humidity_threshold_hi_x100 = DEFAULT_HUM_HI_X100;
+    strlcpy(cfg->config_id, "boot-default", sizeof(cfg->config_id));
 }
 
 static void print_mac(const char *label, const uint8_t *mac)
@@ -775,91 +549,6 @@ static int alloc_base_slot(const uint8_t *mac)
     return -1;
 }
 
-static void push_config_to_known_bases(void)
-{
-    for (int i = 0; i < MAX_BASES; i++) {
-        if (!g_bases[i].in_use || g_bases[i].sensor_id == 0) {
-            continue;
-        }
-
-        send_config_set(g_bases[i].mac, g_bases[i].base_id, g_bases[i].sensor_id);
-    }
-}
-
-static uint32_t get_config_poll_interval_ms(bool have_sensor_state,
-                                            bool backend_discovered,
-                                            bool sensor_configured,
-                                            const controller_sensor_config_t *cfg)
-{
-    if (!have_sensor_state || !backend_discovered || cfg == NULL || !cfg->has_active_config || !sensor_configured) {
-        return CONFIG_POLL_FAST_MS;
-    }
-
-    uint32_t adaptive_ms = cfg->sample_period_ms / 4U;
-    if (adaptive_ms < CONFIG_POLL_STABLE_MIN_MS) {
-        adaptive_ms = CONFIG_POLL_STABLE_MIN_MS;
-    }
-    if (adaptive_ms > CONFIG_POLL_STABLE_MAX_MS) {
-        adaptive_ms = CONFIG_POLL_STABLE_MAX_MS;
-    }
-
-    return adaptive_ms;
-}
-
-static bool maybe_push_config_to_base(const uint8_t *mac, uint32_t base_id, uint32_t sensor_id, bool force)
-{
-    controller_sensor_config_t cfg;
-    get_remote_config_snapshot(&cfg);
-
-    if (!cfg.has_active_config) {
-        return false;
-    }
-
-    uint32_t now_ms = ms_now();
-    if (!is_config_retry_due(now_ms, force)) {
-        return false;
-    }
-
-    if (!send_config_set(mac, base_id, sensor_id)) {
-        return false;
-    }
-
-    note_config_push_sent(cfg.config_id, now_ms);
-    return true;
-}
-
-static bool maybe_push_config_to_known_bases(bool force)
-{
-    controller_sensor_config_t cfg;
-    get_remote_config_snapshot(&cfg);
-
-    if (!cfg.has_active_config) {
-        return false;
-    }
-
-    uint32_t now_ms = ms_now();
-    if (!is_config_retry_due(now_ms, force)) {
-        return false;
-    }
-
-    bool sent = false;
-    for (int i = 0; i < MAX_BASES; i++) {
-        if (!g_bases[i].in_use || g_bases[i].sensor_id == 0) {
-            continue;
-        }
-
-        if (send_config_set(g_bases[i].mac, g_bases[i].base_id, g_bases[i].sensor_id)) {
-            sent = true;
-        }
-    }
-
-    if (sent) {
-        note_config_push_sent(cfg.config_id, now_ms);
-    }
-
-    return sent;
-}
-
 static void add_peer_if_needed(const uint8_t *mac)
 {
     if (esp_now_is_peer_exist(mac)) {
@@ -880,40 +569,246 @@ static void add_peer_if_needed(const uint8_t *mac)
     }
 }
 
-static void set_latest_sht_sample(float temp_c, float humidity_rh)
+static uint32_t get_config_poll_interval_ms(const controller_sensor_config_t *cfg, bool backend_discovered, bool sensor_configured)
 {
-    portENTER_CRITICAL(&g_sht_sample_lock);
-    g_latest_temp_c = temp_c;
-    g_latest_humidity_rh = humidity_rh;
-    g_latest_sht_rx_ms = ms_now();
-    g_have_latest_sht_sample = true;
-    portEXIT_CRITICAL(&g_sht_sample_lock);
-}
-
-static void clear_latest_sht_sample(void)
-{
-    portENTER_CRITICAL(&g_sht_sample_lock);
-    g_have_latest_sht_sample = false;
-    g_latest_temp_c = 0.0f;
-    g_latest_humidity_rh = 0.0f;
-    g_latest_sht_rx_ms = 0;
-    portEXIT_CRITICAL(&g_sht_sample_lock);
-}
-
-static bool get_latest_sht_sample(float *temp_c, float *humidity_rh, uint32_t *rx_ms)
-{
-    bool ok;
-
-    portENTER_CRITICAL(&g_sht_sample_lock);
-    ok = g_have_latest_sht_sample;
-    if (ok) {
-        *temp_c = g_latest_temp_c;
-        *humidity_rh = g_latest_humidity_rh;
-        *rx_ms = g_latest_sht_rx_ms;
+    if (cfg == NULL || !backend_discovered || !cfg->has_active_config || !sensor_configured) {
+        return CONFIG_POLL_FAST_MS;
     }
-    portEXIT_CRITICAL(&g_sht_sample_lock);
 
-    return ok;
+    uint32_t adaptive_ms = cfg->sample_period_ms / 4U;
+    if (adaptive_ms < CONFIG_POLL_STABLE_MIN_MS) {
+        adaptive_ms = CONFIG_POLL_STABLE_MIN_MS;
+    }
+    if (adaptive_ms > CONFIG_POLL_STABLE_MAX_MS) {
+        adaptive_ms = CONFIG_POLL_STABLE_MAX_MS;
+    }
+
+    return adaptive_ms;
+}
+
+static int find_sensor_state_idx(const uint8_t *mac, uint32_t sensor_id)
+{
+    for (int i = 0; i < MAX_TRACKED_SENSORS; i++) {
+        if (g_sensor_states[i].in_use &&
+            g_sensor_states[i].sensor_id == sensor_id &&
+            memcmp(g_sensor_states[i].mac, mac, 6) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int alloc_sensor_state_idx(const uint8_t *mac,
+                                  uint32_t base_id,
+                                  uint32_t sensor_id,
+                                  uint8_t sensor_type,
+                                  const char *sensor_name)
+{
+    int free_idx = -1;
+    int reclaim_idx = -1;
+    uint32_t now_ms = ms_now();
+
+    portENTER_CRITICAL(&g_sensor_state_lock);
+    for (int i = 0; i < MAX_TRACKED_SENSORS; i++) {
+        if (g_sensor_states[i].in_use &&
+            g_sensor_states[i].sensor_id == sensor_id &&
+            memcmp(g_sensor_states[i].mac, mac, 6) == 0) {
+            g_sensor_states[i].base_id = base_id;
+            g_sensor_states[i].sensor_type = sensor_type;
+            g_sensor_states[i].last_seen_ms = ms_now();
+            if (sensor_name && sensor_name[0] != '\0') {
+                strlcpy(g_sensor_states[i].sensor_name, sensor_name, sizeof(g_sensor_states[i].sensor_name));
+            }
+            portEXIT_CRITICAL(&g_sensor_state_lock);
+            return i;
+        }
+
+        if (!g_sensor_states[i].in_use && free_idx < 0) {
+            free_idx = i;
+        } else if (g_sensor_states[i].in_use &&
+                   reclaim_idx < 0 &&
+                   g_sensor_states[i].last_seen_ms != 0 &&
+                   (now_ms - g_sensor_states[i].last_seen_ms) > SENSOR_OFFLINE_MS) {
+            reclaim_idx = i;
+        }
+    }
+
+    if (free_idx < 0 && reclaim_idx >= 0) {
+        free_idx = reclaim_idx;
+    }
+
+    if (free_idx >= 0) {
+        memset(&g_sensor_states[free_idx], 0, sizeof(g_sensor_states[free_idx]));
+        g_sensor_states[free_idx].in_use = true;
+        memcpy(g_sensor_states[free_idx].mac, mac, 6);
+        g_sensor_states[free_idx].base_id = base_id;
+        g_sensor_states[free_idx].sensor_id = sensor_id;
+        g_sensor_states[free_idx].sensor_type = sensor_type;
+        g_sensor_states[free_idx].last_seen_ms = ms_now();
+        init_remote_config_defaults(&g_sensor_states[free_idx].remote_cfg);
+        if (sensor_name && sensor_name[0] != '\0') {
+            strlcpy(g_sensor_states[free_idx].sensor_name, sensor_name, sizeof(g_sensor_states[free_idx].sensor_name));
+        } else {
+            strlcpy(g_sensor_states[free_idx].sensor_name, SENSOR_NAME_STR, sizeof(g_sensor_states[free_idx].sensor_name));
+        }
+    }
+    portEXIT_CRITICAL(&g_sensor_state_lock);
+
+    return free_idx;
+}
+
+static bool get_sensor_snapshot(int idx, controller_sensor_state_t *out)
+{
+    if (idx < 0 || idx >= MAX_TRACKED_SENSORS || out == NULL) {
+        return false;
+    }
+
+    portENTER_CRITICAL(&g_sensor_state_lock);
+    if (!g_sensor_states[idx].in_use) {
+        portEXIT_CRITICAL(&g_sensor_state_lock);
+        return false;
+    }
+    *out = g_sensor_states[idx];
+    portEXIT_CRITICAL(&g_sensor_state_lock);
+    return true;
+}
+
+static bool is_sensor_online(const controller_sensor_state_t *sensor, uint32_t now_ms)
+{
+    return sensor != NULL &&
+           sensor->in_use &&
+           sensor->last_seen_ms != 0 &&
+           (now_ms - sensor->last_seen_ms) <= SENSOR_OFFLINE_MS;
+}
+
+static void make_backend_sensor_uid(const controller_sensor_state_t *sensor, char *buf, size_t buf_len)
+{
+    char device_token[48] = {0};
+    size_t used = 0;
+
+    if (sensor == NULL || buf == NULL || buf_len == 0) {
+        return;
+    }
+
+    for (const char *p = DEVICE_ID_STR; *p != '\0' && used < sizeof(device_token) - 1; ++p) {
+        char ch = *p;
+        if (ch >= 'A' && ch <= 'Z') {
+            ch = (char)(ch - 'A' + 'a');
+        }
+        if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+            device_token[used++] = ch;
+        }
+    }
+    if (used == 0) {
+        strlcpy(device_token, "controller", sizeof(device_token));
+    }
+
+    snprintf(buf,
+             buf_len,
+             "%s-base-%02x%02x%02x%02x%02x%02x-sensor-%s-%04lx",
+             device_token,
+             sensor->mac[0],
+             sensor->mac[1],
+             sensor->mac[2],
+             sensor->mac[3],
+             sensor->mac[4],
+             sensor->mac[5],
+             backend_type_uid_token(sensor_identity_to_backend_type(sensor->sensor_id, sensor->sensor_name, sensor->sensor_type)),
+             (unsigned long)(sensor->sensor_id & 0xFFFFu));
+}
+
+static void make_backend_sidecar_uid(const controller_sensor_state_t *sensor,
+                                     const char *suffix,
+                                     char *buf,
+                                     size_t buf_len)
+{
+    make_backend_sensor_uid(sensor, buf, buf_len);
+    strlcat(buf, suffix, buf_len);
+}
+
+static bool update_sensor_remote_config(int idx,
+                                        const char *config_id,
+                                        bool has_active_config,
+                                        uint32_t sample_period_ms,
+                                        int16_t temp_threshold_hi_x100,
+                                        uint16_t humidity_threshold_hi_x100)
+{
+    bool changed = false;
+
+    portENTER_CRITICAL(&g_sensor_state_lock);
+    if (!g_sensor_states[idx].in_use ||
+        !g_sensor_states[idx].remote_cfg.valid ||
+        g_sensor_states[idx].remote_cfg.has_active_config != has_active_config ||
+        g_sensor_states[idx].remote_cfg.sample_period_ms != sample_period_ms ||
+        g_sensor_states[idx].remote_cfg.temp_threshold_hi_x100 != temp_threshold_hi_x100 ||
+        g_sensor_states[idx].remote_cfg.humidity_threshold_hi_x100 != humidity_threshold_hi_x100 ||
+        strncmp(g_sensor_states[idx].remote_cfg.config_id, config_id, sizeof(g_sensor_states[idx].remote_cfg.config_id)) != 0) {
+        changed = true;
+        g_sensor_states[idx].remote_cfg.valid = true;
+        g_sensor_states[idx].remote_cfg.has_active_config = has_active_config;
+        g_sensor_states[idx].remote_cfg.sample_period_ms = sample_period_ms;
+        g_sensor_states[idx].remote_cfg.temp_threshold_hi_x100 = temp_threshold_hi_x100;
+        g_sensor_states[idx].remote_cfg.humidity_threshold_hi_x100 = humidity_threshold_hi_x100;
+        strlcpy(g_sensor_states[idx].remote_cfg.config_id, config_id, sizeof(g_sensor_states[idx].remote_cfg.config_id));
+    }
+    portEXIT_CRITICAL(&g_sensor_state_lock);
+
+    return changed;
+}
+
+static void note_config_push_sent_for_sensor(int idx, const char *config_id, uint32_t now_ms)
+{
+    portENTER_CRITICAL(&g_sensor_state_lock);
+    if (g_sensor_states[idx].in_use) {
+        g_sensor_states[idx].last_config_push_ms = now_ms;
+        g_sensor_states[idx].waiting_for_config_ack = true;
+        if (config_id && config_id[0] != '\0') {
+            strlcpy(g_sensor_states[idx].pending_config_id, config_id, sizeof(g_sensor_states[idx].pending_config_id));
+        } else {
+            g_sensor_states[idx].pending_config_id[0] = '\0';
+        }
+    }
+    portEXIT_CRITICAL(&g_sensor_state_lock);
+}
+
+static bool is_config_retry_due_for_sensor(const controller_sensor_state_t *sensor, uint32_t now_ms, bool force)
+{
+    return force ||
+           !sensor->waiting_for_config_ack ||
+           sensor->last_config_push_ms == 0 ||
+           (now_ms - sensor->last_config_push_ms) >= CONFIG_PUSH_RETRY_MS;
+}
+
+static void note_config_ack_result_for_sensor(int idx, bool success)
+{
+    portENTER_CRITICAL(&g_sensor_state_lock);
+    if (g_sensor_states[idx].in_use) {
+        if (success) {
+            g_sensor_states[idx].configured = true;
+            g_sensor_states[idx].waiting_for_config_ack = false;
+            g_sensor_states[idx].last_config_push_ms = 0;
+            g_sensor_states[idx].pending_config_id[0] = '\0';
+        } else {
+            g_sensor_states[idx].configured = false;
+            g_sensor_states[idx].waiting_for_config_ack = true;
+        }
+        g_sensor_states[idx].have_latest_sample = false;
+        g_sensor_states[idx].latest_rx_ms = 0;
+    }
+    portEXIT_CRITICAL(&g_sensor_state_lock);
+}
+
+static void mark_sensor_backend_discovered(int idx)
+{
+    portENTER_CRITICAL(&g_sensor_state_lock);
+    if (g_sensor_states[idx].in_use) {
+        g_sensor_states[idx].backend_discovered = true;
+        g_sensor_states[idx].configured = false;
+        g_sensor_states[idx].have_latest_sample = false;
+        g_sensor_states[idx].latest_rx_ms = 0;
+        g_sensor_states[idx].discovery_transport_failures = 0;
+    }
+    portEXIT_CRITICAL(&g_sensor_state_lock);
 }
 
 /* =========================================================
@@ -1405,15 +1300,15 @@ static bool http_post_json(const char *path, const char *json_payload)
 /* =========================================================
  * JSON payload
  * ========================================================= */
-static int build_config_pull_json(char *buf, size_t buf_len)
+static int build_config_pull_json(const controller_sensor_state_t *sensor, char *buf, size_t buf_len)
 {
-    uint8_t sensor_type = SENSOR_TYPE_SHT30;
-    uint32_t sensor_id = 0;
-    char sensor_name[MPROTO_SENSOR_NAME_LEN] = {0};
+    char sensor_uid[96];
 
-    if (!get_sensor_state_snapshot(sensor_name, sizeof(sensor_name), &sensor_type, &sensor_id, NULL, NULL)) {
-        sensor_type = SENSOR_TYPE_SHT30;
+    if (sensor == NULL || !sensor->in_use) {
+        return -1;
     }
+
+    make_backend_sensor_uid(sensor, sensor_uid, sizeof(sensor_uid));
 
     return snprintf(
         buf, buf_len,
@@ -1422,23 +1317,27 @@ static int build_config_pull_json(char *buf, size_t buf_len)
           "\"sensorId\":\"%s\","
           "\"sensorType\":\"%s\""
         "}",
-        get_backend_sensor_uid(),
-        sensor_identity_to_backend_type(sensor_id, sensor_name, sensor_type)
+        sensor_uid,
+        sensor_identity_to_backend_type(sensor->sensor_id, sensor->sensor_name, sensor->sensor_type)
     );
 }
 
-static int build_payload_json(float temp_value, float humidity_value, char *buf, size_t buf_len)
+static int build_payload_json(const controller_sensor_state_t *sensor,
+                              float temp_value,
+                              float humidity_value,
+                              char *buf,
+                              size_t buf_len)
 {
-    uint8_t sensor_type = SENSOR_TYPE_SHT30;
-    uint32_t sensor_id = 0;
-    char sensor_name[MPROTO_SENSOR_NAME_LEN] = {0};
-    char sidecar_sensor_uid[80];
+    char sensor_uid[96];
+    char sidecar_sensor_uid[112];
+    const char *backend_type;
 
-    if (!get_sensor_state_snapshot(sensor_name, sizeof(sensor_name), &sensor_type, &sensor_id, NULL, NULL)) {
+    if (sensor == NULL || !sensor->in_use) {
         return -1;
     }
 
-    const char *backend_type = sensor_identity_to_backend_type(sensor_id, sensor_name, sensor_type);
+    make_backend_sensor_uid(sensor, sensor_uid, sizeof(sensor_uid));
+    backend_type = sensor_identity_to_backend_type(sensor->sensor_id, sensor->sensor_name, sensor->sensor_type);
 
     if (strcmp(backend_type, "vl53l0x") == 0) {
         return snprintf(
@@ -1455,20 +1354,41 @@ static int build_payload_json(float temp_value, float humidity_value, char *buf,
               "]"
             "}",
             (unsigned long)ts_now_seconds(),
-            get_backend_sensor_uid(),
+            sensor_uid,
             humidity_value
         );
     }
 
-    get_backend_humidity_sensor_uid(sidecar_sensor_uid, sizeof(sidecar_sensor_uid));
-
-    const char *sidecar_type = "humidity";
     if (strcmp(backend_type, "bme280") == 0 || strcmp(backend_type, "bmp280") == 0) {
-        strlcpy(sidecar_sensor_uid, get_backend_sensor_uid(), sizeof(sidecar_sensor_uid));
-        strlcat(sidecar_sensor_uid, PRESSURE_UID_SUFFIX, sizeof(sidecar_sensor_uid));
-        sidecar_type = "pressure";
+        make_backend_sidecar_uid(sensor, PRESSURE_UID_SUFFIX, sidecar_sensor_uid, sizeof(sidecar_sensor_uid));
+        return snprintf(
+            buf, buf_len,
+            "{"
+              "\"deviceId\":\"" DEVICE_ID_STR "\","
+              "\"ts\":%lu,"
+              "\"sensors\":["
+                "{"
+                  "\"id\":\"%s\","
+                  "\"type\":\"%s\","
+                  "\"v\":%.1f"
+                "},"
+                "{"
+                  "\"id\":\"%s\","
+                  "\"type\":\"pressure\","
+                  "\"v\":%.1f"
+                "}"
+              "]"
+            "}",
+            (unsigned long)ts_now_seconds(),
+            sensor_uid,
+            backend_type,
+            temp_value,
+            sidecar_sensor_uid,
+            humidity_value
+        );
     }
 
+    make_backend_sidecar_uid(sensor, HUMIDITY_UID_SUFFIX, sidecar_sensor_uid, sizeof(sidecar_sensor_uid));
     return snprintf(
         buf, buf_len,
         "{"
@@ -1477,37 +1397,36 @@ static int build_payload_json(float temp_value, float humidity_value, char *buf,
           "\"sensors\":["
             "{"
               "\"id\":\"%s\","
-              "\"type\":\"%s\","
+              "\"type\":\"temperature_humidity\","
               "\"v\":%.1f"
             "},"
             "{"
               "\"id\":\"%s\","
-              "\"type\":\"%s\","
+              "\"type\":\"humidity\","
               "\"v\":%.1f"
             "}"
           "]"
         "}",
         (unsigned long)ts_now_seconds(),
-        get_backend_sensor_uid(),
-        backend_type,
+        sensor_uid,
         temp_value,
         sidecar_sensor_uid,
-        sidecar_type,
         humidity_value
     );
 }
 
-static int build_discovery_json(char *buf, size_t buf_len)
+static int build_discovery_json(const controller_sensor_state_t *sensor, char *buf, size_t buf_len)
 {
-    char sensor_name[MPROTO_SENSOR_NAME_LEN];
-    uint8_t sensor_type = SENSOR_TYPE_NONE;
-    uint32_t sensor_id = 0;
+    char sensor_uid[96];
+    char sidecar_sensor_uid[112];
+    const char *backend_type;
 
-    if (!get_sensor_state_snapshot(sensor_name, sizeof(sensor_name), &sensor_type, &sensor_id, NULL, NULL)) {
+    if (sensor == NULL || !sensor->in_use) {
         return -1;
     }
 
-    const char *backend_type = sensor_identity_to_backend_type(sensor_id, sensor_name, sensor_type);
+    make_backend_sensor_uid(sensor, sensor_uid, sizeof(sensor_uid));
+    backend_type = sensor_identity_to_backend_type(sensor->sensor_id, sensor->sensor_name, sensor->sensor_type);
 
     if (strcmp(backend_type, "vl53l0x") == 0) {
         return snprintf(
@@ -1525,17 +1444,43 @@ static int build_discovery_json(char *buf, size_t buf_len)
               "]"
             "}",
             (unsigned long)ts_now_seconds(),
-            get_backend_sensor_uid(),
-            normalize_backend_sensor_name(sensor_name)
+            sensor_uid,
+            normalize_backend_sensor_name(sensor->sensor_name)
         );
     }
 
-    const bool pressure_sensor = strcmp(backend_type, "bme280") == 0 || strcmp(backend_type, "bmp280") == 0;
-    const char *sidecar_suffix = pressure_sensor ? PRESSURE_UID_SUFFIX : HUMIDITY_UID_SUFFIX;
-    const char *sidecar_type = pressure_sensor ? "pressure" : "humidity";
-    const char *sidecar_name = pressure_sensor ? "Pressure" : "Humidity";
-    const char *sidecar_unit = pressure_sensor ? "kPa" : "%RH";
+    if (strcmp(backend_type, "bme280") == 0 || strcmp(backend_type, "bmp280") == 0) {
+        make_backend_sidecar_uid(sensor, PRESSURE_UID_SUFFIX, sidecar_sensor_uid, sizeof(sidecar_sensor_uid));
+        return snprintf(
+            buf, buf_len,
+            "{"
+              "\"deviceId\":\"" DEVICE_ID_STR "\","
+              "\"ts\":%lu,"
+              "\"sensors\":["
+                "{"
+                  "\"id\":\"%s\","
+                  "\"type\":\"%s\","
+                  "\"name\":\"%s\","
+                  "\"unit\":\"%s\""
+                "},"
+                "{"
+                  "\"id\":\"%s\","
+                  "\"type\":\"pressure\","
+                  "\"name\":\"Pressure\","
+                  "\"unit\":\"kPa\""
+                "}"
+              "]"
+            "}",
+            (unsigned long)ts_now_seconds(),
+            sensor_uid,
+            backend_type,
+            normalize_backend_sensor_name(sensor->sensor_name),
+            backend_type_primary_unit(backend_type),
+            sidecar_sensor_uid
+        );
+    }
 
+    make_backend_sidecar_uid(sensor, HUMIDITY_UID_SUFFIX, sidecar_sensor_uid, sizeof(sidecar_sensor_uid));
     return snprintf(
         buf, buf_len,
         "{"
@@ -1544,49 +1489,47 @@ static int build_discovery_json(char *buf, size_t buf_len)
           "\"sensors\":["
             "{"
               "\"id\":\"%s\","
-              "\"type\":\"%s\","
+              "\"type\":\"temperature_humidity\","
               "\"name\":\"%s\","
-              "\"unit\":\"%s\""
+              "\"unit\":\"C/%RH\""
             "},"
             "{"
-              "\"id\":\"%s%s\","
-              "\"type\":\"%s\","
-              "\"name\":\"%s\","
-              "\"unit\":\"%s\""
+              "\"id\":\"%s\","
+              "\"type\":\"humidity\","
+              "\"name\":\"Humidity\","
+              "\"unit\":\"%RH\""
             "}"
           "]"
         "}",
         (unsigned long)ts_now_seconds(),
-        get_backend_sensor_uid(),
-        backend_type,
-        normalize_backend_sensor_name(sensor_name),
-        backend_type_primary_unit(backend_type),
-        get_backend_sensor_uid(),
-        sidecar_suffix,
-        sidecar_type,
-        sidecar_name,
-        sidecar_unit
+        sensor_uid,
+        normalize_backend_sensor_name(sensor->sensor_name),
+        sidecar_sensor_uid
     );
 }
 
-static bool maybe_refresh_sensor_config(uint32_t min_interval_ms)
+static bool maybe_refresh_sensor_config(int idx, const controller_sensor_state_t *sensor)
 {
-    static uint32_t last_poll_ms = 0;
     uint32_t now_ms = ms_now();
+    uint32_t min_interval_ms = get_config_poll_interval_ms(&sensor->remote_cfg, sensor->backend_discovered, sensor->configured);
 
-    if (last_poll_ms != 0 && (now_ms - last_poll_ms) < min_interval_ms) {
+    if (sensor->last_config_poll_ms != 0 && (now_ms - sensor->last_config_poll_ms) < min_interval_ms) {
         return false;
     }
 
-    last_poll_ms = now_ms;
-
-    if (build_config_pull_json(g_http_post_body, sizeof(g_http_post_body)) <= 0) {
+    if (build_config_pull_json(sensor, g_http_post_body, sizeof(g_http_post_body)) <= 0) {
         return false;
     }
 
-    ESP_LOGI(TAG, "Polling backend for current sensor config...");
+    portENTER_CRITICAL(&g_sensor_state_lock);
+    if (g_sensor_states[idx].in_use) {
+        g_sensor_states[idx].last_config_poll_ms = now_ms;
+    }
+    portEXIT_CRITICAL(&g_sensor_state_lock);
+
+    ESP_LOGI(TAG, "Polling backend for sensor_id=%lu current config...", (unsigned long)sensor->sensor_id);
     if (!http_post_json(CONFIG_PATH, g_http_post_body)) {
-        ESP_LOGW(TAG, "Config pull failed; keeping cached device config");
+        ESP_LOGW(TAG, "Config pull failed for sensor_id=%lu; keeping cached config", (unsigned long)sensor->sensor_id);
         return false;
     }
 
@@ -1599,7 +1542,8 @@ static bool maybe_refresh_sensor_config(uint32_t min_interval_ms)
         !json_extract_long(g_http_resp, "samplePeriodMs", &sample_period_ms) ||
         !json_extract_long(g_http_resp, "tempThresholdHiX100", &temp_hi_x100) ||
         !json_extract_long(g_http_resp, "humidityThresholdHiX100", &humidity_hi_x100)) {
-        ESP_LOGW(TAG, "Config pull response missing required fields");
+        ESP_LOGW(TAG, "Config pull response missing required fields for sensor_id=%lu",
+                 (unsigned long)sensor->sensor_id);
         return false;
     }
 
@@ -1617,7 +1561,8 @@ static bool maybe_refresh_sensor_config(uint32_t min_interval_ms)
         strlcpy(config_id, has_active_config ? "active-config" : "default-config", sizeof(config_id));
     }
 
-    bool changed = update_remote_config(
+    bool changed = update_sensor_remote_config(
+        idx,
         config_id,
         has_active_config,
         (uint32_t)sample_period_ms,
@@ -1627,14 +1572,21 @@ static bool maybe_refresh_sensor_config(uint32_t min_interval_ms)
 
     if (changed) {
         ESP_LOGI(TAG,
-                 "Cached device config updated id=%s active=%u sample=%lu temp_hi=%.2f hum_hi=%.2f",
+                 "Cached config updated for sensor_id=%lu id=%s active=%u sample=%lu temp_hi=%.2f hum_hi=%.2f",
+                 (unsigned long)sensor->sensor_id,
                  config_id,
                  has_active_config ? 1 : 0,
                  (unsigned long)sample_period_ms,
                  temp_hi_x100 / 100.0,
                  humidity_hi_x100 / 100.0);
-        reset_config_push_tracking();
-        mark_sensor_configured(false);
+        portENTER_CRITICAL(&g_sensor_state_lock);
+        if (g_sensor_states[idx].in_use) {
+            g_sensor_states[idx].configured = false;
+            g_sensor_states[idx].waiting_for_config_ack = false;
+            g_sensor_states[idx].last_config_push_ms = 0;
+            g_sensor_states[idx].pending_config_id[0] = '\0';
+        }
+        portEXIT_CRITICAL(&g_sensor_state_lock);
     }
 
     return changed;
@@ -1727,8 +1679,19 @@ static void send_module_ack(const uint8_t *mac, uint32_t base_id, uint32_t senso
 
 static bool send_config_set(const uint8_t *mac, uint32_t base_id, uint32_t sensor_id)
 {
-    controller_sensor_config_t cfg;
-    get_remote_config_snapshot(&cfg);
+    int sensor_idx = find_sensor_state_idx(mac, sensor_id);
+    controller_sensor_state_t sensor;
+
+    if (!get_sensor_snapshot(sensor_idx, &sensor)) {
+        ESP_LOGW(TAG, "send_config_set skipped because sensor state is missing for sensor_id=%lu",
+                 (unsigned long)sensor_id);
+        return false;
+    }
+
+    controller_sensor_config_t cfg = sensor.remote_cfg;
+    if (!cfg.has_active_config) {
+        return false;
+    }
 
     mproto_config_set_t pl = {
         .sample_period_ms = cfg.sample_period_ms,
@@ -1780,7 +1743,6 @@ static void handle_base_hello(const uint8_t *mac, const mproto_frame_t *f)
     }
 
     g_bases[idx].base_id = f->base_id;
-    g_bases[idx].sensor_type = f->sensor_type;
     g_bases[idx].last_seen_ms = ms_now();
     g_bases[idx].base_acked = true;
 
@@ -1800,21 +1762,31 @@ static void handle_module_info(const uint8_t *mac, const mproto_frame_t *f)
         return;
     }
 
-    int idx = alloc_base_slot(mac);
-    if (idx < 0) {
+    int base_idx = alloc_base_slot(mac);
+    if (base_idx < 0) {
         ESP_LOGE(TAG, "No free base slots");
         return;
     }
 
-    g_bases[idx].base_id = f->base_id;
-    g_bases[idx].sensor_id = f->sensor_id;
-    g_bases[idx].sensor_type = f->sensor_type;
-    g_bases[idx].last_seen_ms = ms_now();
-    g_bases[idx].module_acked = true;
+    g_bases[base_idx].base_id = f->base_id;
+    g_bases[base_idx].last_seen_ms = ms_now();
 
     mproto_module_info_t pl;
     memcpy(&pl, f->payload, sizeof(pl));
-    update_sensor_meta(pl.sensor_name, f->sensor_type, f->sensor_id);
+
+    int sensor_idx = alloc_sensor_state_idx(mac, f->base_id, f->sensor_id, f->sensor_type, pl.sensor_name);
+    if (sensor_idx < 0) {
+        ESP_LOGE(TAG, "No free sensor slots");
+        return;
+    }
+
+    portENTER_CRITICAL(&g_sensor_state_lock);
+    if (g_sensor_states[sensor_idx].in_use) {
+        g_sensor_states[sensor_idx].have_module_info = true;
+        g_sensor_states[sensor_idx].configured = false;
+        g_sensor_states[sensor_idx].last_seen_ms = ms_now();
+    }
+    portEXIT_CRITICAL(&g_sensor_state_lock);
 
     ESP_LOGI(TAG, "MODULE_INFO base_id=%lu sensor_id=%lu sensor_type=%u",
              (unsigned long)f->base_id,
@@ -1831,26 +1803,21 @@ static void handle_sensor_data(const uint8_t *mac, const mproto_frame_t *f)
         return;
     }
 
-    int idx = alloc_base_slot(mac);
-    if (idx < 0) {
+    int base_idx = alloc_base_slot(mac);
+    if (base_idx < 0) {
         return;
     }
 
     mproto_sht30_data_t pl;
     memcpy(&pl, f->payload, sizeof(pl));
 
-    g_bases[idx].base_id = f->base_id;
-    g_bases[idx].sensor_id = f->sensor_id;
-    g_bases[idx].sensor_type = f->sensor_type;
-    g_bases[idx].last_seen_ms = ms_now();
+    g_bases[base_idx].base_id = f->base_id;
+    g_bases[base_idx].last_seen_ms = ms_now();
 
-    bool sensor_configured = false;
-    bool backend_discovered = false;
-    if (!get_sensor_state_snapshot(NULL, 0, NULL, NULL, &sensor_configured, &backend_discovered)) {
-        ESP_LOGW(TAG, "No MODULE_INFO seen; inferring sensor metadata from SENSOR_DATA");
-        update_sensor_meta(SENSOR_NAME_STR, f->sensor_type, f->sensor_id);
-        sensor_configured = false;
-        backend_discovered = false;
+    int sensor_idx = alloc_sensor_state_idx(mac, f->base_id, f->sensor_id, f->sensor_type, SENSOR_NAME_STR);
+    if (sensor_idx < 0) {
+        ESP_LOGE(TAG, "No free sensor slots");
+        return;
     }
 
     float temp_c = pl.temperature_c_x100 / 100.0f;
@@ -1864,13 +1831,27 @@ static void handle_sensor_data(const uint8_t *mac, const mproto_frame_t *f)
              pl.alert_flags,
              (unsigned long)pl.uptime_s);
 
-    if (!sensor_configured) {
-        controller_sensor_config_t cfg;
-        get_remote_config_snapshot(&cfg);
-        if (!backend_discovered) {
+    controller_sensor_state_t sensor;
+    if (!get_sensor_snapshot(sensor_idx, &sensor)) {
+        return;
+    }
+
+    portENTER_CRITICAL(&g_sensor_state_lock);
+    if (g_sensor_states[sensor_idx].in_use) {
+        g_sensor_states[sensor_idx].latest_temp_c = temp_c;
+        g_sensor_states[sensor_idx].latest_humidity_rh = humidity_rh;
+        g_sensor_states[sensor_idx].latest_rx_ms = ms_now();
+        g_sensor_states[sensor_idx].have_latest_sample = true;
+        g_sensor_states[sensor_idx].last_seen_ms = ms_now();
+    }
+    portEXIT_CRITICAL(&g_sensor_state_lock);
+
+    if (!sensor.configured) {
+        if (!sensor.backend_discovered) {
             ESP_LOGI(TAG, "Live sensor detected. Waiting for backend discovery acknowledgement before sending CONFIG_SET");
-        } else if (cfg.has_active_config) {
-            if (maybe_push_config_to_base(mac, f->base_id, f->sensor_id, false)) {
+        } else if (sensor.remote_cfg.has_active_config) {
+            if (is_config_retry_due_for_sensor(&sensor, ms_now(), false) && send_config_set(mac, f->base_id, f->sensor_id)) {
+                note_config_push_sent_for_sensor(sensor_idx, sensor.remote_cfg.config_id, ms_now());
                 ESP_LOGI(TAG, "Sensor wake detected while config is pending; sending CONFIG_SET and waiting for CONFIG_ACK");
             } else {
                 ESP_LOGI(TAG, "CONFIG_SET already pending ACK; waiting before retry");
@@ -1879,11 +1860,9 @@ static void handle_sensor_data(const uint8_t *mac, const mproto_frame_t *f)
             ESP_LOGI(TAG, "Sensor wake detected but no active backend config exists yet; keeping sensor visible as not configured");
         }
     }
-
-    set_latest_sht_sample(temp_c, humidity_rh);
 }
 
-static void handle_config_ack(const mproto_frame_t *f)
+static void handle_config_ack(const uint8_t *mac, const mproto_frame_t *f)
 {
     if (f->payload_len != sizeof(mproto_ack_t)) {
         ESP_LOGW(TAG, "Bad CONFIG_ACK payload_len=%u", f->payload_len);
@@ -1901,10 +1880,9 @@ static void handle_config_ack(const mproto_frame_t *f)
              pl.status,
              pl.detail);
 
-    mark_sensor_configured(pl.status == ACK_STATUS_OK);
-    note_config_ack_result(pl.status == ACK_STATUS_OK);
-    if (pl.status == ACK_STATUS_OK) {
-        clear_latest_sht_sample();
+    int sensor_idx = find_sensor_state_idx(mac, f->sensor_id);
+    if (sensor_idx >= 0) {
+        note_config_ack_result_for_sensor(sensor_idx, pl.status == ACK_STATUS_OK);
     }
 }
 
@@ -1953,7 +1931,7 @@ static void on_data_recv(const esp_now_recv_info_t *recv_info, const uint8_t *da
             handle_sensor_data(recv_info->src_addr, &f);
             break;
         case MSG_CONFIG_ACK:
-            handle_config_ack(&f);
+            handle_config_ack(recv_info->src_addr, &f);
             break;
         default:
             ESP_LOGW(TAG, "Unhandled msg_type=%u", f.msg_type);
@@ -1999,12 +1977,6 @@ static bool espnow_start_once(void)
  * ========================================================= */
 static void uploader_task(void *arg)
 {
-    uint32_t last_uploaded_rx_ms = 0;
-    uint32_t last_attempted_rx_ms = 0;
-    uint32_t last_upload_attempt_ms = 0;
-    uint8_t discovery_transport_failures = 0;
-    uint8_t upload_transport_failures = 0;
-
     while (1) {
         if (!ppp_ensure_connected()) {
             ESP_LOGW(TAG, "PPP not ready; retrying...");
@@ -2024,158 +1996,227 @@ static void uploader_task(void *arg)
             continue;
         }
 
-        bool sensor_configured = false;
-        bool backend_discovered = false;
-        bool have_sensor_state = get_sensor_state_snapshot(NULL, 0, NULL, NULL, &sensor_configured, &backend_discovered);
-        controller_sensor_config_t remote_cfg;
-        get_remote_config_snapshot(&remote_cfg);
+        uint32_t now_ms = ms_now();
+        bool have_online_sensor = false;
+        bool action_taken = false;
 
-        if (!have_sensor_state) {
+        for (int idx = 0; idx < MAX_TRACKED_SENSORS; idx++) {
+            controller_sensor_state_t sensor;
+            if (!get_sensor_snapshot(idx, &sensor) || !is_sensor_online(&sensor, now_ms)) {
+                continue;
+            }
+
+            have_online_sensor = true;
+
+            if (!sensor.backend_discovered) {
+                int discovery_len = build_discovery_json(&sensor, g_http_post_body, sizeof(g_http_post_body));
+                if (discovery_len <= 0) {
+                    continue;
+                }
+
+                ESP_LOGI(TAG,
+                         "Sending controller/sensor discovery for sensor_id=%lu name=%s",
+                         (unsigned long)sensor.sensor_id,
+                         sensor.sensor_name);
+
+                http_post_result_t discovery_result =
+                    http_post_json_once_with_timeout(DISCOVERY_PATH, g_http_post_body, DISCOVERY_HTTP_TIMEOUT_MS);
+
+                if (discovery_result.err == ESP_OK &&
+                    discovery_result.status_code >= 200 &&
+                    discovery_result.status_code < 300) {
+                    mark_sensor_backend_discovered(idx);
+                    ESP_LOGI(TAG, "Backend discovery completed for sensor_id=%lu", (unsigned long)sensor.sensor_id);
+                    portENTER_CRITICAL(&g_sensor_state_lock);
+                    if (g_sensor_states[idx].in_use) {
+                        g_sensor_states[idx].discovery_transport_failures = 0;
+                    }
+                    portEXIT_CRITICAL(&g_sensor_state_lock);
+                } else if (discovery_result.err != ESP_OK) {
+                    portENTER_CRITICAL(&g_sensor_state_lock);
+                    if (g_sensor_states[idx].in_use) {
+                        g_sensor_states[idx].discovery_transport_failures++;
+                        ESP_LOGW(TAG,
+                                 "Discovery transport failed for sensor_id=%lu (%u/%d)",
+                                 (unsigned long)sensor.sensor_id,
+                                 (unsigned int)g_sensor_states[idx].discovery_transport_failures,
+                                 HTTP_MAX_ATTEMPTS);
+                        if (g_sensor_states[idx].discovery_transport_failures >= HTTP_MAX_ATTEMPTS) {
+                            g_sensor_states[idx].discovery_transport_failures = 0;
+                            portEXIT_CRITICAL(&g_sensor_state_lock);
+                            force_ppp_reconnect("Discovery retries exhausted");
+                            action_taken = true;
+                            break;
+                        }
+                    }
+                    portEXIT_CRITICAL(&g_sensor_state_lock);
+                    resolve_telemetry_endpoint(true);
+                } else if (discovery_result.status_code >= 500) {
+                    ESP_LOGW(TAG,
+                             "Discovery backend returned %d for sensor_id=%lu; will retry",
+                             discovery_result.status_code,
+                             (unsigned long)sensor.sensor_id);
+                } else {
+                    ESP_LOGW(TAG,
+                             "Discovery backend rejected sensor_id=%lu with status=%d",
+                             (unsigned long)sensor.sensor_id,
+                             discovery_result.status_code);
+                }
+
+                action_taken = true;
+                break;
+            }
+        }
+
+        if (!have_online_sensor) {
             ESP_LOGI(TAG, "No live sensor discovered yet; waiting for controller discovery...");
             vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
             continue;
         }
 
-        if (!backend_discovered) {
-            int discovery_len = build_discovery_json(g_http_post_body, sizeof(g_http_post_body));
-            if (discovery_len > 0) {
-                ESP_LOGI(TAG, "Sending controller/sensor discovery so the sensor appears as not configured...");
-                http_post_result_t discovery_result =
-                    http_post_json_once_with_timeout(DISCOVERY_PATH, g_http_post_body, DISCOVERY_HTTP_TIMEOUT_MS);
-                if (discovery_result.err == ESP_OK &&
-                    discovery_result.status_code >= 200 &&
-                    discovery_result.status_code < 300) {
-                    discovery_transport_failures = 0;
-                    mark_backend_discovered();
-                    clear_latest_sht_sample();
-                    ESP_LOGI(TAG, "Backend discovery completed");
-
-                    mark_sensor_configured(false);
-                    ESP_LOGI(TAG, "Backend discovery acknowledged. Moving to configuration stage before telemetry upload...");
-                } else if (discovery_result.err != ESP_OK) {
-                    discovery_transport_failures++;
-                    ESP_LOGW(TAG,
-                             "Discovery transport failed (%u/%d); controller will retry discovery with a fresh loop pass",
-                             (unsigned int)discovery_transport_failures,
-                             HTTP_MAX_ATTEMPTS);
-                    resolve_telemetry_endpoint(true);
-                    if (discovery_transport_failures >= HTTP_MAX_ATTEMPTS) {
-                        force_ppp_reconnect("Discovery retries exhausted");
-                        discovery_transport_failures = 0;
-                    }
-                } else if (discovery_result.status_code >= 500) {
-                    ESP_LOGW(TAG,
-                             "Discovery backend returned %d; will retry discovery soon",
-                             discovery_result.status_code);
-                } else {
-                    ESP_LOGW(TAG,
-                             "Discovery backend rejected request with status=%d; waiting for the next loop retry",
-                             discovery_result.status_code);
-                }
-            }
+        if (action_taken) {
             vTaskDelay(pdMS_TO_TICKS(SEND_RETRY_MS));
             continue;
         }
 
-        maybe_refresh_sensor_config(get_config_poll_interval_ms(
-            have_sensor_state,
-            backend_discovered,
-            sensor_configured,
-            &remote_cfg
-        ));
-        get_remote_config_snapshot(&remote_cfg);
-
-        if (!remote_cfg.has_active_config) {
-            ESP_LOGI(TAG, "Sensor is discovered in backend and visible as not configured; waiting for an active time configuration before local apply and telemetry upload...");
-            vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
-            continue;
-        }
-
-        if (!sensor_configured) {
-            if (remote_cfg.has_active_config) {
-                maybe_push_config_to_known_bases(false);
-                ESP_LOGI(TAG, "Active backend config available, waiting for local CONFIG_ACK before telemetry upload...");
-            } else {
-                ESP_LOGI(TAG, "Active backend config is not available yet; waiting...");
+        for (int idx = 0; idx < MAX_TRACKED_SENSORS; idx++) {
+            controller_sensor_state_t sensor;
+            if (!get_sensor_snapshot(idx, &sensor) || !is_sensor_online(&sensor, now_ms) || !sensor.backend_discovered) {
+                continue;
             }
+
+            maybe_refresh_sensor_config(idx, &sensor);
+            if (!get_sensor_snapshot(idx, &sensor)) {
+                continue;
+            }
+
+            if (!sensor.remote_cfg.has_active_config) {
+                continue;
+            }
+
+            if (!sensor.configured) {
+                if (is_config_retry_due_for_sensor(&sensor, now_ms, false) &&
+                    send_config_set(sensor.mac, sensor.base_id, sensor.sensor_id)) {
+                    note_config_push_sent_for_sensor(idx, sensor.remote_cfg.config_id, now_ms);
+                    ESP_LOGI(TAG,
+                             "Active backend config available; waiting for CONFIG_ACK on sensor_id=%lu",
+                             (unsigned long)sensor.sensor_id);
+                    action_taken = true;
+                    break;
+                }
+            }
+        }
+
+        if (action_taken) {
             vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
             continue;
         }
 
-        float temp_value;
-        float humidity_value;
-        uint32_t rx_ms;
+        for (int idx = 0; idx < MAX_TRACKED_SENSORS; idx++) {
+            controller_sensor_state_t sensor;
+            if (!get_sensor_snapshot(idx, &sensor) ||
+                !is_sensor_online(&sensor, now_ms) ||
+                !sensor.backend_discovered ||
+                !sensor.configured ||
+                !sensor.have_latest_sample) {
+                continue;
+            }
 
-        if (!get_latest_sht_sample(&temp_value, &humidity_value, &rx_ms)) {
-            ESP_LOGI(TAG, "No SHT30 sample received yet; waiting...");
-            vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
-            continue;
-        }
+            if (sensor.latest_rx_ms == sensor.last_uploaded_rx_ms) {
+                continue;
+            }
 
-        if (rx_ms == last_uploaded_rx_ms) {
-            vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
-            continue;
-        }
+            bool have_newer_pending_reading = (sensor.latest_rx_ms != sensor.last_attempted_rx_ms);
+            if (!have_newer_pending_reading &&
+                sensor.last_upload_attempt_ms != 0 &&
+                (now_ms - sensor.last_upload_attempt_ms) < TELEMETRY_RETRY_MS) {
+                continue;
+            }
 
-        uint32_t now_ms = ms_now();
-        bool have_newer_pending_reading = (rx_ms != last_attempted_rx_ms);
-        if (!have_newer_pending_reading &&
-            last_upload_attempt_ms != 0 &&
-            (now_ms - last_upload_attempt_ms) < TELEMETRY_RETRY_MS) {
-            vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
-            continue;
-        }
+            int n = build_payload_json(&sensor,
+                                       sensor.latest_temp_c,
+                                       sensor.latest_humidity_rh,
+                                       g_http_post_body,
+                                       sizeof(g_http_post_body));
+            if (n <= 0) {
+                continue;
+            }
 
-        int n = build_payload_json(temp_value, humidity_value, g_http_post_body, sizeof(g_http_post_body));
-        if (n > 0) {
             if (have_newer_pending_reading) {
                 ESP_LOGI(TAG,
-                         "Sending latest SHT30 sample temp=%.1f hum=%.1f (rx_ms=%lu)",
-                         temp_value,
-                         humidity_value,
-                         (unsigned long)rx_ms);
+                         "Sending latest sample sensor_id=%lu temp=%.1f hum=%.1f (rx_ms=%lu)",
+                         (unsigned long)sensor.sensor_id,
+                         sensor.latest_temp_c,
+                         sensor.latest_humidity_rh,
+                         (unsigned long)sensor.latest_rx_ms);
             } else {
                 ESP_LOGI(TAG,
-                         "Retrying latest pending SHT30 sample temp=%.1f hum=%.1f (rx_ms=%lu)",
-                         temp_value,
-                         humidity_value,
-                         (unsigned long)rx_ms);
+                         "Retrying latest pending sample sensor_id=%lu temp=%.1f hum=%.1f (rx_ms=%lu)",
+                         (unsigned long)sensor.sensor_id,
+                         sensor.latest_temp_c,
+                         sensor.latest_humidity_rh,
+                         (unsigned long)sensor.latest_rx_ms);
             }
 
-            last_attempted_rx_ms = rx_ms;
-            last_upload_attempt_ms = now_ms;
+            portENTER_CRITICAL(&g_sensor_state_lock);
+            if (g_sensor_states[idx].in_use) {
+                g_sensor_states[idx].last_attempted_rx_ms = sensor.latest_rx_ms;
+                g_sensor_states[idx].last_upload_attempt_ms = now_ms;
+            }
+            portEXIT_CRITICAL(&g_sensor_state_lock);
 
             http_post_result_t upload_result =
                 http_post_json_once_with_timeout(TELEMETRY_PATH, g_http_post_body, TELEMETRY_HTTP_TIMEOUT_MS);
             if (upload_result.err == ESP_OK && upload_result.status_code >= 200 && upload_result.status_code < 300) {
-                last_uploaded_rx_ms = rx_ms;
-                upload_transport_failures = 0;
+                portENTER_CRITICAL(&g_sensor_state_lock);
+                if (g_sensor_states[idx].in_use) {
+                    g_sensor_states[idx].last_uploaded_rx_ms = sensor.latest_rx_ms;
+                    g_sensor_states[idx].upload_transport_failures = 0;
+                }
+                portEXIT_CRITICAL(&g_sensor_state_lock);
             } else if (upload_result.err != ESP_OK) {
-                upload_transport_failures++;
-                ESP_LOGW(TAG,
-                         "Telemetry transport failed for rx_ms=%lu (%u/%d); newer sensor readings may replace this pending retry",
-                         (unsigned long)rx_ms,
-                         (unsigned int)upload_transport_failures,
-                         HTTP_MAX_ATTEMPTS);
+                bool reconnect_needed = false;
+                portENTER_CRITICAL(&g_sensor_state_lock);
+                if (g_sensor_states[idx].in_use) {
+                    g_sensor_states[idx].upload_transport_failures++;
+                    ESP_LOGW(TAG,
+                             "Telemetry transport failed sensor_id=%lu (%u/%d); newer readings may replace this retry",
+                             (unsigned long)sensor.sensor_id,
+                             (unsigned int)g_sensor_states[idx].upload_transport_failures,
+                             HTTP_MAX_ATTEMPTS);
+                    if (g_sensor_states[idx].upload_transport_failures >= HTTP_MAX_ATTEMPTS) {
+                        g_sensor_states[idx].upload_transport_failures = 0;
+                        reconnect_needed = true;
+                    }
+                }
+                portEXIT_CRITICAL(&g_sensor_state_lock);
                 resolve_telemetry_endpoint(true);
 
-                if (upload_transport_failures >= HTTP_MAX_ATTEMPTS) {
+                if (reconnect_needed) {
                     force_ppp_reconnect("Telemetry upload retries exhausted");
-                    upload_transport_failures = 0;
                 }
             } else if (upload_result.status_code >= 500) {
                 ESP_LOGW(TAG,
-                         "Telemetry backend returned %d for rx_ms=%lu; will retry the latest reading later",
+                         "Telemetry backend returned %d for sensor_id=%lu rx_ms=%lu; will retry later",
                          upload_result.status_code,
-                         (unsigned long)rx_ms);
+                         (unsigned long)sensor.sensor_id,
+                         (unsigned long)sensor.latest_rx_ms);
             } else {
                 ESP_LOGW(TAG,
-                         "Telemetry backend rejected rx_ms=%lu with status=%d; dropping this reading and waiting for a newer sample",
-                         (unsigned long)rx_ms,
+                         "Telemetry backend rejected sensor_id=%lu rx_ms=%lu with status=%d; dropping this reading",
+                         (unsigned long)sensor.sensor_id,
+                         (unsigned long)sensor.latest_rx_ms,
                          upload_result.status_code);
-                last_uploaded_rx_ms = rx_ms;
-                upload_transport_failures = 0;
+                portENTER_CRITICAL(&g_sensor_state_lock);
+                if (g_sensor_states[idx].in_use) {
+                    g_sensor_states[idx].last_uploaded_rx_ms = sensor.latest_rx_ms;
+                    g_sensor_states[idx].upload_transport_failures = 0;
+                }
+                portEXIT_CRITICAL(&g_sensor_state_lock);
             }
+
+            action_taken = true;
+            break;
         }
 
         vTaskDelay(pdMS_TO_TICKS(IDLE_CHECK_MS));
@@ -2192,7 +2233,6 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     s_event_group = xEventGroupCreate();
-    init_remote_config_defaults();
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -2211,9 +2251,8 @@ void app_main(void)
     ESP_LOGI(TAG, "Controller booted");
     ESP_LOGI(TAG, "Startup order: SIM800 PPP first, ESP-NOW second");
     ESP_LOGI(TAG, "Hardcoded deviceId=%s", DEVICE_ID_STR);
-    ESP_LOGI(TAG, "Derived sensorId=%s", get_backend_sensor_uid());
-    ESP_LOGI(TAG, "Sequence: live sensor -> backend discovery -> local CONFIG_ACK -> telemetry upload");
-    ESP_LOGI(TAG, "Uploading only the latest temperature and humidity reading pair after each confirmed sensor wake; stale retries are replaced by newer data");
+    ESP_LOGI(TAG, "Sequence: per-sensor live data -> backend discovery -> per-sensor CONFIG_ACK -> per-sensor telemetry upload");
+    ESP_LOGI(TAG, "Controller now tracks independent discovery/config/upload state for each payload sensor slot");
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));

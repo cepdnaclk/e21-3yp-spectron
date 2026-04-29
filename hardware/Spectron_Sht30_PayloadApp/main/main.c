@@ -1,8 +1,8 @@
-#include <stdio.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <string.h>
 #include <math.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -25,21 +25,16 @@
 
 /*
  * ============================================================
- * AUTO I2C PAYLOAD - CONTROLLER COMPATIBLE VERSION
+ * AUTO I2C PAYLOAD - MULTI SENSOR CONTROLLER COMPATIBLE VERSION
  * ============================================================
  *
- * Supports:
- *   1. SHT30
- *   2. BME280
- *   3. BMP280
- *   4. GY-530 / VL53L0X
+ * Design:
+ *   - The ESP-NOW frame format stays legacy-compatible.
+ *   - Each detected I2C sensor is advertised as its own logical module.
+ *   - The payload can keep several sensors active at once and send one
+ *     SENSOR_DATA frame per sensor using that sensor's unique sensor_id.
  *
- * Controller compatibility:
- *   - The controller protocol stays unchanged.
- *   - This payload still sends mproto_sht30_data_t.
- *   - Non-SHT30 sensors are encoded into the legacy temp/humidity fields.
- *
- * Encoding:
+ * Encoding remains legacy-shaped for the controller:
  *   SHT30:
  *     temperature_c_x100 = temperature
  *     humidity_rh_x100   = humidity
@@ -55,7 +50,6 @@
 
 static const char *TAG = "BASE_PAYLOAD";
 
-#define BASE_ID                         0x0000B001u
 #define WIFI_CHANNEL                    1
 
 #define DISCOVERY_PERIOD_MS             2000
@@ -65,27 +59,15 @@ static const char *TAG = "BASE_PAYLOAD";
 #define WAKE_SESSION_TIMEOUT_MS         30000
 #define TX_FLUSH_DELAY_MS               1000
 
-/*
- * Lab/debug mode:
- * keep the ESP32-C3 awake on USB and emit readings every 10 seconds
- * after config is received so controller/backend behavior is easy to verify.
- */
 #define LAB_DEBUG_DISABLE_DEEP_SLEEP    1
 #define LAB_DEBUG_SEND_INTERVAL_MS      10000
+
+#define MAX_PAYLOAD_SENSORS             5
 
 #define I2C_PORT                        I2C_NUM_0
 #define I2C_FREQ_HZ                     100000
 #define DEFAULT_I2C_SDA_GPIO            6
 #define DEFAULT_I2C_SCL_GPIO            7
-#define DEFAULT_I2C_ADDR                0x44
-
-#define CONTROLLER_COMPAT_SENSOR_TYPE   1
-
-#define DETECTED_SENSOR_NONE            0
-#define DETECTED_SENSOR_SHT30           1
-#define DETECTED_SENSOR_BME280          2
-#define DETECTED_SENSOR_BMP280          3
-#define DETECTED_SENSOR_VL53L0X         4
 
 #define SHT30_ADDR_1                    0x44
 #define SHT30_ADDR_2                    0x45
@@ -108,56 +90,19 @@ static const char *TAG = "BASE_PAYLOAD";
 #define VL53_REG_RESULT_RANGE_STATUS    0x14
 #define VL53_REG_IDENTIFICATION_MODEL_ID 0xC0
 
+#define DETECTED_SENSOR_NONE            0
+#define DETECTED_SENSOR_SHT30           1
+#define DETECTED_SENSOR_BME280          2
+#define DETECTED_SENSOR_BMP280          3
+#define DETECTED_SENSOR_VL53L0X         4
+
+#define SENSOR_ID_PREFIX_SHT30          0x00003000u
+#define SENSOR_ID_PREFIX_BME280         0x00002800u
+#define SENSOR_ID_PREFIX_BMP280         0x00002900u
+#define SENSOR_ID_PREFIX_VL53L0X        0x00005300u
+
 #define NVS_NS_MODULE                   "module_cfg"
-#define NVS_KEY_SAMPLE_MS               "sample_ms"
-#define NVS_KEY_TEMP_HI                 "temp_hi"
-#define NVS_KEY_HUM_HI                  "hum_hi"
-#define NVS_KEY_SENSOR_ID               "sensor_id"
-#define NVS_KEY_SENSOR_TYPE             "sensor_type"
-#define NVS_KEY_SENSOR_KIND             "sensor_kind"
-#define NVS_KEY_SENSOR_NAME             "sensor_name"
-#define NVS_KEY_FW_CRC                  "fw_crc"
-#define NVS_KEY_I2C_SDA                 "i2c_sda"
-#define NVS_KEY_I2C_SCL                 "i2c_scl"
-#define NVS_KEY_I2C_ADDR                "i2c_addr"
-#define DEFAULT_SENSOR_NAME             "Temperature & Humidity Sensor"
-
-static bool g_base_acked = false;
-static bool g_module_acked = false;
-static bool g_config_received = false;
-static bool g_sensor_changed = false;
-
-static uint8_t g_ctrl_mac[6] = {0};
-
-static uint32_t g_seq = 0;
-static uint32_t g_sample_period_ms = DEFAULT_SAMPLE_PERIOD_MS;
-static uint32_t g_sensor_id = 0;
-static uint32_t g_module_crc32 = 0;
-
-/*
- * g_sensor_type is controller-facing.
- * Keep this compatible with the existing controller firmware.
- */
-static uint8_t g_sensor_type = SENSOR_TYPE_NONE;
-
-/*
- * g_detected_sensor_kind is internal to the payload.
- */
-static uint8_t g_detected_sensor_kind = DETECTED_SENSOR_NONE;
-static uint8_t g_previous_sensor_kind = DETECTED_SENSOR_NONE;
-
-static uint8_t g_i2c_sda_gpio = DEFAULT_I2C_SDA_GPIO;
-static uint8_t g_i2c_scl_gpio = DEFAULT_I2C_SCL_GPIO;
-static uint8_t g_i2c_addr = DEFAULT_I2C_ADDR;
-static uint8_t g_previous_i2c_addr = 0x00;
-
-static char g_sensor_name[MPROTO_SENSOR_NAME_LEN] = DEFAULT_SENSOR_NAME;
-static char g_previous_sensor_name[MPROTO_SENSOR_NAME_LEN] = "None";
-
-static int16_t g_temp_hi_x100 = 3500;
-static uint16_t g_hum_hi_x100 = 8500;
-
-static uint8_t g_vl53_stop_variable = 0;
+#define NVS_KEY_SENSOR_CFG_VERSION      1u
 
 typedef struct {
     uint16_t dig_T1;
@@ -185,14 +130,64 @@ typedef struct {
     bool     has_humidity;
 } bme280_calib_t;
 
-static bme280_calib_t g_bme_calib = {0};
+typedef struct {
+    uint32_t version;
+    uint32_t sensor_id;
+    uint32_t sample_period_ms;
+    int16_t  temp_hi_x100;
+    uint16_t hum_hi_x100;
+} sensor_cfg_blob_t;
 
-static uint32_t get_effective_send_interval_ms(void)
+typedef struct {
+    bool     in_use;
+    uint8_t  detected_kind;
+    uint8_t  sensor_type;
+    uint8_t  i2c_addr;
+    uint32_t sensor_id;
+    char     sensor_name[MPROTO_SENSOR_NAME_LEN];
+
+    bool     module_acked;
+    bool     config_received;
+    uint32_t module_crc32;
+    uint32_t last_sample_ms;
+
+    uint32_t sample_period_ms;
+    int16_t  temp_hi_x100;
+    uint16_t hum_hi_x100;
+
+    bme280_calib_t bme_calib;
+    uint8_t        vl53_stop_variable;
+} payload_sensor_t;
+
+static bool g_base_acked = false;
+static bool g_inventory_changed = false;
+static uint8_t g_ctrl_mac[6] = {0};
+static uint32_t g_seq = 0;
+static uint8_t g_i2c_sda_gpio = DEFAULT_I2C_SDA_GPIO;
+static uint8_t g_i2c_scl_gpio = DEFAULT_I2C_SCL_GPIO;
+
+static payload_sensor_t g_sensors[MAX_PAYLOAD_SENSORS];
+static size_t g_sensor_count = 0;
+static size_t g_next_module_idx = 0;
+static size_t g_next_data_idx = 0;
+
+static uint32_t get_runtime_base_id(void)
+{
+    uint8_t mac[6] = {0};
+    ESP_ERROR_CHECK(esp_read_mac(mac, ESP_MAC_WIFI_STA));
+    return 0xB0000000u |
+           ((uint32_t)mac[2] << 16) |
+           ((uint32_t)mac[4] << 8) |
+           (uint32_t)mac[5];
+}
+
+static uint32_t get_effective_send_interval_ms(const payload_sensor_t *sensor)
 {
 #if LAB_DEBUG_DISABLE_DEEP_SLEEP
+    (void)sensor;
     return LAB_DEBUG_SEND_INTERVAL_MS;
 #else
-    return g_sample_period_ms;
+    return sensor->sample_period_ms;
 #endif
 }
 
@@ -205,262 +200,131 @@ static void print_mac(const char *label, const uint8_t *mac)
              mac[3], mac[4], mac[5]);
 }
 
-static void remember_current_sensor_as_previous(void)
+static uint32_t make_sensor_id(uint8_t detected_kind, uint8_t addr)
 {
-    g_previous_sensor_kind = g_detected_sensor_kind;
-    g_previous_i2c_addr = g_i2c_addr;
-    strlcpy(g_previous_sensor_name, g_sensor_name, sizeof(g_previous_sensor_name));
+    switch (detected_kind) {
+        case DETECTED_SENSOR_SHT30:
+            return SENSOR_ID_PREFIX_SHT30 | addr;
+        case DETECTED_SENSOR_BME280:
+            return SENSOR_ID_PREFIX_BME280 | addr;
+        case DETECTED_SENSOR_BMP280:
+            return SENSOR_ID_PREFIX_BMP280 | addr;
+        case DETECTED_SENSOR_VL53L0X:
+            return SENSOR_ID_PREFIX_VL53L0X | addr;
+        default:
+            return 0;
+    }
 }
 
-static void set_sensor_identity(uint8_t detected_kind, uint8_t addr, const char *name)
+static uint8_t sensor_kind_to_protocol_type(uint8_t detected_kind)
 {
-    g_detected_sensor_kind = detected_kind;
-    g_i2c_addr = addr;
+    switch (detected_kind) {
+        case DETECTED_SENSOR_SHT30:
+            return SENSOR_TYPE_SHT30;
+        case DETECTED_SENSOR_BME280:
+            return SENSOR_TYPE_BME280;
+        case DETECTED_SENSOR_BMP280:
+            return SENSOR_TYPE_BMP280;
+        case DETECTED_SENSOR_VL53L0X:
+            return SENSOR_TYPE_VL53L0X;
+        default:
+            return SENSOR_TYPE_NONE;
+    }
+}
 
-    if (detected_kind == DETECTED_SENSOR_NONE) {
-        g_sensor_type = SENSOR_TYPE_NONE;
-        g_sensor_id = 0;
-    } else {
-        g_sensor_type = CONTROLLER_COMPAT_SENSOR_TYPE;
+static void build_sensor_name(uint8_t detected_kind, uint8_t addr, char *buf, size_t buf_len)
+{
+    switch (detected_kind) {
+        case DETECTED_SENSOR_SHT30:
+            snprintf(buf, buf_len, "SHT30 Temperature Humidity 0x%02X", addr);
+            break;
+        case DETECTED_SENSOR_BME280:
+            snprintf(buf, buf_len, "BME280 Temp Hum Pressure 0x%02X", addr);
+            break;
+        case DETECTED_SENSOR_BMP280:
+            snprintf(buf, buf_len, "BMP280 Temp Pressure 0x%02X", addr);
+            break;
+        case DETECTED_SENSOR_VL53L0X:
+            snprintf(buf, buf_len, "VL53L0X Laser Distance 0x%02X", addr);
+            break;
+        default:
+            strlcpy(buf, "Unknown Sensor", buf_len);
+            break;
+    }
+}
 
-        switch (detected_kind) {
-            case DETECTED_SENSOR_SHT30:
-                g_sensor_id = 0x00003001u;
-                break;
-            case DETECTED_SENSOR_BME280:
-                g_sensor_id = 0x00002801u;
-                break;
-            case DETECTED_SENSOR_BMP280:
-                g_sensor_id = 0x00002802u;
-                break;
-            case DETECTED_SENSOR_VL53L0X:
-                g_sensor_id = 0x00005301u;
-                break;
-            default:
-                g_sensor_id = 0;
-                break;
+static void reset_runtime_cfg(payload_sensor_t *sensor)
+{
+    sensor->sample_period_ms = DEFAULT_SAMPLE_PERIOD_MS;
+    sensor->temp_hi_x100 = 3500;
+    sensor->hum_hi_x100 = 8500;
+    sensor->config_received = false;
+}
+
+static void make_sensor_cfg_key(uint32_t sensor_id, char *buf, size_t buf_len)
+{
+    snprintf(buf, buf_len, "cfg_%04lx", (unsigned long)(sensor_id & 0xFFFFu));
+}
+
+static void load_sensor_runtime_cfg(payload_sensor_t *sensor)
+{
+    nvs_handle_t nvs;
+    char key[16];
+    sensor_cfg_blob_t blob = {0};
+    size_t blob_len = sizeof(blob);
+
+    reset_runtime_cfg(sensor);
+    make_sensor_cfg_key(sensor->sensor_id, key, sizeof(key));
+
+    if (nvs_open(NVS_NS_MODULE, NVS_READONLY, &nvs) != ESP_OK) {
+        return;
+    }
+
+    if (nvs_get_blob(nvs, key, &blob, &blob_len) == ESP_OK &&
+        blob_len == sizeof(blob) &&
+        blob.version == NVS_KEY_SENSOR_CFG_VERSION &&
+        blob.sensor_id == sensor->sensor_id) {
+        sensor->sample_period_ms = blob.sample_period_ms;
+        if (sensor->sample_period_ms < MIN_SAMPLE_PERIOD_MS) {
+            sensor->sample_period_ms = MIN_SAMPLE_PERIOD_MS;
         }
-    }
-
-    strlcpy(g_sensor_name, name, sizeof(g_sensor_name));
-
-    ESP_LOGI(TAG,
-             "Detected sensor kind=%u controller_type=%u id=%lu addr=0x%02X name=%s",
-             g_detected_sensor_kind,
-             g_sensor_type,
-             (unsigned long)g_sensor_id,
-             g_i2c_addr,
-             g_sensor_name);
-}
-
-static esp_err_t load_nvs_state(void)
-{
-    nvs_handle_t nvs;
-    esp_err_t err = nvs_open(NVS_NS_MODULE, NVS_READONLY, &nvs);
-    bool have_saved_runtime_cfg = false;
-    uint32_t tmp = 0;
-    size_t previous_name_len = sizeof(g_previous_sensor_name);
-
-    g_sensor_id = 0;
-    g_sensor_type = SENSOR_TYPE_NONE;
-    g_module_crc32 = 0;
-    g_sample_period_ms = DEFAULT_SAMPLE_PERIOD_MS;
-    g_temp_hi_x100 = 3500;
-    g_hum_hi_x100 = 8500;
-    g_i2c_sda_gpio = DEFAULT_I2C_SDA_GPIO;
-    g_i2c_scl_gpio = DEFAULT_I2C_SCL_GPIO;
-    g_i2c_addr = DEFAULT_I2C_ADDR;
-    g_previous_sensor_kind = DETECTED_SENSOR_NONE;
-    g_previous_i2c_addr = 0x00;
-    strlcpy(g_sensor_name, DEFAULT_SENSOR_NAME, sizeof(g_sensor_name));
-    strlcpy(g_previous_sensor_name, "None", sizeof(g_previous_sensor_name));
-
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "No existing NVS module state. Using defaults.");
-        g_config_received = false;
-        return ESP_OK;
-    }
-
-    if (nvs_get_u32(nvs, NVS_KEY_SENSOR_ID, &g_sensor_id) != ESP_OK) {
-        g_sensor_id = 0;
-    }
-
-    if (nvs_get_u32(nvs, NVS_KEY_SENSOR_TYPE, &tmp) == ESP_OK) {
-        g_sensor_type = (uint8_t)tmp;
-    } else {
-        g_sensor_type = SENSOR_TYPE_NONE;
-    }
-
-    if (nvs_get_u32(nvs, NVS_KEY_SENSOR_KIND, &tmp) == ESP_OK) {
-        g_previous_sensor_kind = (uint8_t)tmp;
-    }
-
-    if (nvs_get_u32(nvs, NVS_KEY_FW_CRC, &g_module_crc32) != ESP_OK) {
-        g_module_crc32 = 0;
-    }
-
-    if (nvs_get_str(nvs, NVS_KEY_SENSOR_NAME, g_previous_sensor_name, &previous_name_len) != ESP_OK) {
-        strlcpy(g_previous_sensor_name, "Unknown", sizeof(g_previous_sensor_name));
-    }
-
-    if (nvs_get_u32(nvs, NVS_KEY_SAMPLE_MS, &g_sample_period_ms) == ESP_OK) {
-        have_saved_runtime_cfg = true;
-    } else {
-        g_sample_period_ms = DEFAULT_SAMPLE_PERIOD_MS;
-    }
-
-    if (g_sample_period_ms < MIN_SAMPLE_PERIOD_MS) {
-        g_sample_period_ms = MIN_SAMPLE_PERIOD_MS;
-    }
-
-    if (nvs_get_i16(nvs, NVS_KEY_TEMP_HI, &g_temp_hi_x100) != ESP_OK) {
-        g_temp_hi_x100 = 3500;
-    }
-
-    if (nvs_get_u16(nvs, NVS_KEY_HUM_HI, &g_hum_hi_x100) != ESP_OK) {
-        g_hum_hi_x100 = 8500;
-    }
-
-    if (nvs_get_u8(nvs, NVS_KEY_I2C_ADDR, &g_previous_i2c_addr) != ESP_OK) {
-        g_previous_i2c_addr = 0x00;
-    }
-
-    /*
-     * Keep the payload on the lab wiring for now so stale NVS pin values
-     * from older firmware cannot move the bus onto the wrong GPIOs.
-     */
-    g_i2c_sda_gpio = DEFAULT_I2C_SDA_GPIO;
-    g_i2c_scl_gpio = DEFAULT_I2C_SCL_GPIO;
-    g_i2c_addr = DEFAULT_I2C_ADDR;
-
-    nvs_close(nvs);
-
-    ESP_LOGI(TAG,
-             "Previous sensor from NVS: kind=%u addr=0x%02X name=%s",
-             g_previous_sensor_kind,
-             g_previous_i2c_addr,
-             g_previous_sensor_name);
-    ESP_LOGI(TAG,
-             "Runtime config loaded: sample_ms=%lu temp_hi=%.2f hum_hi=%.2f",
-             (unsigned long)g_sample_period_ms,
-             g_temp_hi_x100 / 100.0f,
-             g_hum_hi_x100 / 100.0f);
-
-    g_config_received = have_saved_runtime_cfg;
-    if (g_config_received) {
-        ESP_LOGI(TAG, "Using persisted runtime config from NVS for this wake session");
-    }
-
-    return ESP_OK;
-}
-
-static esp_err_t save_current_sensor_to_nvs(void)
-{
-    nvs_handle_t nvs;
-    esp_err_t err = nvs_open(NVS_NS_MODULE, NVS_READWRITE, &nvs);
-
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "NVS open failed while saving sensor: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    if ((err = nvs_set_u32(nvs, NVS_KEY_SENSOR_ID, g_sensor_id)) != ESP_OK) {
-        goto done;
-    }
-    if ((err = nvs_set_u32(nvs, NVS_KEY_SENSOR_TYPE, g_sensor_type)) != ESP_OK) {
-        goto done;
-    }
-    if ((err = nvs_set_u32(nvs, NVS_KEY_SENSOR_KIND, g_detected_sensor_kind)) != ESP_OK) {
-        goto done;
-    }
-    if ((err = nvs_set_u32(nvs, NVS_KEY_FW_CRC, g_module_crc32)) != ESP_OK) {
-        goto done;
-    }
-    if ((err = nvs_set_u8(nvs, NVS_KEY_I2C_SDA, g_i2c_sda_gpio)) != ESP_OK) {
-        goto done;
-    }
-    if ((err = nvs_set_u8(nvs, NVS_KEY_I2C_SCL, g_i2c_scl_gpio)) != ESP_OK) {
-        goto done;
-    }
-    if ((err = nvs_set_u8(nvs, NVS_KEY_I2C_ADDR, g_i2c_addr)) != ESP_OK) {
-        goto done;
-    }
-    if ((err = nvs_set_str(nvs, NVS_KEY_SENSOR_NAME, g_sensor_name)) != ESP_OK) {
-        goto done;
-    }
-
-    err = nvs_commit(nvs);
-
-done:
-    nvs_close(nvs);
-
-    if (err == ESP_OK) {
-        remember_current_sensor_as_previous();
+        sensor->temp_hi_x100 = blob.temp_hi_x100;
+        sensor->hum_hi_x100 = blob.hum_hi_x100;
+        sensor->config_received = true;
         ESP_LOGI(TAG,
-                 "Saved current sensor to NVS: kind=%u type=%u id=%lu addr=0x%02X name=%s",
-                 g_detected_sensor_kind,
-                 g_sensor_type,
-                 (unsigned long)g_sensor_id,
-                 g_i2c_addr,
-                 g_sensor_name);
-    } else {
-        ESP_LOGE(TAG, "Saving sensor to NVS failed: %s", esp_err_to_name(err));
+                 "Loaded runtime cfg for sensor_id=%lu sample=%lu temp_hi=%.2f hum_hi=%.2f",
+                 (unsigned long)sensor->sensor_id,
+                 (unsigned long)sensor->sample_period_ms,
+                 sensor->temp_hi_x100 / 100.0f,
+                 sensor->hum_hi_x100 / 100.0f);
     }
 
-    return err;
+    nvs_close(nvs);
 }
 
-static void compare_sensor_with_nvs_and_save_if_needed(void)
-{
-    bool changed =
-        g_previous_sensor_kind != g_detected_sensor_kind ||
-        g_previous_i2c_addr != g_i2c_addr ||
-        strcmp(g_previous_sensor_name, g_sensor_name) != 0;
-
-    if (changed) {
-        ESP_LOGW(TAG,
-                 "SENSOR CHANGED: old_kind=%u old_addr=0x%02X old_name=%s -> new_kind=%u new_addr=0x%02X new_name=%s",
-                 g_previous_sensor_kind,
-                 g_previous_i2c_addr,
-                 g_previous_sensor_name,
-                 g_detected_sensor_kind,
-                 g_i2c_addr,
-                 g_sensor_name);
-
-        g_sensor_changed = true;
-        g_config_received = false;
-        save_current_sensor_to_nvs();
-    } else {
-        ESP_LOGI(TAG, "Same sensor as previous boot");
-        g_sensor_changed = false;
-    }
-}
-
-static esp_err_t save_runtime_cfg(void)
+static esp_err_t save_sensor_runtime_cfg(const payload_sensor_t *sensor)
 {
     nvs_handle_t nvs;
-    esp_err_t err = nvs_open(NVS_NS_MODULE, NVS_READWRITE, &nvs);
+    char key[16];
+    sensor_cfg_blob_t blob = {
+        .version = NVS_KEY_SENSOR_CFG_VERSION,
+        .sensor_id = sensor->sensor_id,
+        .sample_period_ms = sensor->sample_period_ms,
+        .temp_hi_x100 = sensor->temp_hi_x100,
+        .hum_hi_x100 = sensor->hum_hi_x100,
+    };
 
+    esp_err_t err = nvs_open(NVS_NS_MODULE, NVS_READWRITE, &nvs);
     if (err != ESP_OK) {
         return err;
     }
 
-    if ((err = nvs_set_u32(nvs, NVS_KEY_SAMPLE_MS, g_sample_period_ms)) != ESP_OK) {
-        nvs_close(nvs);
-        return err;
+    make_sensor_cfg_key(sensor->sensor_id, key, sizeof(key));
+    err = nvs_set_blob(nvs, key, &blob, sizeof(blob));
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
     }
 
-    if ((err = nvs_set_i16(nvs, NVS_KEY_TEMP_HI, g_temp_hi_x100)) != ESP_OK) {
-        nvs_close(nvs);
-        return err;
-    }
-
-    if ((err = nvs_set_u16(nvs, NVS_KEY_HUM_HI, g_hum_hi_x100)) != ESP_OK) {
-        nvs_close(nvs);
-        return err;
-    }
-
-    err = nvs_commit(nvs);
     nvs_close(nvs);
     return err;
 }
@@ -484,39 +348,17 @@ static esp_err_t i2c_master_init_dynamic(void)
 static esp_err_t i2c_write_u8(uint8_t addr, uint8_t reg, uint8_t value)
 {
     uint8_t data[2] = {reg, value};
-    return i2c_master_write_to_device(
-        I2C_PORT,
-        addr,
-        data,
-        sizeof(data),
-        pdMS_TO_TICKS(100)
-    );
+    return i2c_master_write_to_device(I2C_PORT, addr, data, sizeof(data), pdMS_TO_TICKS(100));
 }
 
 static esp_err_t i2c_read_u8(uint8_t addr, uint8_t reg, uint8_t *value)
 {
-    return i2c_master_write_read_device(
-        I2C_PORT,
-        addr,
-        &reg,
-        1,
-        value,
-        1,
-        pdMS_TO_TICKS(100)
-    );
+    return i2c_master_write_read_device(I2C_PORT, addr, &reg, 1, value, 1, pdMS_TO_TICKS(100));
 }
 
 static esp_err_t i2c_read_bytes(uint8_t addr, uint8_t reg, uint8_t *buf, size_t len)
 {
-    return i2c_master_write_read_device(
-        I2C_PORT,
-        addr,
-        &reg,
-        1,
-        buf,
-        len,
-        pdMS_TO_TICKS(100)
-    );
+    return i2c_master_write_read_device(I2C_PORT, addr, &reg, 1, buf, len, pdMS_TO_TICKS(100));
 }
 
 static uint8_t sht30_crc8(const uint8_t *data, int len)
@@ -525,7 +367,6 @@ static uint8_t sht30_crc8(const uint8_t *data, int len)
 
     for (int i = 0; i < len; i++) {
         crc ^= data[i];
-
         for (int j = 0; j < 8; j++) {
             if (crc & 0x80) {
                 crc = (crc << 1) ^ 0x31;
@@ -543,41 +384,19 @@ static esp_err_t sht30_read_at(uint8_t addr, float *temperature_c, float *humidi
     uint8_t cmd[2] = {0x24, 0x00};
     uint8_t rx[6] = {0};
 
-    esp_err_t ret = i2c_master_write_to_device(
-        I2C_PORT,
-        addr,
-        cmd,
-        sizeof(cmd),
-        pdMS_TO_TICKS(100)
-    );
+    esp_err_t ret = i2c_master_write_to_device(I2C_PORT, addr, cmd, sizeof(cmd), pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
         return ret;
     }
 
     vTaskDelay(pdMS_TO_TICKS(50));
 
-    ret = i2c_master_read_from_device(
-        I2C_PORT,
-        addr,
-        rx,
-        sizeof(rx),
-        pdMS_TO_TICKS(100)
-    );
+    ret = i2c_master_read_from_device(I2C_PORT, addr, rx, sizeof(rx), pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
         return ret;
     }
 
-    if (sht30_crc8(&rx[0], 2) != rx[2]) {
-        ESP_LOGW(TAG,
-                 "SHT30 CRC fail temperature raw=%02X %02X %02X %02X %02X %02X",
-                 rx[0], rx[1], rx[2], rx[3], rx[4], rx[5]);
-        return ESP_FAIL;
-    }
-
-    if (sht30_crc8(&rx[3], 2) != rx[5]) {
-        ESP_LOGW(TAG,
-                 "SHT30 CRC fail humidity raw=%02X %02X %02X %02X %02X %02X",
-                 rx[0], rx[1], rx[2], rx[3], rx[4], rx[5]);
+    if (sht30_crc8(&rx[0], 2) != rx[2] || sht30_crc8(&rx[3], 2) != rx[5]) {
         return ESP_FAIL;
     }
 
@@ -587,24 +406,6 @@ static esp_err_t sht30_read_at(uint8_t addr, float *temperature_c, float *humidi
     *temperature_c = -45.0f + 175.0f * ((float)raw_t / 65535.0f);
     *humidity_rh = 100.0f * ((float)raw_h / 65535.0f);
     return ESP_OK;
-}
-
-static bool sht30_detect(uint8_t *detected_addr)
-{
-    float t = 0.0f;
-    float h = 0.0f;
-
-    if (sht30_read_at(SHT30_ADDR_1, &t, &h) == ESP_OK) {
-        *detected_addr = SHT30_ADDR_1;
-        return true;
-    }
-
-    if (sht30_read_at(SHT30_ADDR_2, &t, &h) == ESP_OK) {
-        *detected_addr = SHT30_ADDR_2;
-        return true;
-    }
-
-    return false;
 }
 
 static uint16_t read_u16_le(const uint8_t *buf)
@@ -617,109 +418,106 @@ static int16_t read_s16_le(const uint8_t *buf)
     return (int16_t)read_u16_le(buf);
 }
 
-static esp_err_t bme280_read_calibration(uint8_t addr, bool has_humidity)
+static esp_err_t bme280_read_calibration(payload_sensor_t *sensor, bool has_humidity)
 {
     uint8_t buf[24] = {0};
-    esp_err_t ret = i2c_read_bytes(addr, 0x88, buf, sizeof(buf));
-
+    esp_err_t ret = i2c_read_bytes(sensor->i2c_addr, 0x88, buf, sizeof(buf));
     if (ret != ESP_OK) {
         return ret;
     }
 
-    g_bme_calib.dig_T1 = read_u16_le(&buf[0]);
-    g_bme_calib.dig_T2 = read_s16_le(&buf[2]);
-    g_bme_calib.dig_T3 = read_s16_le(&buf[4]);
-    g_bme_calib.dig_P1 = read_u16_le(&buf[6]);
-    g_bme_calib.dig_P2 = read_s16_le(&buf[8]);
-    g_bme_calib.dig_P3 = read_s16_le(&buf[10]);
-    g_bme_calib.dig_P4 = read_s16_le(&buf[12]);
-    g_bme_calib.dig_P5 = read_s16_le(&buf[14]);
-    g_bme_calib.dig_P6 = read_s16_le(&buf[16]);
-    g_bme_calib.dig_P7 = read_s16_le(&buf[18]);
-    g_bme_calib.dig_P8 = read_s16_le(&buf[20]);
-    g_bme_calib.dig_P9 = read_s16_le(&buf[22]);
-    g_bme_calib.has_humidity = has_humidity;
+    sensor->bme_calib.dig_T1 = read_u16_le(&buf[0]);
+    sensor->bme_calib.dig_T2 = read_s16_le(&buf[2]);
+    sensor->bme_calib.dig_T3 = read_s16_le(&buf[4]);
+    sensor->bme_calib.dig_P1 = read_u16_le(&buf[6]);
+    sensor->bme_calib.dig_P2 = read_s16_le(&buf[8]);
+    sensor->bme_calib.dig_P3 = read_s16_le(&buf[10]);
+    sensor->bme_calib.dig_P4 = read_s16_le(&buf[12]);
+    sensor->bme_calib.dig_P5 = read_s16_le(&buf[14]);
+    sensor->bme_calib.dig_P6 = read_s16_le(&buf[16]);
+    sensor->bme_calib.dig_P7 = read_s16_le(&buf[18]);
+    sensor->bme_calib.dig_P8 = read_s16_le(&buf[20]);
+    sensor->bme_calib.dig_P9 = read_s16_le(&buf[22]);
+    sensor->bme_calib.has_humidity = has_humidity;
 
     if (has_humidity) {
         uint8_t h1 = 0;
         uint8_t hbuf[7] = {0};
 
-        ret = i2c_read_u8(addr, 0xA1, &h1);
+        ret = i2c_read_u8(sensor->i2c_addr, 0xA1, &h1);
         if (ret != ESP_OK) {
             return ret;
         }
 
-        ret = i2c_read_bytes(addr, 0xE1, hbuf, sizeof(hbuf));
+        ret = i2c_read_bytes(sensor->i2c_addr, 0xE1, hbuf, sizeof(hbuf));
         if (ret != ESP_OK) {
             return ret;
         }
 
-        g_bme_calib.dig_H1 = h1;
-        g_bme_calib.dig_H2 = read_s16_le(&hbuf[0]);
-        g_bme_calib.dig_H3 = hbuf[2];
-        g_bme_calib.dig_H4 = (int16_t)((((int16_t)hbuf[3]) << 4) | (hbuf[4] & 0x0F));
-        g_bme_calib.dig_H5 = (int16_t)((((int16_t)hbuf[5]) << 4) | (hbuf[4] >> 4));
-        g_bme_calib.dig_H6 = (int8_t)hbuf[6];
+        sensor->bme_calib.dig_H1 = h1;
+        sensor->bme_calib.dig_H2 = read_s16_le(&hbuf[0]);
+        sensor->bme_calib.dig_H3 = hbuf[2];
+        sensor->bme_calib.dig_H4 = (int16_t)((((int16_t)hbuf[3]) << 4) | (hbuf[4] & 0x0F));
+        sensor->bme_calib.dig_H5 = (int16_t)((((int16_t)hbuf[5]) << 4) | (hbuf[4] >> 4));
+        sensor->bme_calib.dig_H6 = (int8_t)hbuf[6];
     }
 
     return ESP_OK;
 }
 
-static esp_err_t bme280_configure(uint8_t addr, bool has_humidity)
+static esp_err_t bme280_configure_sensor(payload_sensor_t *sensor, bool has_humidity)
 {
     esp_err_t ret;
 
     if (has_humidity) {
-        ret = i2c_write_u8(addr, BME280_REG_CTRL_HUM, 0x01);
+        ret = i2c_write_u8(sensor->i2c_addr, BME280_REG_CTRL_HUM, 0x01);
         if (ret != ESP_OK) {
             return ret;
         }
     }
 
-    ret = i2c_write_u8(addr, BME280_REG_CONFIG, 0x00);
+    ret = i2c_write_u8(sensor->i2c_addr, BME280_REG_CONFIG, 0x00);
     if (ret != ESP_OK) {
         return ret;
     }
 
-    ret = i2c_write_u8(addr, BME280_REG_CTRL_MEAS, 0x27);
+    ret = i2c_write_u8(sensor->i2c_addr, BME280_REG_CTRL_MEAS, 0x27);
     if (ret != ESP_OK) {
         return ret;
     }
 
     vTaskDelay(pdMS_TO_TICKS(100));
-    return bme280_read_calibration(addr, has_humidity);
+    return bme280_read_calibration(sensor, has_humidity);
 }
 
-static int32_t bme280_compensate_temperature(int32_t adc_T)
+static int32_t bme280_compensate_temperature(payload_sensor_t *sensor, int32_t adc_T)
 {
     int32_t var1;
     int32_t var2;
-    int32_t temp;
 
-    var1 = ((((adc_T >> 3) - ((int32_t)g_bme_calib.dig_T1 << 1))) *
-            ((int32_t)g_bme_calib.dig_T2)) >> 11;
-    var2 = (((((adc_T >> 4) - ((int32_t)g_bme_calib.dig_T1)) *
-              ((adc_T >> 4) - ((int32_t)g_bme_calib.dig_T1))) >> 12) *
-            ((int32_t)g_bme_calib.dig_T3)) >> 14;
+    var1 = ((((adc_T >> 3) - ((int32_t)sensor->bme_calib.dig_T1 << 1))) *
+            ((int32_t)sensor->bme_calib.dig_T2)) >> 11;
+    var2 = (((((adc_T >> 4) - ((int32_t)sensor->bme_calib.dig_T1)) *
+              ((adc_T >> 4) - ((int32_t)sensor->bme_calib.dig_T1))) >> 12) *
+            ((int32_t)sensor->bme_calib.dig_T3)) >> 14;
 
-    g_bme_calib.t_fine = var1 + var2;
-    temp = (g_bme_calib.t_fine * 5 + 128) >> 8;
-    return temp;
+    sensor->bme_calib.t_fine = var1 + var2;
+    return (sensor->bme_calib.t_fine * 5 + 128) >> 8;
 }
 
-static uint32_t bme280_compensate_pressure(int32_t adc_P)
+static uint32_t bme280_compensate_pressure(payload_sensor_t *sensor, int32_t adc_P)
 {
     int64_t var1;
     int64_t var2;
     int64_t p;
 
-    var1 = ((int64_t)g_bme_calib.t_fine) - 128000;
-    var2 = var1 * var1 * (int64_t)g_bme_calib.dig_P6;
-    var2 = var2 + ((var1 * (int64_t)g_bme_calib.dig_P5) << 17);
-    var2 = var2 + (((int64_t)g_bme_calib.dig_P4) << 35);
-    var1 = ((var1 * var1 * (int64_t)g_bme_calib.dig_P3) >> 8) +
-           ((var1 * (int64_t)g_bme_calib.dig_P2) << 12);
-    var1 = (((((int64_t)1) << 47) + var1)) * ((int64_t)g_bme_calib.dig_P1) >> 33;
+    var1 = ((int64_t)sensor->bme_calib.t_fine) - 128000;
+    var2 = var1 * var1 * (int64_t)sensor->bme_calib.dig_P6;
+    var2 = var2 + ((var1 * (int64_t)sensor->bme_calib.dig_P5) << 17);
+    var2 = var2 + (((int64_t)sensor->bme_calib.dig_P4) << 35);
+    var1 = ((var1 * var1 * (int64_t)sensor->bme_calib.dig_P3) >> 8) +
+           ((var1 * (int64_t)sensor->bme_calib.dig_P2) << 12);
+    var1 = (((((int64_t)1) << 47) + var1)) * ((int64_t)sensor->bme_calib.dig_P1) >> 33;
 
     if (var1 == 0) {
         return 0;
@@ -727,32 +525,32 @@ static uint32_t bme280_compensate_pressure(int32_t adc_P)
 
     p = 1048576 - adc_P;
     p = (((p << 31) - var2) * 3125) / var1;
-    var1 = (((int64_t)g_bme_calib.dig_P9) * (p >> 13) * (p >> 13)) >> 25;
-    var2 = (((int64_t)g_bme_calib.dig_P8) * p) >> 19;
-    p = ((p + var1 + var2) >> 8) + (((int64_t)g_bme_calib.dig_P7) << 4);
+    var1 = (((int64_t)sensor->bme_calib.dig_P9) * (p >> 13) * (p >> 13)) >> 25;
+    var2 = (((int64_t)sensor->bme_calib.dig_P8) * p) >> 19;
+    p = ((p + var1 + var2) >> 8) + (((int64_t)sensor->bme_calib.dig_P7) << 4);
 
     return (uint32_t)(p / 256);
 }
 
-static uint32_t bme280_compensate_humidity(int32_t adc_H)
+static uint32_t bme280_compensate_humidity(payload_sensor_t *sensor, int32_t adc_H)
 {
     int32_t v_x1_u32r;
 
-    v_x1_u32r = g_bme_calib.t_fine - ((int32_t)76800);
+    v_x1_u32r = sensor->bme_calib.t_fine - ((int32_t)76800);
     v_x1_u32r = (((((adc_H << 14) -
-                    (((int32_t)g_bme_calib.dig_H4) << 20) -
-                    (((int32_t)g_bme_calib.dig_H5) * v_x1_u32r)) +
+                    (((int32_t)sensor->bme_calib.dig_H4) << 20) -
+                    (((int32_t)sensor->bme_calib.dig_H5) * v_x1_u32r)) +
                    ((int32_t)16384)) >> 15) *
-                 (((((((v_x1_u32r * ((int32_t)g_bme_calib.dig_H6)) >> 10) *
-                      (((v_x1_u32r * ((int32_t)g_bme_calib.dig_H3)) >> 11) +
+                 (((((((v_x1_u32r * ((int32_t)sensor->bme_calib.dig_H6)) >> 10) *
+                      (((v_x1_u32r * ((int32_t)sensor->bme_calib.dig_H3)) >> 11) +
                        ((int32_t)32768))) >> 10) +
                     ((int32_t)2097152)) *
-                   ((int32_t)g_bme_calib.dig_H2) +
+                   ((int32_t)sensor->bme_calib.dig_H2) +
                    8192) >> 14));
 
     v_x1_u32r = v_x1_u32r -
                 (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) *
-                  ((int32_t)g_bme_calib.dig_H1)) >> 4);
+                  ((int32_t)sensor->bme_calib.dig_H1)) >> 4);
 
     if (v_x1_u32r < 0) {
         v_x1_u32r = 0;
@@ -764,15 +562,14 @@ static uint32_t bme280_compensate_humidity(int32_t adc_H)
     return (uint32_t)(((uint32_t)(v_x1_u32r >> 12) * 100U) / 1024U);
 }
 
-static esp_err_t bme_bmp280_read(uint8_t addr,
+static esp_err_t bme_bmp280_read(payload_sensor_t *sensor,
                                  int16_t *temperature_c_x100,
                                  uint32_t *pressure_pa,
                                  uint16_t *humidity_rh_x100)
 {
     uint8_t data[8] = {0};
-    size_t len = g_bme_calib.has_humidity ? 8 : 6;
-    esp_err_t ret = i2c_read_bytes(addr, BME280_REG_PRESS_MSB, data, len);
-
+    size_t len = sensor->bme_calib.has_humidity ? 8 : 6;
+    esp_err_t ret = i2c_read_bytes(sensor->i2c_addr, BME280_REG_PRESS_MSB, data, len);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -784,12 +581,12 @@ static esp_err_t bme_bmp280_read(uint8_t addr,
                     ((int32_t)data[4] << 4) |
                     ((int32_t)data[5] >> 4);
 
-    *temperature_c_x100 = (int16_t)bme280_compensate_temperature(adc_T);
-    *pressure_pa = bme280_compensate_pressure(adc_P);
+    *temperature_c_x100 = (int16_t)bme280_compensate_temperature(sensor, adc_T);
+    *pressure_pa = bme280_compensate_pressure(sensor, adc_P);
 
-    if (g_bme_calib.has_humidity) {
+    if (sensor->bme_calib.has_humidity) {
         int32_t adc_H = ((int32_t)data[6] << 8) | data[7];
-        *humidity_rh_x100 = (uint16_t)bme280_compensate_humidity(adc_H);
+        *humidity_rh_x100 = (uint16_t)bme280_compensate_humidity(sensor, adc_H);
     } else {
         *humidity_rh_x100 = 0xFFFF;
     }
@@ -797,82 +594,47 @@ static esp_err_t bme_bmp280_read(uint8_t addr,
     return ESP_OK;
 }
 
-static bool bme_bmp280_detect(uint8_t *detected_addr, uint8_t *detected_kind)
-{
-    uint8_t addresses[2] = {BME_BMP280_ADDR_1, BME_BMP280_ADDR_2};
-
-    for (int i = 0; i < 2; i++) {
-        uint8_t addr = addresses[i];
-        uint8_t chip_id = 0;
-
-        if (i2c_read_u8(addr, BME280_REG_ID, &chip_id) != ESP_OK) {
-            continue;
-        }
-
-        if (chip_id == BME280_CHIP_ID) {
-            if (bme280_configure(addr, true) == ESP_OK) {
-                *detected_addr = addr;
-                *detected_kind = DETECTED_SENSOR_BME280;
-                return true;
-            }
-        } else if (chip_id == BMP280_CHIP_ID) {
-            if (bme280_configure(addr, false) == ESP_OK) {
-                *detected_addr = addr;
-                *detected_kind = DETECTED_SENSOR_BMP280;
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
-static esp_err_t vl53l0x_init(uint8_t addr)
+static esp_err_t vl53l0x_init_sensor(payload_sensor_t *sensor)
 {
     uint8_t model_id = 0;
-    esp_err_t ret = i2c_read_u8(addr, VL53_REG_IDENTIFICATION_MODEL_ID, &model_id);
-
+    esp_err_t ret = i2c_read_u8(sensor->i2c_addr, VL53_REG_IDENTIFICATION_MODEL_ID, &model_id);
     if (ret != ESP_OK) {
         return ret;
     }
     if (model_id != 0xEE) {
-        ESP_LOGW(TAG, "VL53L0X wrong model id: 0x%02X", model_id);
         return ESP_FAIL;
     }
 
-    if ((ret = i2c_write_u8(addr, 0x88, 0x00)) != ESP_OK) return ret;
-    if ((ret = i2c_write_u8(addr, 0x80, 0x01)) != ESP_OK) return ret;
-    if ((ret = i2c_write_u8(addr, 0xFF, 0x01)) != ESP_OK) return ret;
-    if ((ret = i2c_write_u8(addr, 0x00, 0x00)) != ESP_OK) return ret;
+    if ((ret = i2c_write_u8(sensor->i2c_addr, 0x88, 0x00)) != ESP_OK) return ret;
+    if ((ret = i2c_write_u8(sensor->i2c_addr, 0x80, 0x01)) != ESP_OK) return ret;
+    if ((ret = i2c_write_u8(sensor->i2c_addr, 0xFF, 0x01)) != ESP_OK) return ret;
+    if ((ret = i2c_write_u8(sensor->i2c_addr, 0x00, 0x00)) != ESP_OK) return ret;
 
-    ret = i2c_read_u8(addr, 0x91, &g_vl53_stop_variable);
+    ret = i2c_read_u8(sensor->i2c_addr, 0x91, &sensor->vl53_stop_variable);
     if (ret != ESP_OK) {
         return ret;
     }
 
-    if ((ret = i2c_write_u8(addr, 0x00, 0x01)) != ESP_OK) return ret;
-    if ((ret = i2c_write_u8(addr, 0xFF, 0x00)) != ESP_OK) return ret;
-    if ((ret = i2c_write_u8(addr, 0x80, 0x00)) != ESP_OK) return ret;
-    if ((ret = i2c_write_u8(addr, 0x0A, 0x04)) != ESP_OK) return ret;
-    if ((ret = i2c_write_u8(addr, VL53_REG_SYSTEM_INTERRUPT_CLEAR, 0x01)) != ESP_OK) return ret;
-
-    ESP_LOGI(TAG, "VL53L0X initialized stop_variable=0x%02X", g_vl53_stop_variable);
-    return ESP_OK;
+    if ((ret = i2c_write_u8(sensor->i2c_addr, 0x00, 0x01)) != ESP_OK) return ret;
+    if ((ret = i2c_write_u8(sensor->i2c_addr, 0xFF, 0x00)) != ESP_OK) return ret;
+    if ((ret = i2c_write_u8(sensor->i2c_addr, 0x80, 0x00)) != ESP_OK) return ret;
+    if ((ret = i2c_write_u8(sensor->i2c_addr, 0x0A, 0x04)) != ESP_OK) return ret;
+    return i2c_write_u8(sensor->i2c_addr, VL53_REG_SYSTEM_INTERRUPT_CLEAR, 0x01);
 }
 
-static esp_err_t vl53l0x_read_mm(uint8_t addr, uint16_t *distance_mm, uint8_t *range_status)
+static esp_err_t vl53l0x_read_mm(payload_sensor_t *sensor, uint16_t *distance_mm, uint8_t *range_status)
 {
     esp_err_t ret;
 
-    if ((ret = i2c_write_u8(addr, 0x80, 0x01)) != ESP_OK) return ret;
-    if ((ret = i2c_write_u8(addr, 0xFF, 0x01)) != ESP_OK) return ret;
-    if ((ret = i2c_write_u8(addr, 0x00, 0x00)) != ESP_OK) return ret;
-    if ((ret = i2c_write_u8(addr, 0x91, g_vl53_stop_variable)) != ESP_OK) return ret;
-    if ((ret = i2c_write_u8(addr, 0x00, 0x01)) != ESP_OK) return ret;
-    if ((ret = i2c_write_u8(addr, 0xFF, 0x00)) != ESP_OK) return ret;
-    if ((ret = i2c_write_u8(addr, 0x80, 0x00)) != ESP_OK) return ret;
+    if ((ret = i2c_write_u8(sensor->i2c_addr, 0x80, 0x01)) != ESP_OK) return ret;
+    if ((ret = i2c_write_u8(sensor->i2c_addr, 0xFF, 0x01)) != ESP_OK) return ret;
+    if ((ret = i2c_write_u8(sensor->i2c_addr, 0x00, 0x00)) != ESP_OK) return ret;
+    if ((ret = i2c_write_u8(sensor->i2c_addr, 0x91, sensor->vl53_stop_variable)) != ESP_OK) return ret;
+    if ((ret = i2c_write_u8(sensor->i2c_addr, 0x00, 0x01)) != ESP_OK) return ret;
+    if ((ret = i2c_write_u8(sensor->i2c_addr, 0xFF, 0x00)) != ESP_OK) return ret;
+    if ((ret = i2c_write_u8(sensor->i2c_addr, 0x80, 0x00)) != ESP_OK) return ret;
 
-    ret = i2c_write_u8(addr, VL53_REG_SYSRANGE_START, 0x01);
+    ret = i2c_write_u8(sensor->i2c_addr, VL53_REG_SYSRANGE_START, 0x01);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -880,83 +642,227 @@ static esp_err_t vl53l0x_read_mm(uint8_t addr, uint16_t *distance_mm, uint8_t *r
     uint8_t interrupt_status = 0;
     int timeout_ms = 0;
     while (timeout_ms < 500) {
-        ret = i2c_read_u8(addr, VL53_REG_RESULT_INTERRUPT_STATUS, &interrupt_status);
+        ret = i2c_read_u8(sensor->i2c_addr, VL53_REG_RESULT_INTERRUPT_STATUS, &interrupt_status);
         if (ret != ESP_OK) {
             return ret;
         }
         if (interrupt_status & 0x07) {
             break;
         }
-
         vTaskDelay(pdMS_TO_TICKS(10));
         timeout_ms += 10;
     }
 
     if (!(interrupt_status & 0x07)) {
-        ESP_LOGW(TAG, "VL53L0X range timeout");
         return ESP_ERR_TIMEOUT;
     }
 
     uint8_t data[12] = {0};
-    ret = i2c_read_bytes(addr, VL53_REG_RESULT_RANGE_STATUS, data, sizeof(data));
+    ret = i2c_read_bytes(sensor->i2c_addr, VL53_REG_RESULT_RANGE_STATUS, data, sizeof(data));
     if (ret != ESP_OK) {
         return ret;
     }
 
     *range_status = data[0] & 0x78;
     *distance_mm = ((uint16_t)data[10] << 8) | data[11];
-
-    return i2c_write_u8(addr, VL53_REG_SYSTEM_INTERRUPT_CLEAR, 0x01);
+    return i2c_write_u8(sensor->i2c_addr, VL53_REG_SYSTEM_INTERRUPT_CLEAR, 0x01);
 }
 
-static bool vl53l0x_detect(uint8_t *detected_addr)
+static void init_sensor_record(payload_sensor_t *sensor, uint8_t detected_kind, uint8_t addr)
 {
-    uint8_t model_id = 0;
+    memset(sensor, 0, sizeof(*sensor));
+    sensor->in_use = true;
+    sensor->detected_kind = detected_kind;
+    sensor->sensor_type = sensor_kind_to_protocol_type(detected_kind);
+    sensor->i2c_addr = addr;
+    sensor->sensor_id = make_sensor_id(detected_kind, addr);
+    build_sensor_name(detected_kind, addr, sensor->sensor_name, sizeof(sensor->sensor_name));
+    reset_runtime_cfg(sensor);
+}
 
-    if (i2c_read_u8(VL53L0X_ADDR, VL53_REG_IDENTIFICATION_MODEL_ID, &model_id) != ESP_OK) {
-        return false;
-    }
-    if (model_id != 0xEE) {
-        return false;
-    }
-    if (vl53l0x_init(VL53L0X_ADDR) != ESP_OK) {
+static bool append_sensor(payload_sensor_t *inventory, size_t *count, const payload_sensor_t *candidate)
+{
+    if (*count >= MAX_PAYLOAD_SENSORS) {
+        ESP_LOGW(TAG, "Sensor inventory full, dropping sensor_id=%lu", (unsigned long)candidate->sensor_id);
         return false;
     }
 
-    *detected_addr = VL53L0X_ADDR;
+    inventory[*count] = *candidate;
+    (*count)++;
     return true;
 }
 
-static void detect_connected_sensor(void)
+static void detect_connected_sensors(payload_sensor_t *inventory, size_t *count)
 {
-    uint8_t addr = 0;
-    uint8_t detected_kind = DETECTED_SENSOR_NONE;
+    *count = 0;
+    ESP_LOGI(TAG, "Scanning known I2C sensors on SDA=%d SCL=%d", g_i2c_sda_gpio, g_i2c_scl_gpio);
 
-    ESP_LOGI(TAG, "Scanning known I2C sensors on SDA=%d SCL=%d",
-             g_i2c_sda_gpio,
-             g_i2c_scl_gpio);
-
-    if (sht30_detect(&addr)) {
-        set_sensor_identity(DETECTED_SENSOR_SHT30, addr, "SHT30 Temperature Humidity");
-        return;
-    }
-
-    if (bme_bmp280_detect(&addr, &detected_kind)) {
-        if (detected_kind == DETECTED_SENSOR_BME280) {
-            set_sensor_identity(DETECTED_SENSOR_BME280, addr, "BME280 Temp Hum Pressure");
-        } else {
-            set_sensor_identity(DETECTED_SENSOR_BMP280, addr, "BMP280 Temp Pressure");
+    const uint8_t sht30_addresses[2] = {SHT30_ADDR_1, SHT30_ADDR_2};
+    for (size_t i = 0; i < 2; i++) {
+        float t = 0.0f;
+        float h = 0.0f;
+        if (sht30_read_at(sht30_addresses[i], &t, &h) == ESP_OK) {
+            payload_sensor_t sensor;
+            init_sensor_record(&sensor, DETECTED_SENSOR_SHT30, sht30_addresses[i]);
+            append_sensor(inventory, count, &sensor);
         }
-        return;
     }
 
-    if (vl53l0x_detect(&addr)) {
-        set_sensor_identity(DETECTED_SENSOR_VL53L0X, addr, "VL53L0X Laser Distance");
-        return;
+    const uint8_t bme_addresses[2] = {BME_BMP280_ADDR_1, BME_BMP280_ADDR_2};
+    for (size_t i = 0; i < 2; i++) {
+        uint8_t chip_id = 0;
+        if (i2c_read_u8(bme_addresses[i], BME280_REG_ID, &chip_id) != ESP_OK) {
+            continue;
+        }
+
+        payload_sensor_t sensor;
+        if (chip_id == BME280_CHIP_ID) {
+            init_sensor_record(&sensor, DETECTED_SENSOR_BME280, bme_addresses[i]);
+            if (bme280_configure_sensor(&sensor, true) == ESP_OK) {
+                append_sensor(inventory, count, &sensor);
+            }
+        } else if (chip_id == BMP280_CHIP_ID) {
+            init_sensor_record(&sensor, DETECTED_SENSOR_BMP280, bme_addresses[i]);
+            if (bme280_configure_sensor(&sensor, false) == ESP_OK) {
+                append_sensor(inventory, count, &sensor);
+            }
+        }
     }
 
-    set_sensor_identity(DETECTED_SENSOR_NONE, 0x00, "No Sensor");
-    ESP_LOGW(TAG, "No supported I2C sensor detected");
+    uint8_t vl53_model_id = 0;
+    if (i2c_read_u8(VL53L0X_ADDR, VL53_REG_IDENTIFICATION_MODEL_ID, &vl53_model_id) == ESP_OK &&
+        vl53_model_id == 0xEE) {
+        payload_sensor_t sensor;
+        init_sensor_record(&sensor, DETECTED_SENSOR_VL53L0X, VL53L0X_ADDR);
+        if (vl53l0x_init_sensor(&sensor) == ESP_OK) {
+            append_sensor(inventory, count, &sensor);
+        }
+    }
+
+    if (*count == 0) {
+        ESP_LOGW(TAG, "No supported I2C sensors detected");
+    }
+}
+
+static int find_sensor_index_by_id(const payload_sensor_t *inventory, size_t count, uint32_t sensor_id)
+{
+    for (size_t i = 0; i < count; i++) {
+        if (inventory[i].in_use && inventory[i].sensor_id == sensor_id) {
+            return (int)i;
+        }
+    }
+
+    return -1;
+}
+
+static payload_sensor_t *find_sensor_by_id(uint32_t sensor_id)
+{
+    int idx = find_sensor_index_by_id(g_sensors, g_sensor_count, sensor_id);
+    if (idx < 0) {
+        return NULL;
+    }
+
+    return &g_sensors[idx];
+}
+
+static bool inventories_equal(const payload_sensor_t *a, size_t count_a,
+                              const payload_sensor_t *b, size_t count_b)
+{
+    if (count_a != count_b) {
+        return false;
+    }
+
+    for (size_t i = 0; i < count_a; i++) {
+        if (a[i].sensor_id != b[i].sensor_id ||
+            a[i].detected_kind != b[i].detected_kind ||
+            a[i].i2c_addr != b[i].i2c_addr ||
+            strcmp(a[i].sensor_name, b[i].sensor_name) != 0) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static void describe_inventory_change(const payload_sensor_t *old_inventory,
+                                      size_t old_count,
+                                      const payload_sensor_t *new_inventory,
+                                      size_t new_count)
+{
+    for (size_t i = 0; i < old_count; i++) {
+        if (find_sensor_index_by_id(new_inventory, new_count, old_inventory[i].sensor_id) < 0) {
+            ESP_LOGW(TAG,
+                     "Sensor removed sensor_id=%lu name=%s addr=0x%02X",
+                     (unsigned long)old_inventory[i].sensor_id,
+                     old_inventory[i].sensor_name,
+                     old_inventory[i].i2c_addr);
+        }
+    }
+
+    for (size_t i = 0; i < new_count; i++) {
+        if (find_sensor_index_by_id(old_inventory, old_count, new_inventory[i].sensor_id) < 0) {
+            ESP_LOGW(TAG,
+                     "Sensor added sensor_id=%lu name=%s addr=0x%02X",
+                     (unsigned long)new_inventory[i].sensor_id,
+                     new_inventory[i].sensor_name,
+                     new_inventory[i].i2c_addr);
+        }
+    }
+}
+
+static void merge_detected_inventory(const payload_sensor_t *detected, size_t detected_count)
+{
+    payload_sensor_t merged[MAX_PAYLOAD_SENSORS];
+    bool inventory_changed = !inventories_equal(g_sensors, g_sensor_count, detected, detected_count);
+
+    memset(merged, 0, sizeof(merged));
+
+    for (size_t i = 0; i < detected_count; i++) {
+        merged[i] = detected[i];
+
+        int old_idx = find_sensor_index_by_id(g_sensors, g_sensor_count, detected[i].sensor_id);
+        if (old_idx >= 0) {
+            merged[i].module_acked = g_sensors[old_idx].module_acked;
+            merged[i].config_received = g_sensors[old_idx].config_received;
+            merged[i].module_crc32 = g_sensors[old_idx].module_crc32;
+            merged[i].last_sample_ms = g_sensors[old_idx].last_sample_ms;
+            merged[i].sample_period_ms = g_sensors[old_idx].sample_period_ms;
+            merged[i].temp_hi_x100 = g_sensors[old_idx].temp_hi_x100;
+            merged[i].hum_hi_x100 = g_sensors[old_idx].hum_hi_x100;
+        } else {
+            load_sensor_runtime_cfg(&merged[i]);
+        }
+    }
+
+    if (inventory_changed) {
+        describe_inventory_change(g_sensors, g_sensor_count, detected, detected_count);
+    }
+
+    memcpy(g_sensors, merged, sizeof(merged));
+    g_sensor_count = detected_count;
+    g_inventory_changed = inventory_changed;
+
+    if (inventory_changed) {
+        g_base_acked = false;
+        memset(g_ctrl_mac, 0, sizeof(g_ctrl_mac));
+        g_next_module_idx = 0;
+        g_next_data_idx = 0;
+
+        for (size_t i = 0; i < g_sensor_count; i++) {
+            g_sensors[i].module_acked = false;
+            g_sensors[i].last_sample_ms = 0;
+        }
+    }
+}
+
+static void rescan_sensor_inventory(void)
+{
+    payload_sensor_t detected[MAX_PAYLOAD_SENSORS];
+    size_t detected_count = 0;
+
+    memset(detected, 0, sizeof(detected));
+    detect_connected_sensors(detected, &detected_count);
+    merge_detected_inventory(detected, detected_count);
 }
 
 static void wifi_init_for_espnow(void)
@@ -974,10 +880,7 @@ static void wifi_init_for_espnow(void)
 
 static void add_broadcast_peer(void)
 {
-    uint8_t broadcast[6] = {
-        0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff
-    };
+    uint8_t broadcast[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
     esp_now_peer_info_t peer = {0};
 
     memcpy(peer.peer_addr, broadcast, 6);
@@ -1031,26 +934,22 @@ static void on_data_sent(const wifi_tx_info_t *tx_info, esp_now_send_status_t st
 static void send_base_hello(void)
 {
     uint8_t my_mac[6];
+    uint8_t broadcast[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    mproto_base_hello_t pl = {0};
+    mproto_frame_t f = {0};
+
     ESP_ERROR_CHECK(esp_read_mac(my_mac, ESP_MAC_WIFI_STA));
 
-    mproto_base_hello_t pl = {0};
     memcpy(pl.base_mac, my_mac, 6);
-    pl.fw_version = 3;
-    pl.has_module = (g_sensor_type != SENSOR_TYPE_NONE);
+    pl.fw_version = 4;
+    pl.has_module = g_sensor_count > 0;
 
-    uint8_t broadcast[6] = {
-        0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff
-    };
-
-    mproto_frame_t f = {0};
     f.msg_type = MSG_BASE_HELLO;
-    f.base_id = BASE_ID;
-    f.sensor_type = g_sensor_type;
-    f.sensor_id = g_sensor_id;
+    f.base_id = get_runtime_base_id();
+    f.sensor_type = SENSOR_TYPE_NONE;
+    f.sensor_id = 0;
     f.payload_len = sizeof(pl);
     f.seq_num = ++g_seq;
-
     memcpy(f.payload, &pl, sizeof(pl));
 
     esp_err_t err = esp_now_send(broadcast, (uint8_t *)&f, sizeof(f));
@@ -1058,61 +957,62 @@ static void send_base_hello(void)
         ESP_LOGE(TAG, "send_base_hello failed: %s", esp_err_to_name(err));
     } else {
         ESP_LOGI(TAG,
-                 "BASE_HELLO sent base_id=%lu seq=%lu has_module=%u sensor=%s changed=%u",
-                 (unsigned long)BASE_ID,
+                 "BASE_HELLO sent base_id=%lu seq=%lu sensors=%u changed=%u",
+                 (unsigned long)f.base_id,
                  (unsigned long)f.seq_num,
-                 pl.has_module,
-                 g_sensor_name,
-                 g_sensor_changed);
+                 (unsigned int)g_sensor_count,
+                 g_inventory_changed ? 1 : 0);
     }
 }
 
-static void send_module_info(void)
+static bool send_module_info(payload_sensor_t *sensor)
 {
-    if (!g_base_acked || g_sensor_type == SENSOR_TYPE_NONE) {
-        return;
+    if (!g_base_acked || sensor == NULL || !sensor->in_use) {
+        return false;
     }
 
     mproto_module_info_t pl = {0};
-    strlcpy(pl.sensor_name, g_sensor_name, sizeof(pl.sensor_name));
-    pl.module_crc32 = g_module_crc32;
-    pl.sample_period_ms = g_sample_period_ms;
-    pl.temp_threshold_hi_x100 = g_temp_hi_x100;
-    pl.humidity_threshold_hi_x100 = g_hum_hi_x100;
+    mproto_frame_t f = {0};
+
+    strlcpy(pl.sensor_name, sensor->sensor_name, sizeof(pl.sensor_name));
+    pl.module_crc32 = sensor->module_crc32;
+    pl.sample_period_ms = sensor->sample_period_ms;
+    pl.temp_threshold_hi_x100 = sensor->temp_hi_x100;
+    pl.humidity_threshold_hi_x100 = sensor->hum_hi_x100;
     pl.i2c_sda_gpio = g_i2c_sda_gpio;
     pl.i2c_scl_gpio = g_i2c_scl_gpio;
-    pl.i2c_addr = g_i2c_addr;
+    pl.i2c_addr = sensor->i2c_addr;
 
-    mproto_frame_t f = {0};
     f.msg_type = MSG_MODULE_INFO;
-    f.sensor_type = g_sensor_type;
-    f.base_id = BASE_ID;
-    f.sensor_id = g_sensor_id;
+    f.sensor_type = sensor->sensor_type;
+    f.base_id = get_runtime_base_id();
+    f.sensor_id = sensor->sensor_id;
     f.payload_len = sizeof(pl);
     f.seq_num = ++g_seq;
-
     memcpy(f.payload, &pl, sizeof(pl));
 
     esp_err_t err = esp_now_send(g_ctrl_mac, (uint8_t *)&f, sizeof(f));
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "send_module_info failed: %s", esp_err_to_name(err));
-    } else {
-        ESP_LOGI(TAG,
-                 "MODULE_INFO sent id=%lu type=%u kind=%u name=%s addr=0x%02X changed=%u seq=%lu period=%lu",
-                 (unsigned long)g_sensor_id,
-                 g_sensor_type,
-                 g_detected_sensor_kind,
-                 g_sensor_name,
-                 g_i2c_addr,
-                 g_sensor_changed,
-                 (unsigned long)f.seq_num,
-                 (unsigned long)g_sample_period_ms);
+        ESP_LOGE(TAG, "send_module_info failed for sensor_id=%lu: %s",
+                 (unsigned long)sensor->sensor_id, esp_err_to_name(err));
+        return false;
     }
+
+    ESP_LOGI(TAG,
+             "MODULE_INFO sent sensor_id=%lu type=%u kind=%u name=%s addr=0x%02X cfg=%u seq=%lu",
+             (unsigned long)sensor->sensor_id,
+             sensor->sensor_type,
+             sensor->detected_kind,
+             sensor->sensor_name,
+             sensor->i2c_addr,
+             sensor->config_received ? 1 : 0,
+             (unsigned long)f.seq_num);
+    return true;
 }
 
-static void send_config_ack(uint32_t acked_seq, uint8_t status, const char *detail)
+static void send_config_ack(payload_sensor_t *sensor, uint32_t acked_seq, uint8_t status, const char *detail)
 {
-    if (!g_base_acked) {
+    if (!g_base_acked || sensor == NULL) {
         return;
     }
 
@@ -1121,85 +1021,58 @@ static void send_config_ack(uint32_t acked_seq, uint8_t status, const char *deta
         .acked_msg_type = MSG_CONFIG_SET,
         .status = status
     };
+    mproto_frame_t f = {0};
+
     strlcpy(pl.detail, detail, sizeof(pl.detail));
 
-    mproto_frame_t f = {0};
     f.msg_type = MSG_CONFIG_ACK;
-    f.sensor_type = g_sensor_type;
-    f.base_id = BASE_ID;
-    f.sensor_id = g_sensor_id;
+    f.sensor_type = sensor->sensor_type;
+    f.base_id = get_runtime_base_id();
+    f.sensor_id = sensor->sensor_id;
     f.payload_len = sizeof(pl);
     f.seq_num = ++g_seq;
-
     memcpy(f.payload, &pl, sizeof(pl));
 
     esp_err_t err = esp_now_send(g_ctrl_mac, (uint8_t *)&f, sizeof(f));
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "send_config_ack failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "send_config_ack failed for sensor_id=%lu: %s",
+                 (unsigned long)sensor->sensor_id, esp_err_to_name(err));
     } else {
         ESP_LOGI(TAG,
-                 "CONFIG_ACK sent acked_seq=%lu status=%u detail=%s",
+                 "CONFIG_ACK sent sensor_id=%lu acked_seq=%lu status=%u detail=%s",
+                 (unsigned long)sensor->sensor_id,
                  (unsigned long)acked_seq,
                  status,
                  pl.detail);
     }
 }
 
-static void enter_timed_deep_sleep(const char *reason, uint32_t sleep_ms)
+static bool populate_sensor_payload(payload_sensor_t *sensor, mproto_sht30_data_t *pl)
 {
-    if (sleep_ms < MIN_SAMPLE_PERIOD_MS) {
-        sleep_ms = MIN_SAMPLE_PERIOD_MS;
-    }
-
-    ESP_LOGI(TAG,
-             "Entering deep sleep for %lu ms (%s)",
-             (unsigned long)sleep_ms,
-             reason ? reason : "scheduled");
-
-    esp_now_deinit();
-    esp_wifi_stop();
-    i2c_driver_delete(I2C_PORT);
-    esp_sleep_enable_timer_wakeup((uint64_t)sleep_ms * 1000ULL);
-    esp_deep_sleep_start();
-}
-
-static bool send_sensor_data(void)
-{
-    if (!g_module_acked) {
+    if (sensor == NULL || pl == NULL) {
         return false;
     }
 
-    if (g_sensor_type == SENSOR_TYPE_NONE || g_detected_sensor_kind == DETECTED_SENSOR_NONE) {
-        ESP_LOGW(TAG, "No valid sensor connected. Data not sent.");
-        return false;
-    }
+    memset(pl, 0, sizeof(*pl));
+    pl->uptime_s = esp_log_timestamp() / 1000;
 
-    mproto_sht30_data_t pl = {0};
-    pl.uptime_s = esp_log_timestamp() / 1000;
-    pl.alert_flags = 0;
-
-    switch (g_detected_sensor_kind) {
+    switch (sensor->detected_kind) {
         case DETECTED_SENSOR_SHT30: {
             float t = 0.0f;
             float h = 0.0f;
-
-            esp_err_t ret = sht30_read_at(g_i2c_addr, &t, &h);
-            if (ret != ESP_OK) {
-                ESP_LOGW(TAG, "SHT30 read failed: %s", esp_err_to_name(ret));
+            if (sht30_read_at(sensor->i2c_addr, &t, &h) != ESP_OK) {
                 return false;
             }
 
-            pl.temperature_c_x100 = (int16_t)lroundf(t * 100.0f);
-            pl.humidity_rh_x100 = (uint16_t)lroundf(h * 100.0f);
+            pl->temperature_c_x100 = (int16_t)lroundf(t * 100.0f);
+            pl->humidity_rh_x100 = (uint16_t)lroundf(h * 100.0f);
 
-            if (pl.temperature_c_x100 >= g_temp_hi_x100) {
-                pl.alert_flags |= 0x01;
+            if (pl->temperature_c_x100 >= sensor->temp_hi_x100) {
+                pl->alert_flags |= 0x01;
             }
-            if (pl.humidity_rh_x100 >= g_hum_hi_x100) {
-                pl.alert_flags |= 0x02;
+            if (pl->humidity_rh_x100 >= sensor->hum_hi_x100) {
+                pl->alert_flags |= 0x02;
             }
-
-            ESP_LOGI(TAG, "Prepared SHT30 data: temp=%.2fC hum=%.2f%%", t, h);
             break;
         }
 
@@ -1209,34 +1082,19 @@ static bool send_sensor_data(void)
             uint32_t pressure_pa = 0;
             uint16_t humidity_rh_x100 = 0xFFFF;
 
-            esp_err_t ret = bme_bmp280_read(
-                g_i2c_addr,
-                &temperature_c_x100,
-                &pressure_pa,
-                &humidity_rh_x100
-            );
-            if (ret != ESP_OK) {
-                ESP_LOGW(TAG, "BME/BMP280 read failed: %s", esp_err_to_name(ret));
+            if (bme_bmp280_read(sensor, &temperature_c_x100, &pressure_pa, &humidity_rh_x100) != ESP_OK) {
                 return false;
             }
 
-            float pressure_kpa = pressure_pa / 1000.0f;
-            pl.temperature_c_x100 = temperature_c_x100;
-            pl.humidity_rh_x100 = (uint16_t)lroundf(pressure_kpa * 100.0f);
+            pl->temperature_c_x100 = temperature_c_x100;
+            pl->humidity_rh_x100 = (uint16_t)lroundf((pressure_pa / 1000.0f) * 100.0f);
 
-            if (pl.temperature_c_x100 >= g_temp_hi_x100) {
-                pl.alert_flags |= 0x01;
+            if (pl->temperature_c_x100 >= sensor->temp_hi_x100) {
+                pl->alert_flags |= 0x01;
             }
-            if (pl.humidity_rh_x100 >= g_hum_hi_x100) {
-                pl.alert_flags |= 0x02;
+            if (pl->humidity_rh_x100 >= sensor->hum_hi_x100) {
+                pl->alert_flags |= 0x02;
             }
-
-            ESP_LOGI(TAG,
-                     "Prepared BME/BMP280 data: temp=%.2fC pressure=%luPa pressure=%.2fkPa encoded_humidity_field=%u",
-                     temperature_c_x100 / 100.0f,
-                     (unsigned long)pressure_pa,
-                     pressure_kpa,
-                     pl.humidity_rh_x100);
             break;
         }
 
@@ -1244,59 +1102,64 @@ static bool send_sensor_data(void)
             uint16_t distance_mm = 0;
             uint8_t range_status = 0;
 
-            esp_err_t ret = vl53l0x_read_mm(g_i2c_addr, &distance_mm, &range_status);
-            if (ret != ESP_OK) {
-                ESP_LOGW(TAG, "VL53L0X read failed: %s", esp_err_to_name(ret));
+            if (vl53l0x_read_mm(sensor, &distance_mm, &range_status) != ESP_OK) {
                 return false;
             }
 
-            float distance_cm = distance_mm / 10.0f;
-            pl.temperature_c_x100 = 0;
-            pl.humidity_rh_x100 = (uint16_t)lroundf(distance_cm * 100.0f);
-            pl.alert_flags = range_status;
-            if (pl.humidity_rh_x100 >= g_hum_hi_x100) {
-                pl.alert_flags |= 0x02;
+            pl->temperature_c_x100 = 0;
+            pl->humidity_rh_x100 = (uint16_t)lroundf((distance_mm / 10.0f) * 100.0f);
+            pl->alert_flags = range_status;
+            if (pl->humidity_rh_x100 >= sensor->hum_hi_x100) {
+                pl->alert_flags |= 0x02;
             }
-
-            ESP_LOGI(TAG,
-                     "Prepared VL53L0X data: distance=%umm distance=%.2fcm encoded_humidity_field=%u status=0x%02X",
-                     distance_mm,
-                     distance_cm,
-                     pl.humidity_rh_x100,
-                     range_status);
             break;
         }
 
         default:
-            ESP_LOGW(TAG, "Unsupported detected sensor kind=%u", g_detected_sensor_kind);
             return false;
     }
 
+    return true;
+}
+
+static bool send_sensor_data(payload_sensor_t *sensor)
+{
+    if (!g_base_acked || sensor == NULL || !sensor->in_use || !sensor->module_acked || !sensor->config_received) {
+        return false;
+    }
+
+    mproto_sht30_data_t pl = {0};
     mproto_frame_t f = {0};
+
+    if (!populate_sensor_payload(sensor, &pl)) {
+        ESP_LOGW(TAG, "Sensor read failed for sensor_id=%lu", (unsigned long)sensor->sensor_id);
+        return false;
+    }
+
     f.msg_type = MSG_SENSOR_DATA;
-    f.sensor_type = g_sensor_type;
-    f.base_id = BASE_ID;
-    f.sensor_id = g_sensor_id;
+    f.sensor_type = sensor->sensor_type;
+    f.base_id = get_runtime_base_id();
+    f.sensor_id = sensor->sensor_id;
     f.payload_len = sizeof(pl);
     f.seq_num = ++g_seq;
-
     memcpy(f.payload, &pl, sizeof(pl));
 
     esp_err_t err = esp_now_send(g_ctrl_mac, (uint8_t *)&f, sizeof(f));
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "send_sensor_data failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "send_sensor_data failed for sensor_id=%lu: %s",
+                 (unsigned long)sensor->sensor_id, esp_err_to_name(err));
         return false;
     }
 
     ESP_LOGI(TAG,
-             "SENSOR_DATA sent seq=%lu sensor=%s kind=%u temp_field=%d humidity_field=%u alerts=0x%02X next=%lu_ms",
+             "SENSOR_DATA sent seq=%lu sensor_id=%lu name=%s temp_field=%d humidity_field=%u alerts=0x%02X next=%lu_ms",
              (unsigned long)f.seq_num,
-             g_sensor_name,
-             g_detected_sensor_kind,
+             (unsigned long)sensor->sensor_id,
+             sensor->sensor_name,
              pl.temperature_c_x100,
              pl.humidity_rh_x100,
              pl.alert_flags,
-             (unsigned long)get_effective_send_interval_ms());
+             (unsigned long)get_effective_send_interval_ms(sensor));
     return true;
 }
 
@@ -1328,64 +1191,176 @@ static void on_data_recv(const esp_now_recv_info_t *recv_info, const uint8_t *da
             memcpy(g_ctrl_mac, recv_info->src_addr, 6);
             add_controller_peer_if_needed(recv_info->src_addr);
             g_base_acked = true;
-            ESP_LOGI(TAG, "BASE_ACK received for base_id=%lu", (unsigned long)BASE_ID);
+            ESP_LOGI(TAG, "BASE_ACK received for base_id=%lu", (unsigned long)get_runtime_base_id());
             break;
 
-        case MSG_MODULE_ACK:
+        case MSG_MODULE_ACK: {
+            payload_sensor_t *sensor = find_sensor_by_id(f.sensor_id);
             memcpy(g_ctrl_mac, recv_info->src_addr, 6);
             add_controller_peer_if_needed(recv_info->src_addr);
-            g_module_acked = true;
-            ESP_LOGI(TAG,
-                     "MODULE_ACK received sensor_id=%lu sensor=%s",
-                     (unsigned long)g_sensor_id,
-                     g_sensor_name);
+            if (sensor != NULL) {
+                sensor->module_acked = true;
+                ESP_LOGI(TAG,
+                         "MODULE_ACK received sensor_id=%lu sensor=%s",
+                         (unsigned long)sensor->sensor_id,
+                         sensor->sensor_name);
+            }
             break;
+        }
 
-        case MSG_CONFIG_SET:
-            if (f.base_id != BASE_ID || f.sensor_id != g_sensor_id) {
-                send_config_ack(f.seq_num, ACK_STATUS_BAD_TARGET, "bad_target");
+        case MSG_CONFIG_SET: {
+            payload_sensor_t *sensor = find_sensor_by_id(f.sensor_id);
+            if (f.base_id != get_runtime_base_id() || sensor == NULL) {
+                if (sensor != NULL) {
+                    send_config_ack(sensor, f.seq_num, ACK_STATUS_BAD_TARGET, "bad_target");
+                }
                 return;
             }
 
             if (f.payload_len != sizeof(mproto_config_set_t)) {
-                send_config_ack(f.seq_num, ACK_STATUS_BAD_PAYLOAD, "bad_payload");
+                send_config_ack(sensor, f.seq_num, ACK_STATUS_BAD_PAYLOAD, "bad_payload");
                 return;
             }
 
-            {
-                mproto_config_set_t pl;
-                memcpy(&pl, f.payload, sizeof(pl));
+            mproto_config_set_t pl;
+            memcpy(&pl, f.payload, sizeof(pl));
 
-                g_sample_period_ms = pl.sample_period_ms;
-                if (g_sample_period_ms < MIN_SAMPLE_PERIOD_MS) {
-                    g_sample_period_ms = MIN_SAMPLE_PERIOD_MS;
-                }
+            sensor->sample_period_ms = pl.sample_period_ms;
+            if (sensor->sample_period_ms < MIN_SAMPLE_PERIOD_MS) {
+                sensor->sample_period_ms = MIN_SAMPLE_PERIOD_MS;
+            }
+            sensor->temp_hi_x100 = pl.temp_threshold_hi_x100;
+            sensor->hum_hi_x100 = pl.humidity_threshold_hi_x100;
 
-                g_temp_hi_x100 = pl.temp_threshold_hi_x100;
-                g_hum_hi_x100 = pl.humidity_threshold_hi_x100;
-
-                esp_err_t err = save_runtime_cfg();
-                if (err != ESP_OK) {
-                    ESP_LOGW(TAG,
-                             "save_runtime_cfg failed: %s",
-                             esp_err_to_name(err));
-                    send_config_ack(f.seq_num, ACK_STATUS_APPLY_FAIL, "nvs_fail");
-                } else {
-                    g_config_received = true;
-                    ESP_LOGI(TAG,
-                             "CONFIG applied and saved: period=%lu temp_hi=%.2f hum_hi=%.2f",
-                             (unsigned long)g_sample_period_ms,
-                             g_temp_hi_x100 / 100.0f,
-                             g_hum_hi_x100 / 100.0f);
-                    send_config_ack(f.seq_num, ACK_STATUS_OK, "applied");
-                }
+            esp_err_t err = save_sensor_runtime_cfg(sensor);
+            if (err != ESP_OK) {
+                send_config_ack(sensor, f.seq_num, ACK_STATUS_APPLY_FAIL, "nvs_fail");
+            } else {
+                sensor->config_received = true;
+                ESP_LOGI(TAG,
+                         "CONFIG applied sensor_id=%lu period=%lu temp_hi=%.2f hum_hi=%.2f",
+                         (unsigned long)sensor->sensor_id,
+                         (unsigned long)sensor->sample_period_ms,
+                         sensor->temp_hi_x100 / 100.0f,
+                         sensor->hum_hi_x100 / 100.0f);
+                send_config_ack(sensor, f.seq_num, ACK_STATUS_OK, "applied");
             }
             break;
+        }
 
         default:
             ESP_LOGW(TAG, "Unhandled msg_type=%u", f.msg_type);
             break;
     }
+}
+
+static payload_sensor_t *select_next_module_sensor(void)
+{
+    if (g_sensor_count == 0) {
+        return NULL;
+    }
+
+    for (size_t offset = 0; offset < g_sensor_count; offset++) {
+        size_t idx = (g_next_module_idx + offset) % g_sensor_count;
+        payload_sensor_t *sensor = &g_sensors[idx];
+        if (!sensor->in_use) {
+            continue;
+        }
+        if (!sensor->module_acked || !sensor->config_received) {
+            g_next_module_idx = (idx + 1U) % g_sensor_count;
+            return sensor;
+        }
+    }
+
+    return NULL;
+}
+
+static payload_sensor_t *select_next_due_sensor(uint32_t now_ms)
+{
+    if (g_sensor_count == 0) {
+        return NULL;
+    }
+
+    for (size_t offset = 0; offset < g_sensor_count; offset++) {
+        size_t idx = (g_next_data_idx + offset) % g_sensor_count;
+        payload_sensor_t *sensor = &g_sensors[idx];
+        uint32_t interval_ms;
+
+        if (!sensor->in_use || !sensor->module_acked || !sensor->config_received) {
+            continue;
+        }
+
+        interval_ms = get_effective_send_interval_ms(sensor);
+        if ((now_ms - sensor->last_sample_ms) < interval_ms) {
+            continue;
+        }
+
+        g_next_data_idx = (idx + 1U) % g_sensor_count;
+        return sensor;
+    }
+
+    return NULL;
+}
+
+static bool any_due_sensor_remaining(uint32_t now_ms)
+{
+    for (size_t i = 0; i < g_sensor_count; i++) {
+        payload_sensor_t *sensor = &g_sensors[i];
+        if (!sensor->in_use || !sensor->module_acked || !sensor->config_received) {
+            continue;
+        }
+        if ((now_ms - sensor->last_sample_ms) >= get_effective_send_interval_ms(sensor)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static uint32_t compute_next_sleep_ms(uint32_t now_ms)
+{
+    uint32_t next_sleep_ms = DEFAULT_SAMPLE_PERIOD_MS;
+    bool found = false;
+
+    for (size_t i = 0; i < g_sensor_count; i++) {
+        payload_sensor_t *sensor = &g_sensors[i];
+        if (!sensor->in_use || !sensor->module_acked || !sensor->config_received) {
+            continue;
+        }
+
+        uint32_t interval_ms = get_effective_send_interval_ms(sensor);
+        uint32_t elapsed_ms = now_ms - sensor->last_sample_ms;
+        uint32_t remaining_ms = (elapsed_ms >= interval_ms) ? 0U : (interval_ms - elapsed_ms);
+
+        if (!found || remaining_ms < next_sleep_ms) {
+            next_sleep_ms = remaining_ms;
+            found = true;
+        }
+    }
+
+    if (!found || next_sleep_ms < MIN_SAMPLE_PERIOD_MS) {
+        return MIN_SAMPLE_PERIOD_MS;
+    }
+
+    return next_sleep_ms;
+}
+
+static void enter_timed_deep_sleep(const char *reason, uint32_t sleep_ms)
+{
+    if (sleep_ms < MIN_SAMPLE_PERIOD_MS) {
+        sleep_ms = MIN_SAMPLE_PERIOD_MS;
+    }
+
+    ESP_LOGI(TAG,
+             "Entering deep sleep for %lu ms (%s)",
+             (unsigned long)sleep_ms,
+             reason ? reason : "scheduled");
+
+    esp_now_deinit();
+    esp_wifi_stop();
+    i2c_driver_delete(I2C_PORT);
+    esp_sleep_enable_timer_wakeup((uint64_t)sleep_ms * 1000ULL);
+    esp_deep_sleep_start();
 }
 
 void app_main(void)
@@ -1397,77 +1372,42 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    ESP_ERROR_CHECK(load_nvs_state());
     ESP_ERROR_CHECK(i2c_master_init_dynamic());
-
-    detect_connected_sensor();
-    compare_sensor_with_nvs_and_save_if_needed();
+    rescan_sensor_inventory();
 
     wifi_init_for_espnow();
-
     ESP_ERROR_CHECK(esp_now_init());
     ESP_ERROR_CHECK(esp_now_register_send_cb(on_data_sent));
     ESP_ERROR_CHECK(esp_now_register_recv_cb(on_data_recv));
-
     add_broadcast_peer();
 
     ESP_LOGI(TAG,
-             "AUTO I2C PAYLOAD ready base_id=%lu sensor_id=%lu type=%u kind=%u name=%s addr=0x%02X changed=%u period=%lu_ms",
-             (unsigned long)BASE_ID,
-             (unsigned long)g_sensor_id,
-             g_sensor_type,
-             g_detected_sensor_kind,
-             g_sensor_name,
-             g_i2c_addr,
-             g_sensor_changed,
-             (unsigned long)g_sample_period_ms);
+             "AUTO I2C PAYLOAD ready base_id=%lu sensors=%u changed=%u",
+             (unsigned long)get_runtime_base_id(),
+             (unsigned int)g_sensor_count,
+             g_inventory_changed ? 1 : 0);
 
 #if LAB_DEBUG_DISABLE_DEEP_SLEEP
     ESP_LOGW(TAG,
              "LAB DEBUG MODE: deep sleep disabled, forcing runtime send interval to %lu ms",
-             (unsigned long)get_effective_send_interval_ms());
+             (unsigned long)LAB_DEBUG_SEND_INTERVAL_MS);
 #endif
 
     uint32_t wake_session_started_ms = esp_log_timestamp();
-    uint32_t last_sample_ms = 0;
     uint32_t last_rescan_ms = esp_log_timestamp();
 
     while (1) {
 #if !LAB_DEBUG_DISABLE_DEEP_SLEEP
         if ((esp_log_timestamp() - wake_session_started_ms) >= WAKE_SESSION_TIMEOUT_MS) {
-            ESP_LOGW(TAG, "Wake session timed out before reading was sent");
-            enter_timed_deep_sleep("session_timeout", g_sample_period_ms);
+            ESP_LOGW(TAG, "Wake session timed out before any configured reading was sent");
+            enter_timed_deep_sleep("session_timeout", DEFAULT_SAMPLE_PERIOD_MS);
         }
 #endif
 
         uint32_t now_ms = esp_log_timestamp();
 
         if ((now_ms - last_rescan_ms) >= SENSOR_RESCAN_PERIOD_MS) {
-            uint8_t old_kind = g_detected_sensor_kind;
-            uint8_t old_addr = g_i2c_addr;
-            uint32_t old_id = g_sensor_id;
-
-            detect_connected_sensor();
-
-            if (old_kind != g_detected_sensor_kind ||
-                old_addr != g_i2c_addr ||
-                old_id != g_sensor_id) {
-                ESP_LOGW(TAG,
-                         "Runtime sensor change detected: old_kind=%u old_addr=0x%02X old_id=%lu -> new_kind=%u new_addr=0x%02X new_id=%lu",
-                         old_kind,
-                         old_addr,
-                         (unsigned long)old_id,
-                         g_detected_sensor_kind,
-                         g_i2c_addr,
-                         (unsigned long)g_sensor_id);
-
-                compare_sensor_with_nvs_and_save_if_needed();
-                g_base_acked = false;
-                g_module_acked = false;
-                memset(g_ctrl_mac, 0, sizeof(g_ctrl_mac));
-                last_sample_ms = 0;
-            }
-
+            rescan_sensor_inventory();
             last_rescan_ms = now_ms;
         }
 
@@ -1477,29 +1417,27 @@ void app_main(void)
             continue;
         }
 
-        if (!g_module_acked) {
-            send_module_info();
+        payload_sensor_t *module_sensor = select_next_module_sensor();
+        if (module_sensor != NULL) {
+            send_module_info(module_sensor);
             vTaskDelay(pdMS_TO_TICKS(DISCOVERY_PERIOD_MS));
             continue;
         }
 
-        if (!g_config_received) {
-            send_module_info();
-            vTaskDelay(pdMS_TO_TICKS(DISCOVERY_PERIOD_MS));
-            continue;
-        }
-
-        if ((now_ms - last_sample_ms) >= get_effective_send_interval_ms()) {
-            if (send_sensor_data()) {
-                last_sample_ms = now_ms;
+        payload_sensor_t *data_sensor = select_next_due_sensor(now_ms);
+        if (data_sensor != NULL) {
+            if (send_sensor_data(data_sensor)) {
+                data_sensor->last_sample_ms = now_ms;
                 vTaskDelay(pdMS_TO_TICKS(TX_FLUSH_DELAY_MS));
 #if LAB_DEBUG_DISABLE_DEEP_SLEEP
                 ESP_LOGI(TAG,
-                         "LAB DEBUG MODE: staying awake and waiting %lu ms before next sample",
-                         (unsigned long)get_effective_send_interval_ms());
-                vTaskDelay(pdMS_TO_TICKS(get_effective_send_interval_ms()));
+                         "LAB DEBUG MODE: staying awake; next sample for sensor_id=%lu after %lu ms",
+                         (unsigned long)data_sensor->sensor_id,
+                         (unsigned long)get_effective_send_interval_ms(data_sensor));
 #else
-                enter_timed_deep_sleep("sample_sent", g_sample_period_ms);
+                if (!any_due_sensor_remaining(now_ms)) {
+                    enter_timed_deep_sleep("sample_batch_sent", compute_next_sleep_ms(now_ms));
+                }
 #endif
                 continue;
             }
