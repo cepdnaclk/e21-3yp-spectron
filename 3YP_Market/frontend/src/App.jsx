@@ -4,6 +4,7 @@ import Hero from './components/Hero.jsx'
 import ProblemSolution from './components/ProblemSolution.jsx'
 import Benefits from './components/Benefits.jsx'
 import Features from './components/Features.jsx'
+import SensorModules from './components/SensorModules.jsx'
 import HowItWorks from './components/HowItWorks.jsx'
 import Industries from './components/Industries.jsx'
 import Security from './components/Security.jsx'
@@ -24,6 +25,7 @@ export default function App() {
         <ProblemSolution />
         <Benefits />
         <Features />
+        <SensorModules />
         <HowItWorks />
         <Industries />
         <Security />

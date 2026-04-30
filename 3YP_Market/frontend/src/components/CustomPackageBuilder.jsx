@@ -99,7 +99,7 @@ export default function CustomPackageBuilder({ onRecommendationSelect }) {
             value={formData.purpose}
             onChange={handleChange}
             className="resize-none rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
-            placeholder="Example: We want to monitor greenhouse temperature, humidity, and light so operators get alerts before crop conditions drift."
+            placeholder="Example: We want to monitor room comfort, greenhouse climate, pressure trend, water tank level, or garbage odor so operators get alerts before conditions drift."
           />
         </label>
 

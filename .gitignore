@@ -6,6 +6,7 @@ backups/
 **/backups/
 certs/
 *.sql
+!3YP_Market/backend/db/schema.sql
 !software/backend/internal/db/migrations/*.sql
 *.sql.enc
 *.key
@@ -418,6 +419,11 @@ hardware/Controller/build/esp-idf/esp_driver_cam/CMakeFiles/__idf_esp_driver_cam
 hardware/Controller/build/esp-idf/esp_driver_dac/cmake_install.cmake
 hardware/Controller/build/esp-idf/esp_driver_dac/libesp_driver_dac.a
 hardware/Controller/build/esp-idf/esp_driver_dac/CMakeFiles/__idf_esp_driver_dac.dir/dac_common.c.obj
+
+# Ignore local VS Code workspace files
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/settings.json
 hardware/Controller/build/esp-idf/esp_driver_dac/CMakeFiles/__idf_esp_driver_dac.dir/dac_continuous.c.obj
 hardware/Controller/build/esp-idf/esp_driver_dac/CMakeFiles/__idf_esp_driver_dac.dir/dac_cosine.c.obj
 hardware/Controller/build/esp-idf/esp_driver_dac/CMakeFiles/__idf_esp_driver_dac.dir/dac_oneshot.c.obj
@@ -2407,3 +2413,7 @@ hardware/Controller/build/log/idf_py_stdout_output_22848
 hardware/Controller/build/log/idf_py_stdout_output_23440
 hardware/Controller/build/log/idf_py_stdout_output_28568
 hardware/Spectron_Sht30_PayloadApp/build/esp-idf/esp_hal_timg/libesp_hal_timg.a
+3YP_Market/start-spectron.ps1
+3YP_Market/backend/db/schema.sql
+3YP_Market/start-spectron.ps1
+3YP_Market/start-spectron.ps1

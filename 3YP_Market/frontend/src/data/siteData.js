@@ -2,6 +2,7 @@
 export const navigation = [
   { label: 'Problem', href: '#problem' },
   { label: 'Features', href: '#features' },
+  { label: 'Modules', href: '#modules' },
   { label: 'Workflow', href: '#workflow' },
   { label: 'Security', href: '#security' },
   { label: 'Pricing', href: '#pricing' },
@@ -45,7 +46,7 @@ export const benefits = [
   {
     icon: 'CloudCog',
     title: 'Cloud ready',
-    text: 'Devices connect into a dashboard, event pipeline, and storage layer built for many sites and many device types.',
+    text: 'Devices connect into a dashboard, event pipeline, and storage layer built for temperature, humidity, pressure, ultrasonic, gas, and occupancy sensing across many sites.',
   },
 ]
 
@@ -53,7 +54,7 @@ export const features = [
   {
     icon: 'Puzzle',
     title: 'Modular sensor compatibility',
-    text: 'Attach environment, light, gas, motion, attendance, or custom modules to the same reusable device platform.',
+    text: 'Attach temperature, humidity, pressure, ultrasonic, odour/gas, light, motion, attendance, or custom modules to the same reusable device platform.',
   },
   {
     icon: 'Cpu',
@@ -82,11 +83,76 @@ export const features = [
   },
 ]
 
+export const sensorModules = [
+  {
+    icon: 'Sprout',
+    name: 'SHT30 Temperature + Humidity',
+    category: 'Environment',
+    summary: 'Room comfort, greenhouse climate, cold-room, storage, archive, and incubation monitoring.',
+    limitations: [
+      'Measures temperature and humidity only; it does not measure pressure, gas, light, or occupancy.',
+      'Humidity readings can be affected by condensation, very fast airflow changes, or long exposure to harsh environments.',
+      'Best suited for environmental monitoring rather than direct process control.',
+    ],
+    useCases: ['room comfort', 'greenhouse climate', 'cold-room', 'medicine storage', 'archive preservation', 'museum preservation', 'incubator monitoring'],
+  },
+  {
+    icon: 'Factory',
+    name: 'BME280 / BMP280 Pressure',
+    category: 'Trend monitoring',
+    summary: 'Barometric, sealed-room drift, ventilation/filter condition, and process pressure trends.',
+    limitations: [
+      'BMP280 measures pressure and temperature only; it does not measure humidity.',
+      'BME280 adds humidity, but it is still best for trends and alerts rather than precision industrial metrology.',
+      'Pressure readings need calibration and altitude compensation if you want stable barometric results.',
+    ],
+    useCases: ['barometric trend', 'sealed-room drift', 'ventilation filter trend', 'tank pressure trend', 'line pressure trend'],
+  },
+  {
+    icon: 'Warehouse',
+    name: 'Ultrasonic Distance',
+    category: 'Level / occupancy',
+    summary: 'Bin fill level, water tank level, silo/container level, queue buildup, and simple occupancy.',
+    limitations: [
+      'Raw distance must be interpreted into fill-level or occupancy logic.',
+      'Performance can drop on soft, angled, or irregular surfaces.',
+      'Environmental noise, foam, or heavy dust can reduce measurement quality in some installations.',
+    ],
+    useCases: ['garbage bin fill level', 'water tank level', 'silo level', 'parking slot occupancy', 'queue buildup', 'classroom seat presence'],
+  },
+  {
+    icon: 'BellRing',
+    name: 'Odour / Gas',
+    category: 'Air safety',
+    summary: 'Odour escalation, restroom cleaning need, waste-room smell alert, and calibrated gas warnings.',
+    limitations: [
+      'Odour sensors usually provide relative trend or risk bands, not exact smell or gas concentration names.',
+      'Many gas sensors need warm-up and calibration before the readings are trustworthy.',
+      'Humidity, temperature, and airflow can affect stability, so threshold tuning is important.',
+    ],
+    useCases: ['garbage odor', 'restroom cleaning need', 'kitchen waste room smell', 'sewer odor alert', 'gas leak', 'unsafe air warning'],
+  },
+  {
+    icon: 'MonitorSmartphone',
+    name: 'Light',
+    category: 'Environment',
+    summary: 'Greenhouse daylight, classroom brightness, and site lighting visibility.',
+    useCases: ['greenhouse', 'classroom', 'lighting'],
+  },
+  {
+    icon: 'RadioTower',
+    name: 'Presence / Motion',
+    category: 'Occupancy',
+    summary: 'Class attendance, doorway presence, occupancy, and security-aware motion sensing.',
+    useCases: ['attendance', 'doorway presence', 'occupancy', 'security'],
+  },
+]
+
 export const workflow = [
   {
     step: '01',
     title: 'Choose a sensor module',
-    text: 'Select the sensor pack for greenhouse, cold storage, attendance, motion, gas, light, or a custom use case.',
+    text: 'Select the sensor pack for greenhouse, cold storage, pressure trend, ultrasonic level, odour/gas, attendance, motion, light, or a custom use case.',
   },
   {
     step: '02',
@@ -109,12 +175,12 @@ export const industries = [
   {
     icon: 'Sprout',
     title: 'Greenhouses',
-    text: 'Temperature, humidity, light, and gas monitoring for controlled agriculture.',
+    text: 'Temperature, humidity, pressure trend, light, and gas monitoring for controlled agriculture.',
   },
   {
     icon: 'Snowflake',
     title: 'Cold storage',
-    text: 'Temperature and door-state visibility for perishable inventory and chain-of-custody checks.',
+    text: 'Temperature, humidity, and door-state visibility for perishable inventory and chain-of-custody checks.',
   },
   {
     icon: 'IdCard',
@@ -129,12 +195,12 @@ export const industries = [
   {
     icon: 'Warehouse',
     title: 'Warehousing',
-    text: 'Ambient, occupancy, and storage-condition signals for operational visibility.',
+    text: 'Ambient, pressure, occupancy, fill-level, and storage-condition signals for operational visibility.',
   },
   {
     icon: 'Factory',
     title: 'Industrial pilots',
-    text: 'Reusable field units for fast sensing experiments before committing to custom hardware.',
+    text: 'Reusable field units for fast sensing experiments before committing to custom hardware, including ultrasonic and odour alerts.',
   },
 ]
 
@@ -206,7 +272,7 @@ export const faqs = [
   {
     question: 'Which sensors can the platform support?',
     answer:
-      'The concept supports modular sensor packs such as temperature, humidity, light, gas, motion, attendance, and other field-specific modules through a standardized adapter approach.',
+      'The concept supports modular sensor packs such as temperature, humidity, pressure, ultrasonic, odour/gas, light, motion, attendance, and other field-specific modules through a standardized adapter approach.',
   },
   {
     question: 'How does SPECTRON handle field security?',
