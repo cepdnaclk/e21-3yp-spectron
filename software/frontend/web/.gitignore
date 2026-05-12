@@ -13,6 +13,7 @@
 
 # misc
 .DS_Store
+.env
 .env.local
 .env.development
 .env.development.local
@@ -27,3 +28,5 @@ yarn-error.log*
 ios/
 android/
 .capacitor/
+
+package-lock.json
