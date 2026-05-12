@@ -3,3 +3,7 @@ node_modules/
 
 # Ignore local database file
 # data.db
+
+# Ignore lockfiles and env examples
+package-lock.json
+.env.example
