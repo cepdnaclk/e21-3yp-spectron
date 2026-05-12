@@ -1,0 +1,70 @@
+Command: ninja flash
+[1/5] C:\WINDOWS\system32\cmd.exe /C "cd /D C:\Users\pkjar\workspace\Spectron_Sht30_PayloadApp\build\esp-idf\esptool_py && C:\Espressif\tools\python\v5.5.3\venv\Scripts\python.exe C:/esp/v5.5.3/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 partition --type app C:/Users/pkjar/workspace/Spectron_Sht30_PayloadApp/build/partition_table/partition-table.bin C:/Users/pkjar/workspace/Spectron_Sht30_PayloadApp/build/Spectron_Sht30_PayloadApp.bin"
+Spectron_Sht30_PayloadApp.bin binary size 0xc1940 bytes. Smallest app partition is 0x100000 bytes. 0x3e6c0 bytes (24%) free.
+[2/5] Performing build step for 'bootloader'
+[1/1] C:\WINDOWS\system32\cmd.exe /C "cd /D C:\Users\pkjar\workspace\Spectron_Sht30_PayloadApp\build\bootloader\esp-idf\esptool_py && C:\Espressif\tools\python\v5.5.3\venv\Scripts\python.exe C:/esp/v5.5.3/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x0 C:/Users/pkjar/workspace/Spectron_Sht30_PayloadApp/build/bootloader/bootloader.bin"
+Bootloader binary size 0x51e0 bytes. 0x2e20 bytes (36%) free.
+[3/5] No install step for 'bootloader'
+[4/5] Completed 'bootloader'
+[4/5] C:\WINDOWS\system32\cmd.exe /C "cd /D C:\esp\v5.5.3\esp-idf\components\esptool_py && C:\Espressif\tools\cmake\3.30.2\bin\cmake.exe -D IDF_PATH=C:/esp/v5.5.3/esp-idf -D SERIAL_TOOL=C:/Espressif/tools/python/v5.5.3/venv/Scripts/python.exe;;C:/esp/v5.5.3/esp-idf/components/esptool_py/esptool/esptool.py;--chip;esp32c3 -D SERIAL_TOOL_ARGS=--before=default_reset;--after=hard_reset;write_flash;@flash_args -D WORKING_DIRECTORY=C:/Users/pkjar/workspace/Spectron_Sht30_PayloadApp/build -P C:/esp/v5.5.3/esp-idf/components/esptool_py/run_serial_tool.cmake"
+esptool.py --chip esp32c3 -p COM11 -b 460800 --before=default_reset --after=hard_reset write_flash --flash_mode dio --flash_freq 80m --flash_size 2MB 0x0 bootloader/bootloader.bin 0x10000 Spectron_Sht30_PayloadApp.bin 0x8000 partition_table/partition-table.bin
+esptool.py v4.12.dev1
+Serial port COM11
+Connecting...
+Chip is ESP32-C3 (QFN32) (revision v0.4)
+Features: WiFi, BLE, Embedded Flash 4MB (XMC)
+Crystal is 40MHz
+USB mode: USB-Serial/JTAG
+MAC: 10:00:3b:b0:d7:94
+Uploading stub...
+Running stub...
+Stub running...
+Changing baud rate to 460800
+Changed.
+Configuring flash size...
+Flash will be erased from 0x00000000 to 0x00005fff...
+Flash will be erased from 0x00010000 to 0x000d1fff...
+Flash will be erased from 0x00008000 to 0x00008fff...
+SHA digest in image updated
+Compressed 20960 bytes to 13274...
+Writing at 0x00000000... (100 %)
+Wrote 20960 bytes (13274 compressed) at 0x00000000 in 0.2 seconds (effective 902.3 kbit/s)...
+Hash of data verified.
+Compressed 792896 bytes to 458577...
+Writing at 0x00010000... (3 %)
+Writing at 0x0001bdc5... (7 %)
+Writing at 0x00024a13... (10 %)
+Writing at 0x0002e62a... (14 %)
+Writing at 0x00034d6a... (17 %)
+Writing at 0x0003c66a... (21 %)
+Writing at 0x00043acd... (25 %)
+Writing at 0x0004a680... (28 %)
+Writing at 0x00050e0b... (32 %)
+Writing at 0x00057dc9... (35 %)
+Writing at 0x0005ddd4... (39 %)
+Writing at 0x00063bc0... (42 %)
+Writing at 0x00069a99... (46 %)
+Writing at 0x000700ee... (50 %)
+Writing at 0x000761d8... (53 %)
+Writing at 0x0007c347... (57 %)
+Writing at 0x00082771... (60 %)
+Writing at 0x0008926c... (64 %)
+Writing at 0x00090413... (67 %)
+Writing at 0x00097535... (71 %)
+Writing at 0x0009d945... (75 %)
+Writing at 0x000a3c35... (78 %)
+Writing at 0x000aa1bf... (82 %)
+Writing at 0x000aff6e... (85 %)
+Writing at 0x000b68fa... (89 %)
+Writing at 0x000bd9a6... (92 %)
+Writing at 0x000c4609... (96 %)
+Writing at 0x000cb662... (100 %)
+Wrote 792896 bytes (458577 compressed) at 0x00010000 in 2.7 seconds (effective 2362.9 kbit/s)...
+Hash of data verified.
+Compressed 3072 bytes to 103...
+Writing at 0x00008000... (100 %)
+Wrote 3072 bytes (103 compressed) at 0x00008000 in 0.0 seconds (effective 858.0 kbit/s)...
+Hash of data verified.
+
+Leaving...
+Hard resetting via RTS pin...

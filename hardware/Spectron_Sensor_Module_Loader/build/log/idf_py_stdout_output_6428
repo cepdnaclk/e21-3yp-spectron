@@ -1,0 +1,22 @@
+Command: ninja all
+[1/994] Generating project_elf_src_esp32c3.c
+[2/994] Generating C:/Users/pkjar/workspace/Spectron_Sensor_Module_Loader/build/esp-idf/esp_system/ld/sections.ld.in linker script...
+[3/994] Generating C:/Users/pkjar/workspace/Spectron_Sensor_Module_Loader/build/esp-idf/esp_system/ld/memory.ld linker script...
+[4/994] Generating ../../partition_table/partition-table.bin
+FAILED: partition_table/partition-table.bin C:/Users/pkjar/workspace/Spectron_Sensor_Module_Loader/build/partition_table/partition-table.bin 
+C:\WINDOWS\system32\cmd.exe /C "cd /D C:\Users\pkjar\workspace\Spectron_Sensor_Module_Loader\build\esp-idf\partition_table && C:\Espressif\tools\python\v5.5.3\venv\Scripts\python.exe C:/esp/v5.5.3/esp-idf/components/partition_table/gen_esp32part.py -q --offset 0x8000 --primary-bootloader-offset 0x0 --flash-size 4MB -- C:/Users/pkjar/workspace/Spectron_Sensor_Module_Loader/partitions.csv C:/Users/pkjar/workspace/Spectron_Sensor_Module_Loader/build/partition_table/partition-table.bin && C:\Espressif\tools\cmake\3.30.2\bin\cmake.exe -E echo "Partition table binary generated. Contents:" && C:\Espressif\tools\cmake\3.30.2\bin\cmake.exe -E echo ******************************************************************************* && C:\Espressif\tools\python\v5.5.3\venv\Scripts\python.exe C:/esp/v5.5.3/esp-idf/components/partition_table/gen_esp32part.py -q --offset 0x8000 --primary-bootloader-offset 0x0 --flash-size 4MB -- C:/Users/pkjar/workspace/Spectron_Sensor_Module_Loader/build/partition_table/partition-table.bin && C:\Espressif\tools\cmake\3.30.2\bin\cmake.exe -E echo *******************************************************************************"
+WARNING: Partition has name 'ota_0' which is a partition subtype, but this partition has non-matching type 0x0 and subtype 0x11. Mistake in partition table?
+A list of partitions that have the same name:
+ota_0,app,ota_0,0x120000,1280K,
+ota_0,app,ota_1,0x260000,1280K,
+Partition names must be unique
+[5/994] Generating ../../ota_data_initial.bin
+[6/994] Building C object esp-idf/esp_http_server/CMakeFiles/__idf_esp_http_server.dir/src/util/ctrl_sock.c.obj
+[7/994] Building C object esp-idf/esp_http_server/CMakeFiles/__idf_esp_http_server.dir/src/httpd_ws.c.obj
+[8/994] Building C object esp-idf/esp_http_server/CMakeFiles/__idf_esp_http_server.dir/src/httpd_uri.c.obj
+[9/994] Building C object esp-idf/esp_http_server/CMakeFiles/__idf_esp_http_server.dir/src/httpd_main.c.obj
+[10/994] Building C object esp-idf/esp_https_ota/CMakeFiles/__idf_esp_https_ota.dir/src/esp_https_ota.c.obj
+[11/994] Building C object esp-idf/esp_http_server/CMakeFiles/__idf_esp_http_server.dir/src/httpd_sess.c.obj
+[12/994] Building C object esp-idf/esp_http_server/CMakeFiles/__idf_esp_http_server.dir/src/httpd_txrx.c.obj
+[13/994] Building C object esp-idf/esp_http_server/CMakeFiles/__idf_esp_http_server.dir/src/httpd_parse.c.obj
+ninja: build stopped: subcommand failed.
