@@ -109,3 +109,65 @@ func TestDecodeDeviceSensorConfigSupportsHardwareFlatShape(t *testing.T) {
 		t.Fatalf("expected humidity warning max 85, got %+v", config.MetricThresholds["humidity"])
 	}
 }
+
+func TestDecodeDeviceSensorConfigSupportsThreeLayerShape(t *testing.T) {
+	rawConfig := []byte(`{
+		"hardware": {
+			"sensor_type": "ultrasonic",
+			"sensor_name": "Hall Occupancy Sensor",
+			"config": {
+				"readingFlowType": "TRIGGER",
+				"reportsPerDay": 12
+			}
+		},
+		"interpretation": {
+			"friendly_name": "Hall Occupancy Sensor",
+			"use_case": "occupancy_monitoring",
+			"primary_metric": "occupancy_count",
+			"thresholds": {
+				"max": 25,
+				"warning_max": 35
+			},
+			"metric_thresholds": {
+				"occupancy_count": {
+					"max": 25,
+					"warning_max": 35
+				}
+			}
+		},
+		"presentation": {
+			"profile": "counter_status",
+			"primary_widget": "counter",
+			"chart_style": "bar"
+		},
+		"operational": {
+			"report_interval_per_day": 12,
+			"reading_flow_type": "TRIGGER",
+			"power_management": {
+				"battery_life_days": 120,
+				"sampling_frequency": 12
+			}
+		}
+	}`)
+
+	config, err := decodeDeviceSensorConfig(rawConfig)
+	if err != nil {
+		t.Fatalf("decode layered config: %v", err)
+	}
+
+	if config.UseCase != "occupancy_monitoring" {
+		t.Fatalf("expected occupancy use case, got %q", config.UseCase)
+	}
+	if config.PresentationProfile != "counter_status" {
+		t.Fatalf("expected counter profile, got %q", config.PresentationProfile)
+	}
+	if config.PrimaryMetric != "occupancy_count" {
+		t.Fatalf("expected occupancy_count metric, got %q", config.PrimaryMetric)
+	}
+	if config.Hardware == nil || config.Hardware.Config["readingFlowType"] != "TRIGGER" {
+		t.Fatalf("expected hardware layer to keep reading flow type, got %+v", config.Hardware)
+	}
+	if config.Operational == nil || config.Operational.ReadingFlowType != "TRIGGER" {
+		t.Fatalf("expected operational reading flow type TRIGGER, got %+v", config.Operational)
+	}
+}

@@ -343,11 +343,13 @@ type thresholdAlertInput struct {
 }
 
 type thresholdAlertEvaluation struct {
-	Triggered bool
-	Severity  string
-	Metric    string
-	Boundary  string
-	Threshold float64
+	Triggered  bool
+	Severity   string
+	Metric     string
+	Condition  string
+	Boundary   string
+	AlertLabel string
+	Threshold  float64
 }
 
 func (p *RawReadingsProcessor) evaluateThresholdAlert(ctx context.Context, tx pgx.Tx, input thresholdAlertInput) error {
@@ -529,7 +531,8 @@ func sidecarParentSensorHWID(sensorHWID string, sensorType string) string {
 func decodeAlertSensorConfig(rawConfig []byte, sensorType string) (models.SensorConfig, error) {
 	var config models.SensorConfig
 	if err := json.Unmarshal(rawConfig, &config); err == nil {
-		if config.PrimaryMetric != "" || len(config.MetricThresholds) > 0 || !isEmptyThreshold(config.Thresholds) {
+		config.NormalizeThreeLayer(sensorType, nil)
+		if config.HasMeaningfulContent() {
 			return config, nil
 		}
 	}
@@ -556,11 +559,14 @@ func decodeAlertSensorConfig(rawConfig []byte, sensorType string) (models.Sensor
 		}
 	}
 
-	return models.SensorConfig{
+	config = models.SensorConfig{
 		PrimaryMetric:    metric,
 		Thresholds:       thresholds,
 		MetricThresholds: map[string]models.ThresholdConfig{metric: thresholds},
-	}, nil
+		HardwareConfig:   flat,
+	}
+	config.NormalizeThreeLayer(sensorType, nil)
+	return config, nil
 }
 
 func isEmptyThreshold(threshold models.ThresholdConfig) bool {
@@ -599,13 +605,9 @@ func numericPtrFromMap(values map[string]any, key string) *float64 {
 }
 
 func evaluateThresholdBreach(sensorType string, value float64, config models.SensorConfig) thresholdAlertEvaluation {
+	config.NormalizeThreeLayer(sensorType, nil)
 	sensorMetric := defaultMetricForSensorType(sensorType)
 	metric := strings.TrimSpace(config.PrimaryMetric)
-	if config.MetricThresholds != nil {
-		if _, ok := config.MetricThresholds[sensorMetric]; ok {
-			metric = sensorMetric
-		}
-	}
 	if metric == "" {
 		metric = sensorMetric
 	}
@@ -614,21 +616,72 @@ func evaluateThresholdBreach(sensorType string, value float64, config models.Sen
 	if config.MetricThresholds != nil {
 		if metricThreshold, ok := config.MetricThresholds[metric]; ok {
 			threshold = metricThreshold
+		} else if metricThreshold, ok := config.MetricThresholds[sensorMetric]; ok {
+			metric = sensorMetric
+			threshold = metricThreshold
 		}
 	}
 
 	switch {
 	case threshold.WarningMin != nil && value < *threshold.WarningMin:
-		return thresholdAlertEvaluation{Triggered: true, Severity: "CRITICAL", Metric: metric, Boundary: "below critical minimum", Threshold: *threshold.WarningMin}
+		return thresholdAlertEvaluation{
+			Triggered:  true,
+			Severity:   "CRITICAL",
+			Metric:     metric,
+			Condition:  "below",
+			Boundary:   "below critical minimum",
+			AlertLabel: matchingAlertLabel(config, metric, "below"),
+			Threshold:  *threshold.WarningMin,
+		}
 	case threshold.WarningMax != nil && value > *threshold.WarningMax:
-		return thresholdAlertEvaluation{Triggered: true, Severity: "CRITICAL", Metric: metric, Boundary: "above critical maximum", Threshold: *threshold.WarningMax}
+		return thresholdAlertEvaluation{
+			Triggered:  true,
+			Severity:   "CRITICAL",
+			Metric:     metric,
+			Condition:  "above",
+			Boundary:   "above critical maximum",
+			AlertLabel: matchingAlertLabel(config, metric, "above"),
+			Threshold:  *threshold.WarningMax,
+		}
 	case threshold.Min != nil && value < *threshold.Min:
-		return thresholdAlertEvaluation{Triggered: true, Severity: "WARN", Metric: metric, Boundary: "below minimum", Threshold: *threshold.Min}
+		return thresholdAlertEvaluation{
+			Triggered:  true,
+			Severity:   "WARN",
+			Metric:     metric,
+			Condition:  "below",
+			Boundary:   "below minimum",
+			AlertLabel: matchingAlertLabel(config, metric, "below"),
+			Threshold:  *threshold.Min,
+		}
 	case threshold.Max != nil && value > *threshold.Max:
-		return thresholdAlertEvaluation{Triggered: true, Severity: "WARN", Metric: metric, Boundary: "above maximum", Threshold: *threshold.Max}
+		return thresholdAlertEvaluation{
+			Triggered:  true,
+			Severity:   "WARN",
+			Metric:     metric,
+			Condition:  "above",
+			Boundary:   "above maximum",
+			AlertLabel: matchingAlertLabel(config, metric, "above"),
+			Threshold:  *threshold.Max,
+		}
 	default:
 		return thresholdAlertEvaluation{}
 	}
+}
+
+func matchingAlertLabel(config models.SensorConfig, metric string, condition string) string {
+	if config.Settings == nil || len(config.Settings.Alerts) == 0 {
+		return ""
+	}
+
+	for _, alert := range config.Settings.Alerts {
+		if strings.TrimSpace(alert.MetricKey) == strings.TrimSpace(metric) &&
+			strings.EqualFold(strings.TrimSpace(alert.Condition), strings.TrimSpace(condition)) &&
+			strings.TrimSpace(alert.Label) != "" {
+			return strings.TrimSpace(alert.Label)
+		}
+	}
+
+	return ""
 }
 
 func defaultMetricForSensorType(sensorType string) string {
@@ -661,6 +714,17 @@ func thresholdAlertMessage(input thresholdAlertInput, evaluation thresholdAlertE
 	}
 	if sensorLabel == "" {
 		sensorLabel = input.SensorID.String()
+	}
+
+	if evaluation.AlertLabel != "" {
+		return fmt.Sprintf(
+			"%s triggered %s: %.2f crossed %.2f at %s.",
+			sensorLabel,
+			evaluation.AlertLabel,
+			roundForAlert(input.Value),
+			roundForAlert(evaluation.Threshold),
+			input.ReadingAt.Format(time.RFC3339),
+		)
 	}
 
 	return fmt.Sprintf(

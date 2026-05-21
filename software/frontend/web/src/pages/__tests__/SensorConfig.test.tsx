@@ -48,69 +48,104 @@ const renderSensorConfig = (sensor: Sensor) => {
 };
 
 describe('SensorConfig', () => {
-  it('renders the configuration form controls', async () => {
+  it('renders the step-by-step wizard', async () => {
     renderSensorConfig(baseSensor('temperature_humidity', 'Climate Sensor'));
 
     expect(await screen.findByRole('heading', { name: /configure temperature_humidity sensor/i })).toBeInTheDocument();
+    expect(screen.getByText(/^About Sensor$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Observable Metric$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Visualization$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Alerts$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Review$/i)).toBeInTheDocument();
+    expect(screen.getByText(/step 1: about sensor/i)).toBeInTheDocument();
+    expect(screen.getByText(/detected physical sensor/i)).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: /sensor name/i })).toBeInTheDocument();
-    expect(screen.getAllByText(/used for/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/dashboard view/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/temperature thresholds/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/humidity thresholds/i).length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: /save and activate configuration/i })).toBeInTheDocument();
+    expect(screen.queryByText(/interpretation context/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /next/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /save and activate configuration/i })).not.toBeInTheDocument();
   });
 
   it.each([
     {
       type: 'temperature_humidity',
       name: 'Climate Sensor',
-      expected: [/temperature thresholds/i, /humidity thresholds/i],
+      expected: [/observed metric/i, /temperature spike/i, /heat index/i, /dew point/i, /climate condition/i],
     },
     {
       type: 'ultrasonic',
       name: 'Ultrasonic Sensor',
-      expected: [/fill level thresholds/i, /tank height/i, /low level alert/i],
+      expected: [/observed metric/i, /fill rate/i, /remaining capacity/i, /occupancy spike/i, /peak occupancy/i],
     },
     {
       type: 'load',
       name: 'Load Sensor',
-      expected: [/weight thresholds/i, /maximum weight/i, /overload alert/i],
+      expected: [/observed metric/i, /utilization percentage/i, /load change rate/i, /overload risk/i],
     },
-  ])('shows fields for $type sensors', async ({ type, name, expected }) => {
+  ])('shows metric choices for $type sensors', async ({ type, name, expected }) => {
+    const user = userEvent.setup();
     renderSensorConfig(baseSensor(type, name));
 
     expect(await screen.findByRole('heading', { name: new RegExp(`configure ${type} sensor`, 'i') })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /next/i }));
+    expect(screen.getByText(/step 2: observable metric/i)).toBeInTheDocument();
     for (const matcher of expected) {
       expect(screen.getAllByText(matcher).length).toBeGreaterThan(0);
     }
   });
 
-  it('validates required fields before saving', async () => {
+  it('walks through the wizard flow for known sensors', async () => {
+    const user = userEvent.setup();
+    renderSensorConfig(baseSensor('ultrasonic', 'Ultrasonic Sensor'));
+
+    expect(await screen.findByRole('heading', { name: /configure ultrasonic sensor/i })).toBeInTheDocument();
+    expect(screen.getByText(/gy-vl53l0x time-of-flight distance sensor/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /next/i }));
+    expect(screen.getByText(/step 2: observable metric/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /next/i }));
+    expect(screen.getByText(/step 3: visualization/i)).toBeInTheDocument();
+    expect(screen.getByText(/gauge \+ recent level/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /next/i }));
+    expect(screen.getByText(/step 4: alerts/i)).toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: /reports per day/i })).toBeInTheDocument();
+
+    const alertThresholds = screen.getAllByRole('spinbutton');
+    await user.clear(alertThresholds[0]);
+    await user.type(alertThresholds[0], '75');
+    await user.click(screen.getByRole('button', { name: /next/i }));
+
+    expect(screen.getByText(/step 5: review/i)).toBeInTheDocument();
+    expect(screen.getByText(/this is how the sensor card will look in monitoring/i)).toBeInTheDocument();
+  });
+
+  it('validates the current step before moving forward', async () => {
     const user = userEvent.setup();
     renderSensorConfig(baseSensor('temperature_humidity', 'Climate Sensor'));
 
     const sensorName = await screen.findByRole('textbox', { name: /sensor name/i });
     await user.clear(sensorName);
-    await user.click(screen.getByRole('button', { name: /save and activate configuration/i }));
+    await user.click(screen.getByRole('button', { name: /next/i }));
 
-    expect(await screen.findByText(/please enter a sensor name before saving/i)).toBeInTheDocument();
+    expect(await screen.findByText(/please enter a sensor name to continue/i)).toBeInTheDocument();
     expect(saveHardwareSensorConfiguration).not.toHaveBeenCalled();
   });
 
   it('saves a valid hardware sensor configuration and navigates back', async () => {
     const user = userEvent.setup();
-    renderSensorConfig(baseSensor('temperature_humidity', 'Climate Sensor'));
+    renderSensorConfig(baseSensor('load', 'Load Sensor'));
 
-    await screen.findByRole('heading', { name: /configure temperature_humidity sensor/i });
+    await screen.findByRole('heading', { name: /configure load sensor/i });
+    await user.click(screen.getByRole('button', { name: /next/i }));
+    await user.click(screen.getByRole('button', { name: /next/i }));
+    await user.click(screen.getByRole('button', { name: /next/i }));
 
-    const minFields = screen.getAllByRole('spinbutton', { name: /min value/i });
-    const maxFields = screen.getAllByRole('spinbutton', { name: /max value/i });
-
-    await user.type(minFields[0], '18');
-    await user.type(maxFields[0], '32');
-    await user.type(minFields[1], '40');
-    await user.type(maxFields[1], '85');
+    const alertThresholds = screen.getAllByRole('spinbutton');
+    await user.clear(alertThresholds[0]);
+    await user.type(alertThresholds[0], '250');
+    await user.clear(screen.getByRole('spinbutton', { name: /reports per day/i }));
     await user.type(screen.getByRole('spinbutton', { name: /reports per day/i }), '24');
+    await user.click(screen.getByRole('button', { name: /next/i }));
     await user.click(screen.getByRole('button', { name: /save and activate configuration/i }));
 
     await waitFor(() => {
@@ -119,8 +154,8 @@ describe('SensorConfig', () => {
           controllerId: 'CTRL-100',
           sensorId: 'sensor-1',
           systemName: 'Greenhouse System',
-          sensorType: 'temperature_humidity',
-          sensorName: 'Climate Sensor',
+          sensorType: 'load',
+          sensorName: 'Load Sensor',
         })
       );
     });

@@ -44,6 +44,67 @@ type SensorConfig struct {
 	MetricThresholds     map[string]ThresholdConfig `json:"metric_thresholds,omitempty"`
 	ReportIntervalPerDay int                        `json:"report_interval_per_day"`
 	PowerManagement      PowerManagementConfig      `json:"power_management"`
+	HardwareConfig       map[string]interface{}     `json:"hardware_config,omitempty"`
+	Hardware             *SensorHardwareLayer       `json:"hardware,omitempty"`
+	Interpretation       *SensorInterpretationLayer `json:"interpretation,omitempty"`
+	Presentation         *SensorPresentationLayer   `json:"presentation,omitempty"`
+	Settings             *SensorSettingsLayer       `json:"settings,omitempty"`
+	Operational          *SensorOperationalLayer    `json:"operational,omitempty"`
+}
+
+type SensorHardwareLayer struct {
+	SystemName          string                   `json:"system_name,omitempty"`
+	SensorType          string                   `json:"sensor_type,omitempty"`
+	SensorName          string                   `json:"sensor_name,omitempty"`
+	Config              map[string]interface{}   `json:"config,omitempty"`
+	SupportedRawMetrics []SensorHardwareMetric   `json:"supported_raw_metrics,omitempty"`
+}
+
+type SensorInterpretationLayer struct {
+	FriendlyName     string                     `json:"friendly_name,omitempty"`
+	Purpose          string                     `json:"purpose,omitempty"`
+	UseCase          string                     `json:"use_case,omitempty"`
+	PrimaryMetric    string                     `json:"primary_metric,omitempty"`
+	DisplayUnit      string                     `json:"display_unit,omitempty"`
+	DerivedMetrics   []SensorDerivedMetric      `json:"derived_metrics,omitempty"`
+	Thresholds       ThresholdConfig            `json:"thresholds"`
+	MetricThresholds map[string]ThresholdConfig `json:"metric_thresholds,omitempty"`
+	Context          *SensorContext             `json:"context,omitempty"`
+}
+
+type SensorPresentationLayer struct {
+	Profile          string   `json:"profile,omitempty"`
+	PrimaryWidget    string   `json:"primary_widget,omitempty"`
+	SecondaryWidgets []string `json:"secondary_widgets,omitempty"`
+	ChartStyle       string   `json:"chart_style,omitempty"`
+	HeadlineMetric   string   `json:"headline_metric,omitempty"`
+	StatusMode       string   `json:"status_mode,omitempty"`
+	ComparisonMode   string   `json:"comparison_mode,omitempty"`
+	DetailMode       string   `json:"detail_mode,omitempty"`
+}
+
+type SensorSettingsLayer struct {
+	Alerts               []SensorAlertSetting  `json:"alerts,omitempty"`
+	ReportIntervalPerDay int                   `json:"report_interval_per_day,omitempty"`
+	ReadingFlowType      string                `json:"reading_flow_type,omitempty"`
+	PowerManagement      PowerManagementConfig `json:"power_management"`
+}
+
+type SensorAlertSetting struct {
+	Key               string   `json:"key"`
+	Label             string   `json:"label"`
+	MetricKey         string   `json:"metric_key,omitempty"`
+	Condition         string   `json:"condition,omitempty"`
+	Unit              string   `json:"unit,omitempty"`
+	WarningThreshold  *float64 `json:"warning_threshold,omitempty"`
+	CriticalThreshold *float64 `json:"critical_threshold,omitempty"`
+	Description       string   `json:"description,omitempty"`
+}
+
+type SensorOperationalLayer struct {
+	ReportIntervalPerDay int                   `json:"report_interval_per_day,omitempty"`
+	PowerManagement      PowerManagementConfig `json:"power_management"`
+	ReadingFlowType      string                `json:"reading_flow_type,omitempty"`
 }
 
 type ThresholdConfig struct {
@@ -51,6 +112,23 @@ type ThresholdConfig struct {
 	Max        *float64 `json:"max,omitempty"`
 	WarningMin *float64 `json:"warning_min,omitempty"`
 	WarningMax *float64 `json:"warning_max,omitempty"`
+}
+
+type SensorHardwareMetric struct {
+	Key          string   `json:"key"`
+	Label        string   `json:"label"`
+	Unit         string   `json:"unit,omitempty"`
+	MinimumValue *float64 `json:"minimum_value,omitempty"`
+	MaximumValue *float64 `json:"maximum_value,omitempty"`
+}
+
+type SensorDerivedMetric struct {
+	Key           string   `json:"key"`
+	Label         string   `json:"label"`
+	Unit          string   `json:"unit,omitempty"`
+	SourceMetrics []string `json:"source_metrics,omitempty"`
+	Formula       string   `json:"formula,omitempty"`
+	Description   string   `json:"description,omitempty"`
 }
 
 type PowerManagementConfig struct {

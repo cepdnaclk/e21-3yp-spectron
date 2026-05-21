@@ -27,11 +27,10 @@ func TestControllerPairAPIIntegration(t *testing.T) {
 
 	t.Run("valid controller ID pairs unclaimed controller", func(t *testing.T) {
 		controller := app.createController(t, owner.accountID, nil, "CTRL-PAIR-OK", "unclaimed")
-		system, _ := app.createSystemWithSensors(t, owner.accountID, nil)
+		app.createLegacySensors(t, controller.id)
 
 		rec := executeRequest(app.rr, jsonRequest(t, http.MethodPost, "/api/controllers/pair", owner.token, map[string]string{
 			"controllerId": "CTRL-PAIR-OK",
-			"systemId":     system.id.String(),
 		}))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())

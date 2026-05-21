@@ -485,7 +485,8 @@ func buildDefaultDeviceConfigID(sensorID string, samplePeriodMs uint32, tempHiX1
 func decodeDeviceSensorConfig(rawConfig []byte) (models.SensorConfig, error) {
 	var activeConfig models.SensorConfig
 	if err := json.Unmarshal(rawConfig, &activeConfig); err == nil {
-		if activeConfig.ReportIntervalPerDay > 0 || len(activeConfig.MetricThresholds) > 0 || activeConfig.FriendlyName != "" {
+		activeConfig.NormalizeThreeLayer("", nil)
+		if activeConfig.HasMeaningfulContent() {
 			return activeConfig, nil
 		}
 	}
@@ -509,7 +510,7 @@ func decodeDeviceSensorConfig(rawConfig []byte) (models.SensorConfig, error) {
 		WarningMax: flatConfigFloatPtr(flat, "humidityWarningMax"),
 	}
 
-	return models.SensorConfig{
+	config := models.SensorConfig{
 		FriendlyName:         flatConfigString(flat, "friendlyName"),
 		UseCase:              flatConfigString(flat, "usedFor"),
 		PresentationProfile:  flatConfigString(flat, "dashboardView"),
@@ -521,7 +522,10 @@ func decodeDeviceSensorConfig(rawConfig []byte) (models.SensorConfig, error) {
 			BatteryLifeDays:   flatConfigInt(flat, "estimatedBatteryLifeDays", 0),
 			SamplingFrequency: reportsPerDay,
 		},
-	}, nil
+		HardwareConfig: flat,
+	}
+	config.NormalizeThreeLayer("", nil)
+	return config, nil
 }
 
 func flatConfigString(config map[string]any, key string) string {

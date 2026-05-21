@@ -109,6 +109,38 @@ func TestDecodeAlertSensorConfigUsesHumidityMetricForHumiditySidecar(t *testing.
 	}
 }
 
+func TestEvaluateThresholdBreachUsesThreeLayerPrimaryMetric(t *testing.T) {
+	config := models.SensorConfig{
+		Interpretation: &models.SensorInterpretationLayer{
+			UseCase:       "occupancy_monitoring",
+			PrimaryMetric: "occupancy_count",
+			MetricThresholds: map[string]models.ThresholdConfig{
+				"occupancy_count": {
+					Max:        floatPtr(25),
+					WarningMax: floatPtr(35),
+				},
+			},
+		},
+		Presentation: &models.SensorPresentationLayer{
+			Profile: "counter_status",
+		},
+		Operational: &models.SensorOperationalLayer{
+			ReportIntervalPerDay: 12,
+		},
+	}
+
+	evaluation := evaluateThresholdBreach("ultrasonic", 28, config)
+	if !evaluation.Triggered {
+		t.Fatal("expected occupancy threshold breach")
+	}
+	if evaluation.Metric != "occupancy_count" {
+		t.Fatalf("expected occupancy_count metric, got %s", evaluation.Metric)
+	}
+	if evaluation.Severity != "WARN" {
+		t.Fatalf("expected WARN severity, got %s", evaluation.Severity)
+	}
+}
+
 func TestConfigLookupSensorHWIDsIncludesParentForHumiditySidecar(t *testing.T) {
 	got := configLookupSensorHWIDs("ctrl-real-001-sensor-temp-01-humidity", "humidity")
 	want := []string{"ctrl-real-001-sensor-temp-01-humidity", "ctrl-real-001-sensor-temp-01"}

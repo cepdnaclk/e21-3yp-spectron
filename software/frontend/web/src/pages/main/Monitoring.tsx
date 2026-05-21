@@ -65,7 +65,13 @@ import {
 } from '../../services/hardwarePairingService';
 import { MonitoringSkeleton } from '../../components/LoadingSkeletons';
 import { useAuth } from '../../contexts/AuthContext';
-import { getSensorMetrics, ThresholdRange } from '../../utils/sensorConfig';
+import {
+  getMetricLabel,
+  getMetricUnit,
+  getSensorMetrics,
+  normalizePresentationConfig,
+  ThresholdRange,
+} from '../../utils/sensorConfig';
 
 type SensorPoint = {
   label: string;
@@ -76,6 +82,14 @@ type SensorPoint = {
 
 type SensorHealth = 'normal' | 'warning' | 'critical' | 'inactive';
 
+type SensorPresentationState = {
+  primaryMetric: string;
+  headlineMetric: string;
+  statusMode: string;
+  comparisonMode: string;
+  detailMode: string;
+};
+
 type SensorCardData = {
   controllerName: string;
   controllerLocation?: string;
@@ -83,13 +97,16 @@ type SensorCardData = {
   sensor: Sensor;
   trend: SensorPoint[];
   latestValue: number | null;
+  displayValue: number | null;
   latestTime?: string;
+  isSampleData: boolean;
   health: SensorHealth;
   healthLabel: string;
   insight: string;
   threshold?: ThresholdRange;
   presentationProfile: string;
   useCase: string;
+  presentationState: SensorPresentationState;
 };
 
 type ControllerMonitoringGroup = {
@@ -165,22 +182,180 @@ const toReadingValue = (reading: SensorReading): number | null => {
 const sortReadingsAscending = (readings: SensorReading[]) =>
   [...readings].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
+const sampleTrendValuesForMetric = (metricKey: string, useCase: string): number[] => {
+  switch (metricKey) {
+    case 'temperature':
+    case 'temperature_spike':
+    case 'heat_index':
+    case 'dew_point':
+      return [26.8, 27.2, 27.7, 28.1, 28.4, 28.2];
+    case 'humidity':
+    case 'humidity_spike':
+      return [63, 65, 66, 68, 67, 68];
+    case 'distance':
+      return [104, 101, 98, 96, 94, 92];
+    case 'fill_level':
+    case 'fill_rate':
+      return [54, 58, 63, 68, 72, 76];
+    case 'remaining_capacity_percent':
+      return [46, 42, 37, 32, 28, 24];
+    case 'occupancy_count':
+    case 'occupancy_spike':
+    case 'peak_occupancy':
+      return [8, 10, 13, 15, 18, 16];
+    case 'attendance_count':
+      return [34, 37, 40, 42, 41, 42];
+    case 'weight':
+      return [15.1, 14.9, 14.5, 14.1, 13.8, 13.6];
+    case 'utilization_percent':
+      return [52, 56, 60, 64, 68, 71];
+    case 'overload_risk':
+      return [48, 57, 66, 74, 88, 81];
+    case 'load_change_rate':
+    case 'depletion_rate':
+      return [-0.4, -0.6, -0.7, -0.9, -1.0, -1.1];
+    case 'gas_level':
+      return [240, 255, 275, 290, 320, 305];
+    case 'gas_spike':
+      return [12, 18, 24, 41, 85, 38];
+    case 'risk_score':
+      return [38, 44, 55, 61, 72, 68];
+    case 'unsafe_duration':
+      return [0, 2, 4, 7, 12, 9];
+    case 'aqi':
+      return [48, 52, 58, 63, 68, 64];
+    default:
+      if (useCase === 'occupancy_monitoring' || useCase === 'attendance_monitoring') {
+        return [8, 10, 13, 15, 18, 16];
+      }
+      if (useCase === 'fill_level_monitoring') {
+        return [54, 58, 63, 68, 72, 76];
+      }
+      if (useCase === 'load_monitoring') {
+        return [15.1, 14.9, 14.5, 14.1, 13.8, 13.6];
+      }
+      if (useCase === 'safety_monitoring') {
+        return [240, 255, 275, 290, 320, 305];
+      }
+      return [22, 24, 26, 28, 30, 29];
+  }
+};
+
+const buildSampleSensorTrend = (
+  metricKey: string,
+  useCase: string
+): SensorPoint[] => {
+  const values = sampleTrendValuesForMetric(metricKey, useCase);
+  const stepMinutes =
+    useCase === 'occupancy_monitoring' || useCase === 'attendance_monitoring' ? 60 : 180;
+  const now = Date.now();
+
+  return values.map((value, index) => {
+    const time = new Date(
+      now - (values.length - 1 - index) * stepMinutes * 60 * 1000
+    ).toISOString();
+    const label = formatTimeLabel(time);
+
+    return {
+      label,
+      shortLabel: label,
+      value,
+      time,
+    };
+  });
+};
+
+const getConfigUseCaseValue = (config?: SensorConfig) =>
+  config?.interpretation?.use_case?.trim() || config?.use_case?.trim() || '';
+
+const getConfigProfileValue = (config?: SensorConfig) =>
+  config?.presentation?.profile?.trim() || config?.presentation_profile?.trim() || '';
+
+const getConfigPrimaryMetricValue = (config?: SensorConfig) =>
+  config?.interpretation?.primary_metric?.trim() || config?.primary_metric?.trim() || '';
+
+const getConfigMetricThresholds = (config?: SensorConfig) =>
+  config?.interpretation?.metric_thresholds || config?.metric_thresholds;
+
+const getConfigThresholdValue = (config?: SensorConfig) =>
+  config?.interpretation?.thresholds || config?.thresholds;
+
+const normalizeUseCaseValue = (value?: string) => {
+  switch ((value || '').trim().toLowerCase()) {
+    case 'general monitoring':
+    case 'generic_monitoring':
+      return 'generic_monitoring';
+    case 'climate monitoring':
+    case 'climate_monitoring':
+      return 'climate_monitoring';
+    case 'fill level monitoring':
+    case 'fill_level_monitoring':
+      return 'fill_level_monitoring';
+    case 'occupancy monitoring':
+    case 'occupancy_monitoring':
+      return 'occupancy_monitoring';
+    case 'attendance monitoring':
+    case 'attendance_monitoring':
+      return 'attendance_monitoring';
+    case 'load monitoring':
+    case 'load_monitoring':
+      return 'load_monitoring';
+    case 'safety monitoring':
+    case 'safety_monitoring':
+      return 'safety_monitoring';
+    default:
+      return value?.trim() || '';
+  }
+};
+
+const normalizePresentationProfileValue = (value?: string) => {
+  switch ((value || '').trim().toLowerCase()) {
+    case 'single trend':
+    case 'single_trend':
+      return 'single_trend';
+    case 'dual climate':
+    case 'dual_climate':
+      return 'dual_climate';
+    case 'level monitoring':
+    case 'level view':
+    case 'level_monitoring':
+      return 'level_monitoring';
+    case 'counter status':
+    case 'status view':
+    case 'counter_status':
+      return 'counter_status';
+    case 'gauge status':
+    case 'gauge view':
+    case 'gauge_status':
+      return 'gauge_status';
+    case 'event timeline':
+    case 'timeline view':
+    case 'event_timeline':
+      return 'event_timeline';
+    default:
+      return value?.trim() || '';
+  }
+};
+
 const getPrimaryThreshold = (sensor: Sensor): ThresholdRange | undefined => {
   const config = sensor.active_config as SensorConfig | undefined;
   if (!config) {
     return undefined;
   }
 
-  const primaryMetric = getSensorMetrics(sensor.type)[0]?.key;
-  if (primaryMetric && config.metric_thresholds?.[primaryMetric]) {
-    return config.metric_thresholds[primaryMetric];
+  const primaryMetric =
+    getConfigPrimaryMetricValue(config) ||
+    getSensorMetrics(sensor.type, normalizeUseCaseValue(getConfigUseCaseValue(config)))[0]?.key;
+  const metricThresholds = getConfigMetricThresholds(config);
+  if (primaryMetric && metricThresholds?.[primaryMetric]) {
+    return metricThresholds[primaryMetric];
   }
 
-  return config.thresholds;
+  return getConfigThresholdValue(config);
 };
 
 const getPresentationProfile = (sensor: Sensor) => {
-  const savedProfile = sensor.active_config?.presentation_profile?.trim();
+  const savedProfile = normalizePresentationProfileValue(getConfigProfileValue(sensor.active_config));
   if (savedProfile) {
     return savedProfile;
   }
@@ -198,8 +373,39 @@ const getPresentationProfile = (sensor: Sensor) => {
   }
 };
 
+const getPrimaryMetricKey = (sensor: Sensor) => {
+  const config = sensor.active_config as SensorConfig | undefined;
+  const configuredMetric = getConfigPrimaryMetricValue(config);
+  if (configuredMetric) {
+    return configuredMetric;
+  }
+
+  const useCase = getUseCase(sensor);
+  return getSensorMetrics(sensor.type, useCase)[0]?.key || 'value';
+};
+
+const getPresentationState = (sensor: Sensor): SensorPresentationState => {
+  const config = sensor.active_config as SensorConfig | undefined;
+  const profile = getPresentationProfile(sensor);
+  const primaryMetric = getPrimaryMetricKey(sensor);
+  const normalized = normalizePresentationConfig(sensor.type, primaryMetric, profile as any, {
+    headline_metric: config?.presentation?.headline_metric,
+    status_mode: config?.presentation?.status_mode,
+    comparison_mode: config?.presentation?.comparison_mode,
+    detail_mode: config?.presentation?.detail_mode,
+  });
+
+  return {
+    primaryMetric,
+    headlineMetric: normalized.headline_metric || primaryMetric,
+    statusMode: normalized.status_mode || 'threshold_band',
+    comparisonMode: normalized.comparison_mode || 'threshold_band',
+    detailMode: normalized.detail_mode || 'trend_first',
+  };
+};
+
 const getUseCase = (sensor: Sensor) => {
-  const savedUseCase = sensor.active_config?.use_case?.trim();
+  const savedUseCase = normalizeUseCaseValue(getConfigUseCaseValue(sensor.active_config));
   if (savedUseCase) {
     return savedUseCase;
   }
@@ -236,7 +442,30 @@ const formatUseCaseLabel = (value: string) =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
 
-const getProfileBadgeLabel = (profile: string) => {
+const getProfileBadgeLabel = (profile: string, statusMode?: string) => {
+  switch (statusMode) {
+    case 'service_urgency':
+      return 'Service View';
+    case 'crowd_state':
+    case 'safe_capacity':
+      return 'Crowd View';
+    case 'attendance_target':
+    case 'session_presence':
+      return 'Attendance View';
+    case 'capacity_load':
+    case 'overload_risk':
+      return 'Load View';
+    case 'safety_exposure':
+    case 'traffic_light':
+      return 'Safety View';
+    case 'comfort_band':
+    case 'crop_band':
+    case 'condensation_watch':
+      return 'Climate View';
+    default:
+      break;
+  }
+
   switch (profile) {
     case 'dual_climate':
       return 'Climate View';
@@ -273,6 +502,56 @@ const getVisualizationMode = (useCase: string, profile: string, sensorType: stri
   return 'line';
 };
 
+const getChartTitle = (profile: string, detailMode: string, usesGauge: boolean) => {
+  switch (detailMode) {
+    case 'service_focus':
+      return 'Service outlook';
+    case 'historical_fill':
+    case 'refill_trend':
+      return 'Level movement';
+    case 'recent_activity':
+      return 'Recent activity';
+    case 'busy_periods':
+      return 'Busy periods';
+    case 'arrival_pattern':
+      return 'Arrival pattern';
+    case 'session_total':
+      return 'Session total';
+    case 'load_trend':
+      return 'Load movement';
+    case 'safety_focus':
+      return 'Safety state';
+    case 'ventilation_watch':
+      return 'Ventilation watch';
+    case 'incident_focus':
+    case 'incident_feed':
+      return 'Recent incidents';
+    case 'critical_incidents':
+      return 'Critical incidents';
+    case 'climate_state':
+      return 'Climate state';
+    case 'daily_extremes':
+      return 'Daily extremes';
+    case 'range_band':
+      return 'Operating band';
+    case 'change_focus':
+      return 'Recent change';
+    default:
+      break;
+  }
+
+  if (profile === 'counter_status') {
+    return 'Recent activity';
+  }
+  if (profile === 'event_timeline') {
+    return 'Recent events';
+  }
+  if (usesGauge) {
+    return 'Status snapshot';
+  }
+  return 'Recent trend';
+};
+
 const getSensorIcon = (sensorType: string) => {
   switch (sensorType.toLowerCase()) {
     case 'temperature':
@@ -293,45 +572,120 @@ const getSensorIcon = (sensorType: string) => {
   }
 };
 
-const getSensorUnit = (sensor: Sensor) => {
+const getSensorUnit = (sensor: Sensor, metricKey?: string) => {
+  if (metricKey) {
+    const explicitUnit = getMetricUnit(metricKey);
+    if (explicitUnit) {
+      return explicitUnit;
+    }
+  }
+
+  const config = sensor.active_config as SensorConfig | undefined;
+  if (!metricKey && config?.interpretation?.display_unit) {
+    return config.interpretation.display_unit;
+  }
+
+  const useCase = getUseCase(sensor);
   return sensor.unit || (
     sensor.type === 'temperature'
       ? 'C'
         : sensor.type === 'humidity'
           ? '%RH'
         : sensor.type === 'pressure'
-          ? 'kPa'
+          ? 'hPa'
         : sensor.type === 'bme280' || sensor.type === 'bmp280'
           ? 'C'
         : sensor.type === 'vl53l0x' || sensor.type === 'distance'
           ? 'cm'
         : sensor.type === 'ultrasonic'
-          ? 'cm'
+          ? useCase === 'occupancy_monitoring'
+            ? 'people'
+            : useCase === 'attendance_monitoring'
+              ? 'attendees'
+              : useCase === 'fill_level_monitoring'
+                ? '%'
+                : 'cm'
           : sensor.type === 'load' || sensor.type === 'load_cell'
             ? 'kg'
           : ''
   );
 };
 
-const getGaugeValue = (
-  latestValue: number | null,
+const getReferenceMax = (
   threshold?: ThresholdRange,
-  trend: SensorPoint[] = []
+  trend: SensorPoint[] = [],
+  latestValue?: number | null
+) =>
+  threshold?.warning_max ??
+  threshold?.max ??
+  Math.max(...trend.map((point) => point.value), latestValue ?? 0, 1);
+
+const getDisplayValue = (
+  latestValue: number | null,
+  trend: SensorPoint[],
+  threshold: ThresholdRange | undefined,
+  presentationState: SensorPresentationState
 ) => {
   if (latestValue === null) {
+    return null;
+  }
+
+  switch (presentationState.headlineMetric) {
+    case 'remaining_capacity_percent':
+      return Math.max(0, Math.min(100, 100 - latestValue));
+    case 'utilization_percent': {
+      const reference = getReferenceMax(threshold, trend, latestValue);
+      return reference > 0 ? Math.max(0, Math.min(100, (latestValue / reference) * 100)) : latestValue;
+    }
+    case 'risk_score': {
+      const reference = getReferenceMax(threshold, trend, latestValue);
+      return reference > 0 ? Math.max(0, Math.min(100, (latestValue / reference) * 100)) : latestValue;
+    }
+    case 'overload_risk': {
+      const reference = threshold?.warning_max ?? threshold?.max ?? getReferenceMax(threshold, trend, latestValue);
+      return reference > 0 ? Math.max(0, Math.min(100, (latestValue / reference) * 100)) : latestValue;
+    }
+    case 'peak_occupancy':
+      return trend.length > 0 ? Math.max(...trend.map((point) => point.value)) : latestValue;
+    case 'attendance_gap': {
+      const target = threshold?.min ?? threshold?.warning_min ?? 0;
+      return Math.max(0, target - latestValue);
+    }
+    default:
+      return latestValue;
+  }
+};
+
+const getGaugeValue = (
+  displayValue: number | null,
+  threshold?: ThresholdRange,
+  trend: SensorPoint[] = [],
+  presentationState?: SensorPresentationState
+) => {
+  if (displayValue === null) {
     return 0;
+  }
+
+  if (
+    presentationState?.comparisonMode === 'used_capacity' ||
+    presentationState?.comparisonMode === 'remaining_capacity' ||
+    presentationState?.comparisonMode === 'capacity_percent' ||
+    presentationState?.comparisonMode === 'risk_band' ||
+    presentationState?.headlineMetric === 'overload_risk'
+  ) {
+    return Math.max(0, Math.min(100, displayValue));
   }
 
   const maxReference =
     threshold?.warning_max ??
     threshold?.max ??
-    Math.max(...trend.map((point) => point.value), latestValue, 1);
+    Math.max(...trend.map((point) => point.value), displayValue, 1);
 
   if (!Number.isFinite(maxReference) || maxReference <= 0) {
     return 0;
   }
 
-  return Math.max(0, Math.min(100, (latestValue / maxReference) * 100));
+  return Math.max(0, Math.min(100, (displayValue / maxReference) * 100));
 };
 
 const formatSensorValue = (value: number | null, unit?: string) => {
@@ -341,10 +695,144 @@ const formatSensorValue = (value: number | null, unit?: string) => {
   return `${value.toFixed(1)}${unit ? ` ${unit}` : ''}`;
 };
 
+const semanticHealthCopy = (
+  metricKey: string,
+  statusMode: string,
+  condition: 'below' | 'above',
+  severity: 'warning' | 'critical'
+): { label: string; insight: string } => {
+  if (metricKey === 'fill_level' || statusMode === 'service_urgency' || statusMode === 'capacity_state') {
+    return severity === 'critical'
+      ? {
+          label: 'Service now',
+          insight: condition === 'above'
+            ? 'Fill level is in the urgent service zone.'
+            : 'Remaining capacity is critically low.',
+        }
+      : {
+          label: 'Service soon',
+          insight: condition === 'above'
+            ? 'Fill level is approaching the planned service threshold.'
+            : 'Remaining capacity is becoming limited.',
+        };
+  }
+
+  if (metricKey === 'occupancy_count' || statusMode === 'crowd_state' || statusMode === 'safe_capacity') {
+    return severity === 'critical'
+      ? {
+          label: 'Crowded',
+          insight: 'Occupancy is beyond the critical crowd threshold.',
+        }
+      : {
+          label: 'Busy',
+          insight: 'Occupancy is above the preferred operating band.',
+        };
+  }
+
+  if (metricKey === 'attendance_count' || statusMode === 'attendance_target' || statusMode === 'session_presence') {
+    return severity === 'critical'
+      ? {
+          label: 'Attendance low',
+          insight: 'Attendance has dropped well below the expected session target.',
+        }
+      : {
+          label: 'Below target',
+          insight: 'Attendance is below the preferred session target.',
+        };
+  }
+
+  if (metricKey === 'weight' || metricKey === 'overload_risk' || statusMode === 'capacity_load' || statusMode === 'overload_risk') {
+    return severity === 'critical'
+      ? {
+          label: 'Overload',
+          insight: 'The measured load is above the critical supported band.',
+        }
+      : {
+          label: 'Heavy load',
+          insight: 'The measured load is above the preferred operating band.',
+        };
+  }
+
+  if (metricKey === 'gas_level' || statusMode === 'safety_exposure' || statusMode === 'traffic_light') {
+    return severity === 'critical'
+      ? {
+          label: 'Unsafe',
+          insight: 'Gas concentration is in the critical exposure zone.',
+        }
+      : {
+          label: 'Warning',
+          insight: 'Gas concentration is above the preferred safety band.',
+        };
+  }
+
+  if (metricKey === 'temperature') {
+    return condition === 'below'
+      ? {
+          label: severity === 'critical' ? 'Too cold' : 'Cooling down',
+          insight: severity === 'critical'
+            ? 'Temperature is well below the safe operating band.'
+            : 'Temperature is below the preferred operating band.',
+        }
+      : {
+          label: severity === 'critical' ? 'Too hot' : 'Heating up',
+          insight: severity === 'critical'
+            ? 'Temperature is well above the safe operating band.'
+            : 'Temperature is above the preferred operating band.',
+        };
+  }
+
+  if (metricKey === 'humidity') {
+    return condition === 'below'
+      ? {
+          label: severity === 'critical' ? 'Too dry' : 'Drying out',
+          insight: severity === 'critical'
+            ? 'Humidity is well below the safe operating band.'
+            : 'Humidity is below the preferred operating band.',
+        }
+      : {
+          label: severity === 'critical' ? 'Too humid' : 'Humidity high',
+          insight: severity === 'critical'
+            ? 'Humidity is well above the safe operating band.'
+            : 'Humidity is above the preferred operating band.',
+        };
+  }
+
+  if (metricKey === 'distance' || statusMode === 'distance_limit' || statusMode === 'proximity_state') {
+    return severity === 'critical'
+      ? {
+          label: 'Limit exceeded',
+          insight: condition === 'above'
+            ? 'Distance is well beyond the critical limit.'
+            : 'Distance is well below the critical limit.',
+        }
+      : {
+          label: 'Check distance',
+          insight: condition === 'above'
+            ? 'Distance is outside the preferred operating band.'
+            : 'Distance has moved below the preferred operating band.',
+        };
+  }
+
+  return severity === 'critical'
+    ? {
+        label: 'Critical',
+        insight: condition === 'below'
+          ? 'Reading is well below the safe minimum range.'
+          : 'Reading is well above the safe maximum range.',
+      }
+    : {
+        label: 'Attention',
+        insight: condition === 'below'
+          ? 'Reading is below the preferred minimum threshold.'
+          : 'Reading is above the preferred maximum threshold.',
+      };
+};
+
 const evaluateHealth = (
   sensor: Sensor,
   latestValue: number | null,
-  threshold?: ThresholdRange
+  threshold: ThresholdRange | undefined,
+  presentationState: SensorPresentationState
 ): { health: SensorHealth; label: string; insight: string } => {
   if (latestValue === null) {
     return {
@@ -369,34 +857,58 @@ const evaluateHealth = (
   }
 
   if (threshold.warning_min !== undefined && latestValue < threshold.warning_min) {
+    const copy = semanticHealthCopy(
+      presentationState.primaryMetric,
+      presentationState.statusMode,
+      'below',
+      'critical'
+    );
     return {
       health: 'critical',
-      label: 'Critical',
-      insight: 'Reading is well below the safe minimum range.',
+      label: copy.label,
+      insight: copy.insight,
     };
   }
 
   if (threshold.warning_max !== undefined && latestValue > threshold.warning_max) {
+    const copy = semanticHealthCopy(
+      presentationState.primaryMetric,
+      presentationState.statusMode,
+      'above',
+      'critical'
+    );
     return {
       health: 'critical',
-      label: 'Critical',
-      insight: 'Reading is well above the safe maximum range.',
+      label: copy.label,
+      insight: copy.insight,
     };
   }
 
   if (threshold.min !== undefined && latestValue < threshold.min) {
+    const copy = semanticHealthCopy(
+      presentationState.primaryMetric,
+      presentationState.statusMode,
+      'below',
+      'warning'
+    );
     return {
       health: 'warning',
-      label: 'Attention',
-      insight: 'Reading is below the preferred minimum threshold.',
+      label: copy.label,
+      insight: copy.insight,
     };
   }
 
   if (threshold.max !== undefined && latestValue > threshold.max) {
+    const copy = semanticHealthCopy(
+      presentationState.primaryMetric,
+      presentationState.statusMode,
+      'above',
+      'warning'
+    );
     return {
       health: 'warning',
-      label: 'Attention',
-      insight: 'Reading is above the preferred maximum threshold.',
+      label: copy.label,
+      insight: copy.insight,
     };
   }
 
@@ -877,26 +1389,51 @@ const Monitoring: React.FC = () => {
                 })
                 .filter((point): point is SensorPoint => point !== null);
 
-              const latestPoint = trend[trend.length - 1];
-              const threshold = getPrimaryThreshold(sensor);
-              const evaluated = evaluateHealth(sensor, latestPoint?.value ?? null, threshold);
               const presentationProfile = getPresentationProfile(sensor);
               const useCase = getUseCase(sensor);
+              const presentationState = getPresentationState(sensor);
+              const isSampleData = trend.length === 0;
+              const effectiveTrend = isSampleData
+                ? buildSampleSensorTrend(presentationState.primaryMetric, useCase)
+                : trend;
+              const latestPoint = effectiveTrend[effectiveTrend.length - 1];
+              const threshold = getPrimaryThreshold(sensor);
+              const displayValue = getDisplayValue(
+                latestPoint?.value ?? null,
+                effectiveTrend,
+                threshold,
+                presentationState
+              );
+              const evaluated = isSampleData
+                ? {
+                    health: 'normal' as const,
+                    label: 'Sample view',
+                    insight: 'Showing sample data until live readings arrive for this sensor.',
+                  }
+                : evaluateHealth(
+                    sensor,
+                    latestPoint?.value ?? null,
+                    threshold,
+                    presentationState
+                  );
 
               return {
                 controllerName: controller.name || controller.hw_id || 'Controller',
                 controllerLocation: controller.location,
                 controllerStatus: controller.status,
                 sensor,
-                trend,
+                trend: effectiveTrend,
                 latestValue: latestPoint?.value ?? null,
-                latestTime: latestPoint?.time,
+                displayValue,
+                latestTime: isSampleData ? undefined : latestPoint?.time,
+                isSampleData,
                 threshold,
                 health: evaluated.health,
                 healthLabel: evaluated.label,
                 insight: evaluated.insight,
                 presentationProfile,
                 useCase,
+                presentationState,
               } satisfies SensorCardData;
             })
           );
@@ -951,12 +1488,14 @@ const Monitoring: React.FC = () => {
 
   const summary = useMemo(() => {
     const allSensors = controllers.flatMap((controller) => controller.sensors);
+    const liveSensors = allSensors.filter((sensor) => !sensor.isSampleData);
     return {
       controllers: controllers.length,
-      healthy: allSensors.filter((sensor) => sensor.health === 'normal').length,
-      needsAttention: allSensors.filter(
+      healthy: liveSensors.filter((sensor) => sensor.health === 'normal').length,
+      needsAttention: liveSensors.filter(
         (sensor) => sensor.health === 'warning' || sensor.health === 'critical'
       ).length,
+      samplePreview: allSensors.filter((sensor) => sensor.isSampleData).length,
     };
   }, [controllers]);
 
@@ -1149,6 +1688,14 @@ const Monitoring: React.FC = () => {
           {errorMessage}
       </AutoDismissAlert>
 
+      {!errorMessage && summary.samplePreview > 0 && (
+        <AutoDismissAlert open severity="info" sx={{ mb: 2 }}>
+          {summary.samplePreview} sensor{summary.samplePreview === 1 ? '' : 's'} are showing sample
+          data because recent readings are not available yet. You can still review the configured
+          visualization and thresholds.
+        </AutoDismissAlert>
+      )}
+
       {!errorMessage && controllers.length === 0 && (
         <Card>
           <CardContent>
@@ -1163,9 +1710,14 @@ const Monitoring: React.FC = () => {
       <Stack spacing={2.5}>
         {controllers.map((controller) => {
           const warningCount = controller.sensors.filter(
-            (sensor) => sensor.health === 'warning' || sensor.health === 'critical'
+            (sensor) =>
+              !sensor.isSampleData &&
+              (sensor.health === 'warning' || sensor.health === 'critical')
           ).length;
-          const activeCount = controller.sensors.filter((sensor) => sensor.latestValue !== null).length;
+          const activeCount = controller.sensors.filter(
+            (sensor) => sensor.latestValue !== null && !sensor.isSampleData
+          ).length;
+          const sampleCount = controller.sensors.filter((sensor) => sensor.isSampleData).length;
 
           return (
             <Card key={controller.id} sx={{ overflow: 'hidden' }}>
@@ -1216,13 +1768,37 @@ const Monitoring: React.FC = () => {
                         fontWeight: 800,
                       }}
                     />
+                    {sampleCount > 0 && (
+                      <Chip
+                        label={`${sampleCount} sample`}
+                        size="small"
+                        sx={{
+                          bgcolor: 'rgba(152, 208, 255, 0.18)',
+                          color: '#fffdf8',
+                          fontWeight: 800,
+                        }}
+                      />
+                    )}
                     <Chip
-                      label={warningCount > 0 ? `${warningCount} to review` : 'All calm'}
+                      label={
+                        warningCount > 0
+                          ? `${warningCount} to review`
+                          : sampleCount > 0 && activeCount === 0
+                            ? 'Preview mode'
+                            : 'All calm'
+                      }
                       size="small"
                       sx={{
                         bgcolor:
-                          warningCount > 0 ? '#dba048' : 'rgba(255, 253, 248, 0.12)',
-                        color: warningCount > 0 ? '#3c3911' : '#fffdf8',
+                          warningCount > 0
+                            ? '#dba048'
+                            : sampleCount > 0 && activeCount === 0
+                              ? 'rgba(152, 208, 255, 0.18)'
+                              : 'rgba(255, 253, 248, 0.12)',
+                        color:
+                          warningCount > 0
+                            ? '#3c3911'
+                            : '#fffdf8',
                         fontWeight: 800,
                       }}
                     />
@@ -1253,14 +1829,16 @@ const Monitoring: React.FC = () => {
                       item.sensor.type
                     );
                     const usesGauge = visualizationMode === 'gauge';
-                    const chartTitle =
-                      item.presentationProfile === 'counter_status'
-                        ? 'Recent activity'
-                        : item.presentationProfile === 'event_timeline'
-                          ? 'Recent events'
-                          : usesGauge
-                            ? 'Status snapshot'
-                            : 'Recent trend';
+                    const chartTitle = getChartTitle(
+                      item.presentationProfile,
+                      item.presentationState.detailMode,
+                      usesGauge
+                    );
+                    const displayMetricLabel = getMetricLabel(item.presentationState.headlineMetric);
+                    const displayUnit = getSensorUnit(
+                      item.sensor,
+                      item.presentationState.headlineMetric || item.presentationState.primaryMetric
+                    );
 
                     return (
                       <Grid item xs={12} lg={6} key={item.sensor.id}>
@@ -1334,7 +1912,12 @@ const Monitoring: React.FC = () => {
                                   </Typography>
                                 </Box>
                               </Stack>
-                              <Chip size="small" label={item.healthLabel} color={styles.chipColor} />
+                              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" justifyContent="flex-end">
+                                {item.isSampleData && (
+                                  <Chip size="small" variant="outlined" color="info" label="Sample Data" />
+                                )}
+                                <Chip size="small" label={item.healthLabel} color={styles.chipColor} />
+                              </Stack>
                             </Stack>
 
                             <Stack
@@ -1345,7 +1928,7 @@ const Monitoring: React.FC = () => {
                             >
                               <Box>
                                 <Typography variant="caption" color="text.secondary">
-                                  Current reading
+                                  {displayMetricLabel}
                                 </Typography>
                                 <Typography
                                   variant="h4"
@@ -1354,23 +1937,30 @@ const Monitoring: React.FC = () => {
                                     color: styles.readingColor,
                                   }}
                                 >
-                                  {formatSensorValue(item.latestValue, getSensorUnit(item.sensor))}
+                                  {formatSensorValue(item.displayValue, displayUnit)}
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                                  {item.latestTime
-                                    ? `Seen at ${formatDateTime(item.latestTime)}`
-                                    : 'No timestamp available'}
+                                  {item.isSampleData
+                                    ? 'Showing sample history until live data arrives'
+                                    : item.latestTime
+                                      ? `Seen at ${formatDateTime(item.latestTime)}`
+                                      : 'No timestamp available'}
                                 </Typography>
                               </Box>
                               <Stack spacing={0.75} sx={{ minWidth: { sm: 220 } }}>
                                 <Chip
                                   size="small"
                                   variant="outlined"
-                                  label={getProfileBadgeLabel(item.presentationProfile)}
+                                  label={getProfileBadgeLabel(
+                                    item.presentationProfile,
+                                    item.presentationState.statusMode
+                                  )}
                                   sx={{ alignSelf: 'flex-start' }}
                                 />
                                 <Typography variant="caption" color="text.secondary">
-                                  {trendDelta || 'Needs more readings to show direction'} •{' '}
+                                  {item.isSampleData
+                                    ? 'Sample history'
+                                    : trendDelta || 'Needs more readings to show direction'} •{' '}
                                   {thresholdSummary}
                                 </Typography>
                               </Stack>
@@ -1385,9 +1975,10 @@ const Monitoring: React.FC = () => {
                                   <Typography variant="body2" color="text.secondary">
                                     {Math.round(
                                       getGaugeValue(
-                                        item.latestValue,
+                                        item.displayValue,
                                         item.threshold,
-                                        item.trend
+                                        item.trend,
+                                        item.presentationState
                                       )
                                     )}
                                     %
@@ -1396,9 +1987,10 @@ const Monitoring: React.FC = () => {
                                 <LinearProgress
                                   variant="determinate"
                                   value={getGaugeValue(
-                                    item.latestValue,
+                                    item.displayValue,
                                     item.threshold,
-                                    item.trend
+                                    item.trend,
+                                    item.presentationState
                                   )}
                                   sx={{
                                     height: 12,
@@ -1572,9 +2164,11 @@ const Monitoring: React.FC = () => {
                               sx={{ mt: 'auto', pt: 2 }}
                             >
                               <Typography variant="caption" color="text.secondary" sx={{ pr: 1 }}>
-                                {item.sensor.config_active
-                                  ? 'Configuration is active for this sensor.'
-                                  : 'No configuration saved yet.'}
+                                {item.isSampleData
+                                  ? item.insight
+                                  : item.sensor.config_active
+                                    ? 'Configuration is active for this sensor.'
+                                    : 'No configuration saved yet.'}
                               </Typography>
                               <Button
                                 variant="outlined"

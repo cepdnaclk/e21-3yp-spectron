@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import PairController from '../main/PairController';
 import {
-  getMySystems,
   pairHardwareController,
 } from '../../services/hardwarePairingService';
 
@@ -32,7 +31,6 @@ vi.mock('../../services/hardwarePairingService', async () => {
 
   return {
     ...actual,
-    getMySystems: vi.fn(),
     pairHardwareController: vi.fn(),
   };
 });
@@ -53,7 +51,6 @@ describe('PairController', () => {
     qrMockState.start.mockClear();
     qrMockState.stop.mockClear();
     qrMockState.clear.mockClear();
-    vi.mocked(getMySystems).mockResolvedValue([]);
     vi.mocked(pairHardwareController).mockResolvedValue({
       controllerId: 'CTRL-TEST123',
       status: 'paired',
@@ -73,6 +70,7 @@ describe('PairController', () => {
     expect(await screen.findByRole('button', { name: /start camera scanner/i })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: /controller id/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /add controller/i })).toBeInTheDocument();
+    expect(screen.queryByText(/attach to existing system/i)).not.toBeInTheDocument();
 
     await user.type(screen.getByRole('textbox', { name: /controller id/i }), 'CTRL-TEST123');
 
@@ -108,7 +106,7 @@ describe('PairController', () => {
     await user.click(screen.getByRole('button', { name: /add controller/i }));
 
     await waitFor(() => {
-      expect(pairHardwareController).toHaveBeenCalledWith('CTRL-TEST123', undefined);
+      expect(pairHardwareController).toHaveBeenCalledWith('CTRL-TEST123');
     });
   });
 
