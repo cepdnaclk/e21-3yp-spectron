@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -70,6 +71,33 @@ var startupMigrations = []migration{
 func ApplyStartupMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	for _, m := range startupMigrations {
 		if _, err := pool.Exec(ctx, m.sql); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "permission denied for schema public") {
+				cfg := pool.Config()
+				dbName := "<database>"
+				dbUser := "<db_user>"
+				if cfg != nil && cfg.ConnConfig != nil {
+					if strings.TrimSpace(cfg.ConnConfig.Database) != "" {
+						dbName = strings.TrimSpace(cfg.ConnConfig.Database)
+					}
+					if strings.TrimSpace(cfg.ConnConfig.User) != "" {
+						dbUser = strings.TrimSpace(cfg.ConnConfig.User)
+					}
+				}
+				return fmt.Errorf(
+					"apply migration %s: the database user %q can connect to database %q but cannot create objects in schema public. "+
+						"Connect as a PostgreSQL superuser and run:\n"+
+						"  ALTER DATABASE %s OWNER TO %s;\n"+
+						"  GRANT USAGE, CREATE ON SCHEMA public TO %s;\n"+
+						"Then start the backend again.\nOriginal error: %w",
+					m.name,
+					dbUser,
+					dbName,
+					dbName,
+					dbUser,
+					dbUser,
+					err,
+				)
+			}
 			return fmt.Errorf("apply migration %s: %w", m.name, err)
 		}
 	}

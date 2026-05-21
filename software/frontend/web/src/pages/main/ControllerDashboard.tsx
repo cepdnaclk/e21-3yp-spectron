@@ -26,6 +26,7 @@ import {
   renameHardwareSensor,
   releaseHardwareController,
 } from '../../services/hardwarePairingService';
+import { formatHardwareMetricRange, getSensorHardwareCapabilities } from '../../utils/sensorConfig';
 import { ControllerDashboardSkeleton } from '../../components/LoadingSkeletons';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { useAuth } from '../../contexts/AuthContext';
@@ -37,7 +38,6 @@ type DashboardNavigationState = {
   configurationSaved?: boolean;
   configuredSensorId?: string;
   configuredSensorName?: string;
-  validationWarnings?: string[];
   observationMessage?: string;
 };
 
@@ -93,7 +93,7 @@ const ControllerDashboard: React.FC = () => {
       setLoading(true);
       const [controllerData, sensorsData] = await Promise.all([
         getHardwareController(activeControllerId),
-        getHardwareSensors(activeControllerId, { liveOnly: true }),
+        getHardwareSensors(activeControllerId),
       ]);
       setController(controllerData);
       setSensors(Array.isArray(sensorsData) ? sensorsData : []);
@@ -310,7 +310,7 @@ const ControllerDashboard: React.FC = () => {
       </Box>
       <AutoDismissAlert
         open={Boolean(saveNotice?.configurationSaved)}
-        severity={(saveNotice?.validationWarnings || []).length > 0 ? 'warning' : 'success'}
+        severity="success"
         sx={{ mb: 3 }}
         onCloseAlert={() => setSaveNotice((current) => current?.configurationSaved ? null : current)}
       >
@@ -318,17 +318,8 @@ const ControllerDashboard: React.FC = () => {
             {saveNotice?.configuredSensorName || 'Sensor'} is now configured.
           </Typography>
           <Typography variant="body2">
-            {saveNotice?.observationMessage || 'The system is now observing live readings and can suggest refinements later.'}
+            {saveNotice?.observationMessage || 'The system is now observing live readings with the saved three-layer setup.'}
           </Typography>
-          {(saveNotice?.validationWarnings || []).length > 0 && (
-            <Box component="ul" sx={{ pl: 2, mb: 0, mt: 1 }}>
-              {(saveNotice?.validationWarnings || []).map((warning) => (
-                <li key={warning}>
-                  <Typography variant="body2">{warning}</Typography>
-                </li>
-              ))}
-            </Box>
-          )}
       </AutoDismissAlert>
       <Snackbar
         open={toastOpen}
@@ -509,6 +500,10 @@ const ControllerDashboard: React.FC = () => {
           sensors.map((sensor) => {
             const observationChip = getObservationChip(sensor);
             const readinessChip = getReadinessChip(sensor);
+            const readableRanges =
+              sensor.active_config?.hardware?.supported_raw_metrics?.length
+                ? sensor.active_config.hardware.supported_raw_metrics
+                : getSensorHardwareCapabilities(sensor.type);
 
             return (
               <Grid item xs={12} sm={6} key={sensor.id}>
@@ -605,6 +600,18 @@ const ControllerDashboard: React.FC = () => {
                         />
                       )}
                     </Stack>
+                    {readableRanges.length > 0 && (
+                      <Box sx={{ mt: 1.5, mb: 1.5, p: 1.5, borderRadius: 2, bgcolor: '#fffaf0', border: '1px solid rgba(60, 57, 17, 0.08)' }}>
+                        <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
+                          Physical readable range
+                        </Typography>
+                        {readableRanges.map((metric) => (
+                          <Typography key={`${sensor.id}-${metric.key}`} variant="body2" color="text.secondary">
+                            {metric.label}: {formatHardwareMetricRange(metric)}
+                          </Typography>
+                        ))}
+                      </Box>
+                    )}
                     <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
                       {sensor.purpose ? (
                         <Typography variant="body2" color="text.secondary">
@@ -648,7 +655,7 @@ const ControllerDashboard: React.FC = () => {
                           )
                         }
                       >
-                        {sensor.config_active ? 'Review Configuration' : 'Configure Later'}
+                        {sensor.config_active ? 'Review Configuration' : 'Configure'}
                       </Button>
                     </Box>
                   </CardContent>

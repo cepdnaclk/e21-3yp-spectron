@@ -68,6 +68,9 @@ func scanSensorRecord(scanner rowScanner) (models.Sensor, error) {
 	}
 
 	sensor.Context = parseSensorContext(rawContext)
+	if sensor.ActiveConfig != nil {
+		sensor.ActiveConfig.NormalizeThreeLayer(sensor.Type, sensor.Context)
+	}
 	sensor.Observation = buildSensorObservation(
 		sensor.ConfigActive,
 		sensor.Context,
@@ -92,8 +95,15 @@ func decodeSaveSensorConfigRequest(r *http.Request) (models.SaveSensorConfigRequ
 
 	var wrapped models.SaveSensorConfigRequest
 	if err := json.Unmarshal(body, &wrapped); err == nil && wrapped.Config != nil {
+		if wrapped.Context == nil && wrapped.Config.Interpretation != nil {
+			wrapped.Context = normalizeSensorContext(wrapped.Config.Interpretation.Context)
+		}
+		if wrapped.Purpose == "" && wrapped.Config.Interpretation != nil {
+			wrapped.Purpose = strings.TrimSpace(wrapped.Config.Interpretation.Purpose)
+		}
 		wrapped.Context = normalizeSensorContext(wrapped.Context)
 		wrapped.Purpose = strings.TrimSpace(wrapped.Purpose)
+		wrapped.Config.NormalizeThreeLayer("", wrapped.Context)
 		return wrapped, nil
 	}
 
@@ -101,9 +111,20 @@ func decodeSaveSensorConfigRequest(r *http.Request) (models.SaveSensorConfigRequ
 	if err := json.Unmarshal(body, &config); err != nil {
 		return models.SaveSensorConfigRequest{}, err
 	}
+	if config.Interpretation != nil {
+		if config.Interpretation.Context != nil {
+			config.Interpretation.Context = normalizeSensorContext(config.Interpretation.Context)
+		}
+		if config.Interpretation.Purpose != "" {
+			config.Interpretation.Purpose = strings.TrimSpace(config.Interpretation.Purpose)
+		}
+	}
+	config.NormalizeThreeLayer("", config.Interpretation.Context)
 
 	return models.SaveSensorConfigRequest{
-		Config: &config,
+		Context: normalizeSensorContext(config.Interpretation.Context),
+		Purpose: strings.TrimSpace(config.Interpretation.Purpose),
+		Config:  &config,
 	}, nil
 }
 

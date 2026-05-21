@@ -20,7 +20,6 @@ export const API_ENDPOINTS = {
     LIST: (controllerId: string) => `/controllers/${controllerId}/sensors`,
     GET: (id: string) => `/sensors/${id}`,
     UPDATE: (id: string) => `/sensors/${id}`,
-    AI_SUGGEST: (id: string) => `/sensors/${id}/ai-suggest-config`,
     CONFIG: (id: string) => `/sensors/${id}/config`,
   },
   DASHBOARD: {

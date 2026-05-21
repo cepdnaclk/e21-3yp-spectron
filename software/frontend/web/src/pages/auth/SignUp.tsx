@@ -75,7 +75,7 @@ const SignUp: React.FC = () => {
         name: name || undefined,
         organizationName: organizationName || undefined,
       });
-      setSuccess('Account created. Please check your email to verify your account.');
+      setSuccess('Account created. You can sign in now.');
       setTimeout(() => navigate('/signin'), 1800);
     } catch (err) {
       setError(getApiErrorMessage(err, 'Failed to create account'));
@@ -111,7 +111,7 @@ const SignUp: React.FC = () => {
           <Box sx={{ position: 'relative', maxWidth: 520 }}>
             <Typography variant="h4">Build a clearer sensing workspace.</Typography>
             <Typography sx={{ mt: 1.5, color: 'rgba(255, 253, 248, 0.76)' }}>
-            Create an owner account, verify your email, and then pair controllers or invite viewers.
+            Create an owner account, sign in, and then pair controllers or invite viewers.
             </Typography>
           </Box>
           <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative', color: '#e1c7a3' }}>
@@ -125,7 +125,7 @@ const SignUp: React.FC = () => {
             Create Account
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-            Create an owner account and verify your email before signing in.
+            Create an owner account to start pairing controllers and customizing dashboards.
           </Typography>
 
           {error && (

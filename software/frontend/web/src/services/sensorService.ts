@@ -61,6 +61,100 @@ export interface SensorConfig {
     battery_life_days: number;
     sampling_frequency: number;
   };
+  hardware_config?: Record<string, unknown>;
+  hardware?: SensorHardwareLayer;
+  interpretation?: SensorInterpretationLayer;
+  presentation?: SensorPresentationLayer;
+  settings?: SensorSettingsLayer;
+  operational?: SensorOperationalLayer;
+}
+
+export interface SensorHardwareLayer {
+  system_name?: string;
+  sensor_type?: string;
+  sensor_name?: string;
+  config?: Record<string, unknown>;
+  supported_raw_metrics?: SensorHardwareMetric[];
+}
+
+export interface SensorInterpretationLayer {
+  friendly_name?: string;
+  purpose?: string;
+  use_case?: string;
+  primary_metric?: string;
+  display_unit?: string;
+  derived_metrics?: SensorDerivedMetric[];
+  thresholds?: {
+    min?: number;
+    max?: number;
+    warning_min?: number;
+    warning_max?: number;
+  };
+  metric_thresholds?: Record<string, {
+    min?: number;
+    max?: number;
+    warning_min?: number;
+    warning_max?: number;
+  }>;
+  context?: SensorContext;
+}
+
+export interface SensorHardwareMetric {
+  key: string;
+  label: string;
+  unit?: string;
+  minimum_value?: number;
+  maximum_value?: number;
+}
+
+export interface SensorDerivedMetric {
+  key: string;
+  label: string;
+  unit?: string;
+  source_metrics?: string[];
+  formula?: string;
+  description?: string;
+}
+
+export interface SensorPresentationLayer {
+  profile?: string;
+  primary_widget?: string;
+  secondary_widgets?: string[];
+  chart_style?: string;
+  headline_metric?: string;
+  status_mode?: string;
+  comparison_mode?: string;
+  detail_mode?: string;
+}
+
+export interface SensorSettingsLayer {
+  alerts?: SensorAlertSetting[];
+  report_interval_per_day?: number;
+  reading_flow_type?: string;
+  power_management?: {
+    battery_life_days?: number;
+    sampling_frequency?: number;
+  };
+}
+
+export interface SensorAlertSetting {
+  key: string;
+  label: string;
+  metric_key?: string;
+  condition?: 'below' | 'above' | string;
+  unit?: string;
+  warning_threshold?: number;
+  critical_threshold?: number;
+  description?: string;
+}
+
+export interface SensorOperationalLayer {
+  report_interval_per_day?: number;
+  reading_flow_type?: string;
+  power_management?: {
+    battery_life_days?: number;
+    sampling_frequency?: number;
+  };
 }
 
 export interface LocationContext {
@@ -80,26 +174,6 @@ export interface SensorContext {
   installation_notes?: string;
   historical_window_days?: number;
   location?: LocationContext;
-}
-
-export interface AISuggestRequest {
-  purpose: string;
-  context?: SensorContext;
-  desired_battery_life_days?: number;
-  sampling_preferences?: {
-    frequency?: 'low' | 'medium' | 'high';
-  };
-}
-
-export interface AISuggestResponse {
-  suggested_config: SensorConfig;
-  validated_config: SensorConfig;
-  explanation: string;
-  validation_status: string;
-  warnings?: string[];
-  applied_rules?: string[];
-  confidence_score: number;
-  requires_user_confirmation: boolean;
 }
 
 export interface SaveSensorConfigRequest {
@@ -131,17 +205,6 @@ export const getSensors = async (controllerId: string): Promise<Sensor[]> => {
 
 export const getSensor = async (id: string): Promise<Sensor> => {
   const response = await api.get<Sensor>(API_ENDPOINTS.SENSORS.GET(id));
-  return response.data;
-};
-
-export const getAISuggestedConfig = async (
-  sensorId: string,
-  request: AISuggestRequest
-): Promise<AISuggestResponse> => {
-  const response = await api.post<AISuggestResponse>(
-    API_ENDPOINTS.SENSORS.AI_SUGGEST(sensorId),
-    request
-  );
   return response.data;
 };
 

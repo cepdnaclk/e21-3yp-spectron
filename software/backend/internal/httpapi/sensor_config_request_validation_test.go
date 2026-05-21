@@ -46,6 +46,7 @@ func TestValidateHardwareSensorConfigRequestAcceptsValidConfigs(t *testing.T) {
 		sensorType string
 	}{
 		{name: "temperature humidity", sensorType: "temperature_humidity"},
+		{name: "bme280", sensorType: "bme280"},
 		{name: "ultrasonic", sensorType: "ultrasonic"},
 		{name: "load", sensorType: "load"},
 	}

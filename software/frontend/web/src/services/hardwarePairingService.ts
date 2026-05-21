@@ -6,8 +6,6 @@ import {
   getSensors,
   updateSensor,
   Sensor,
-  AISuggestRequest,
-  AISuggestResponse,
   SensorConfig as SensorConfigPayload,
 } from './sensorService';
 
@@ -222,6 +220,63 @@ const toHardwareThreshold = (rawValue: unknown): number | undefined => {
   return typeof rawValue === 'number' && Number.isFinite(rawValue) ? rawValue : undefined;
 };
 
+const normalizeUseCaseValue = (value?: string) => {
+  switch ((value || '').trim().toLowerCase()) {
+    case 'general monitoring':
+    case 'generic_monitoring':
+      return 'generic_monitoring';
+    case 'climate monitoring':
+    case 'climate_monitoring':
+      return 'climate_monitoring';
+    case 'fill level monitoring':
+    case 'fill_level_monitoring':
+      return 'fill_level_monitoring';
+    case 'occupancy monitoring':
+    case 'occupancy_monitoring':
+      return 'occupancy_monitoring';
+    case 'attendance monitoring':
+    case 'attendance_monitoring':
+      return 'attendance_monitoring';
+    case 'load monitoring':
+    case 'load_monitoring':
+      return 'load_monitoring';
+    case 'safety monitoring':
+    case 'safety_monitoring':
+      return 'safety_monitoring';
+    default:
+      return value;
+  }
+};
+
+const normalizePresentationProfileValue = (value?: string) => {
+  switch ((value || '').trim().toLowerCase()) {
+    case 'single trend':
+    case 'single_trend':
+      return 'single_trend';
+    case 'dual climate':
+    case 'dual_climate':
+      return 'dual_climate';
+    case 'level monitoring':
+    case 'level view':
+    case 'level_monitoring':
+      return 'level_monitoring';
+    case 'counter status':
+    case 'status view':
+    case 'counter_status':
+      return 'counter_status';
+    case 'gauge status':
+    case 'gauge view':
+    case 'gauge_status':
+      return 'gauge_status';
+    case 'event timeline':
+    case 'timeline view':
+    case 'event_timeline':
+      return 'event_timeline';
+    default:
+      return value;
+  }
+};
+
 const toHardwareAppConfig = (
   configResponse: HardwareSensorConfigResponse
 ): SensorConfigPayload => {
@@ -282,8 +337,8 @@ const toHardwareAppConfig = (
 
   return {
     friendly_name: configResponse.sensorName,
-    use_case: configResponse.usedFor,
-    presentation_profile: configResponse.dashboardView,
+    use_case: normalizeUseCaseValue(configResponse.usedFor),
+    presentation_profile: normalizePresentationProfileValue(configResponse.dashboardView),
     primary_metric: primaryMetric,
     thresholds: primaryThreshold,
     metric_thresholds: metricThresholds,
@@ -293,6 +348,32 @@ const toHardwareAppConfig = (
       sampling_frequency: reportsPerDay,
     },
     hardware_config: rawConfig,
+    hardware: {
+      system_name: configResponse.systemId,
+      sensor_type: configResponse.sensorType,
+      sensor_name: configResponse.sensorName,
+      config: rawConfig,
+    },
+    interpretation: {
+      friendly_name: configResponse.sensorName,
+      purpose: configResponse.usedFor,
+      use_case: normalizeUseCaseValue(configResponse.usedFor),
+      primary_metric: primaryMetric,
+      thresholds: primaryThreshold,
+      metric_thresholds: metricThresholds,
+    },
+    presentation: {
+      profile: normalizePresentationProfileValue(configResponse.dashboardView),
+    },
+    operational: {
+      report_interval_per_day: reportsPerDay,
+      reading_flow_type:
+        typeof rawConfig.readingFlowType === 'string' ? rawConfig.readingFlowType : undefined,
+      power_management: {
+        battery_life_days: estimatedBatteryLifeDays,
+        sampling_frequency: reportsPerDay,
+      },
+    },
   } as SensorConfigPayload;
 };
 
@@ -328,12 +409,192 @@ const normalizePairingResponse = (data: any, fallbackControllerId: string): Hard
   };
 };
 
+const buildMockAppConfig = (
+  sensorType: string,
+  sensorName: string,
+  rawConfig: Record<string, unknown>,
+  overrides: Partial<SensorConfigPayload>
+): SensorConfigPayload => ({
+  friendly_name: sensorName,
+  use_case: overrides.use_case || 'generic_monitoring',
+  presentation_profile: overrides.presentation_profile || 'single_trend',
+  primary_metric: overrides.primary_metric,
+  thresholds: overrides.thresholds || {},
+  metric_thresholds: overrides.metric_thresholds || {},
+  report_interval_per_day: overrides.report_interval_per_day || 24,
+  power_management: overrides.power_management || {
+    battery_life_days: 77,
+    sampling_frequency: overrides.report_interval_per_day || 24,
+  },
+  hardware_config: rawConfig,
+  hardware: {
+    sensor_type: sensorType,
+    sensor_name: sensorName,
+    config: rawConfig,
+  },
+  interpretation: {
+    friendly_name: sensorName,
+    purpose: overrides.use_case,
+    use_case: overrides.use_case,
+    primary_metric: overrides.primary_metric,
+    thresholds: overrides.thresholds,
+    metric_thresholds: overrides.metric_thresholds,
+  },
+  presentation: {
+    profile: overrides.presentation_profile,
+  },
+  operational: {
+    report_interval_per_day: overrides.report_interval_per_day || 24,
+    reading_flow_type:
+      typeof rawConfig.readingFlowType === 'string' ? rawConfig.readingFlowType : undefined,
+    power_management: {
+      battery_life_days: overrides.power_management?.battery_life_days || 77,
+      sampling_frequency:
+        overrides.power_management?.sampling_frequency ||
+        overrides.report_interval_per_day ||
+        24,
+    },
+  },
+});
+
 const mockPairingResponse = (controllerId: string): HardwarePairingResponse => ({
   id: controllerId.toUpperCase(),
   controllerId: controllerId.toUpperCase(),
   routeId: controllerId.toUpperCase(),
   status: 'OFFLINE',
-  sensors: [],
+  systemId: 'mock-yard-system',
+  systemName: 'Mock Yard System',
+  sensors: [
+    {
+      id: `${controllerId.toLowerCase()}-sensor-temp-01`,
+      sensorUid: `${controllerId.toLowerCase()}-sensor-temp-01`,
+      name: 'Greenhouse Climate Sensor',
+      type: 'temperature_humidity',
+      status: 'live',
+      configured: true,
+      config: {
+        temperatureMin: 20,
+        temperatureMax: 35,
+        temperatureWarningMin: 18,
+        temperatureWarningMax: 38,
+        humidityMin: 40,
+        humidityMax: 80,
+        humidityWarningMin: 35,
+        humidityWarningMax: 85,
+        reportsPerDay: 24,
+        estimatedBatteryLifeDays: 77,
+        readingFlowType: 'CONSTANT_PER_DAY',
+        appConfig: buildMockAppConfig(
+          'temperature_humidity',
+          'Greenhouse Climate Sensor',
+          {
+            temperatureMin: 20,
+            temperatureMax: 35,
+            temperatureWarningMin: 18,
+            temperatureWarningMax: 38,
+            humidityMin: 40,
+            humidityMax: 80,
+            humidityWarningMin: 35,
+            humidityWarningMax: 85,
+            reportsPerDay: 24,
+            estimatedBatteryLifeDays: 77,
+            readingFlowType: 'CONSTANT_PER_DAY',
+          },
+          {
+            use_case: 'climate_monitoring',
+            presentation_profile: 'dual_climate',
+            primary_metric: 'temperature',
+            thresholds: { min: 20, max: 35, warning_min: 18, warning_max: 38 },
+            metric_thresholds: {
+              temperature: { min: 20, max: 35, warning_min: 18, warning_max: 38 },
+              humidity: { min: 40, max: 80, warning_min: 35, warning_max: 85 },
+            },
+            report_interval_per_day: 24,
+          }
+        ),
+      },
+    },
+    {
+      id: `${controllerId.toLowerCase()}-sensor-load-01`,
+      sensorUid: `${controllerId.toLowerCase()}-sensor-load-01`,
+      name: 'Stock Bay Load Sensor',
+      type: 'load',
+      status: 'live',
+      configured: true,
+      config: {
+        weightMax: 250,
+        weightWarningMax: 300,
+        maximumWeight: 500,
+        minimumWeight: 0,
+        overloadAlert: 300,
+        unit: 'kg',
+        reportsPerDay: 12,
+        estimatedBatteryLifeDays: 145,
+        readingFlowType: 'CONSTANT_PER_DAY',
+        appConfig: buildMockAppConfig(
+          'load',
+          'Stock Bay Load Sensor',
+          {
+            weightMax: 250,
+            weightWarningMax: 300,
+            maximumWeight: 500,
+            minimumWeight: 0,
+            overloadAlert: 300,
+            unit: 'kg',
+            reportsPerDay: 12,
+            estimatedBatteryLifeDays: 145,
+            readingFlowType: 'CONSTANT_PER_DAY',
+          },
+          {
+            use_case: 'load_monitoring',
+            presentation_profile: 'gauge_status',
+            primary_metric: 'weight',
+            thresholds: { max: 250, warning_max: 300 },
+            metric_thresholds: {
+              weight: { max: 250, warning_max: 300 },
+            },
+            report_interval_per_day: 12,
+          }
+        ),
+      },
+    },
+    {
+      id: `${controllerId.toLowerCase()}-sensor-ultra-01`,
+      sensorUid: `${controllerId.toLowerCase()}-sensor-ultra-01`,
+      name: 'Hall Occupancy Sensor',
+      type: 'ultrasonic',
+      status: 'live',
+      configured: true,
+      config: {
+        maxDistance: 400,
+        unit: 'cm',
+        reportsPerDay: 8,
+        estimatedBatteryLifeDays: 210,
+        readingFlowType: 'TRIGGER',
+        appConfig: buildMockAppConfig(
+          'ultrasonic',
+          'Hall Occupancy Sensor',
+          {
+            maxDistance: 400,
+            unit: 'cm',
+            reportsPerDay: 8,
+            estimatedBatteryLifeDays: 210,
+            readingFlowType: 'TRIGGER',
+          },
+          {
+            use_case: 'occupancy_monitoring',
+            presentation_profile: 'counter_status',
+            primary_metric: 'occupancy_count',
+            thresholds: { max: 25, warning_max: 35 },
+            metric_thresholds: {
+              occupancy_count: { max: 25, warning_max: 35 },
+            },
+            report_interval_per_day: 8,
+          }
+        ),
+      },
+    },
+  ],
 });
 
 export const extractControllerId = (value: string): string => {
@@ -382,7 +643,7 @@ export const extractControllerId = (value: string): string => {
   return '';
 };
 
-export const pairHardwareController = async (controllerId: string, systemId?: string): Promise<HardwarePairingResponse> => {
+export const pairHardwareController = async (controllerId: string): Promise<HardwarePairingResponse> => {
   const normalizedControllerId = extractControllerId(controllerId);
   if (!normalizedControllerId) {
     throw new Error('Invalid controller QR code');
@@ -391,12 +652,11 @@ export const pairHardwareController = async (controllerId: string, systemId?: st
   if (!isMockMode()) {
     const response = await api.post('/api/controllers/pair', {
       controllerId: normalizedControllerId,
-      systemId: systemId || undefined,
     });
     return normalizePairingResponse(response.data, normalizedControllerId);
   }
 
-  // In mock mode, return empty response (no hardcoded defaults)
+  // In mock mode, return a seeded controller with layered sample sensors.
   const pairing = mockPairingResponse(normalizedControllerId);
   savePairedHardware(pairing);
   return pairing;
@@ -563,7 +823,35 @@ export const getHardwareSensors = async (
     });
 
     const sensors = Array.isArray(response.data?.sensors) ? response.data.sensors : [];
-    return sensors.map((sensor) => toAppSensor(controllerId, sensor));
+    const enrichedSensors = await Promise.all(
+      sensors.map(async (sensor) => {
+        if (!sensor.configured) {
+          return sensor;
+        }
+
+        try {
+          const configResponse = await api.get<HardwareSensorConfigResponse>(
+            `/api/controllers/${encodeURIComponent(controllerId)}/sensors/${encodeURIComponent(sensor.id)}/config`
+          );
+          const config = configResponse.data;
+          return {
+            ...sensor,
+            name: config.sensorName || sensor.name,
+            config: {
+              ...(sensor.config || {}),
+              appConfig: config.appConfig || toHardwareAppConfig(config),
+            },
+          } satisfies HardwarePairingSensor;
+        } catch (error: any) {
+          if (error?.response?.status === 404) {
+            return sensor;
+          }
+          throw error;
+        }
+      })
+    );
+
+    return enrichedSensors.map((sensor) => toAppSensor(controllerId, sensor));
   }
 
   return getSensors(controllerId);
@@ -775,16 +1063,4 @@ export const saveHardwareSensorConfiguration = async (
     updatedAt: new Date().toISOString(),
   };
   writeStore(state);
-};
-
-export const getHardwareAISuggestedConfig = async (
-  controllerId: string,
-  sensorId: string,
-  request: AISuggestRequest
-): Promise<AISuggestResponse> => {
-  const response = await api.post<AISuggestResponse>(
-    `/api/controllers/${encodeURIComponent(controllerId)}/sensors/${encodeURIComponent(sensorId)}/ai-suggest-config`,
-    request
-  );
-  return response.data;
 };

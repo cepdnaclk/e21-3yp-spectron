@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -59,6 +60,7 @@ type legacySensorRecord struct {
 	name       string
 	sensorType string
 	status     string
+	lastSeen   *time.Time
 }
 
 type queryRower interface {
@@ -449,7 +451,7 @@ func (h *ControllerHandler) PairAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	controller, system, err := h.claimController(r.Context(), userID, accountID, provided, strings.TrimSpace(req.SystemID))
+	controller, system, err := h.claimController(r.Context(), userID, accountID, provided, "")
 	if err != nil {
 		var apiErr apiError
 		if errors.As(err, &apiErr) {
@@ -461,7 +463,13 @@ func (h *ControllerHandler) PairAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sensors, err := h.loadLiveHardwareSensors(r.Context(), controller.id, controller.updatedAt)
+	if err := h.syncHardwareSensorsForActiveSystem(r.Context(), controller.id); err != nil {
+		log.Printf("sync paired sensors: %v", err)
+		http.Error(w, "failed to prepare sensors", http.StatusInternalServerError)
+		return
+	}
+
+	sensors, err := h.loadHardwareSensors(r.Context(), controller.id, system.assignedAt)
 	if err != nil {
 		log.Printf("load paired sensors: %v", err)
 		http.Error(w, "failed to load sensors", http.StatusInternalServerError)
@@ -618,6 +626,11 @@ func (h *ControllerHandler) ControllerSensorsAPI(w http.ResponseWriter, r *http.
 	system, err := loadActiveSystemForController(r.Context(), h.db, controller.id)
 	if err != nil {
 		writeAPIError(w, err)
+		return
+	}
+
+	if err := h.syncHardwareSensorsForActiveSystem(r.Context(), controller.id); err != nil {
+		http.Error(w, "failed to prepare sensors", http.StatusInternalServerError)
 		return
 	}
 
@@ -912,7 +925,42 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	configJSON, err := json.Marshal(req.Config)
+	metadata, err := h.lookupHardwareSensorMetadata(r.Context(), controller.id, sensor)
+	if err != nil {
+		http.Error(w, "failed to load hardware sensor metadata", http.StatusInternalServerError)
+		return
+	}
+
+	appConfig := buildLegacySensorConfig(req)
+	appConfig.Hardware = &models.SensorHardwareLayer{
+		SystemName: req.SystemName,
+		SensorType: req.SensorType,
+		SensorName: req.SensorName,
+		Config:     models.CloneHardwareConfigMap(req.Config),
+	}
+	appConfig.HardwareConfig = models.CloneHardwareConfigMap(req.Config)
+	appConfig.NormalizeThreeLayer(req.SensorType, metadata.StoredContext)
+
+	validation := validateAndFinalizeConfig(
+		req.SensorType,
+		req.UsedFor,
+		metadata.StoredContext,
+		appConfig,
+		metadata.ControllerCapability,
+		metadata.CalibrationStatus,
+	)
+	validatedConfig := validation.FinalConfig
+	if validatedConfig.Hardware == nil {
+		validatedConfig.Hardware = &models.SensorHardwareLayer{}
+	}
+	validatedConfig.Hardware.SystemName = req.SystemName
+	validatedConfig.Hardware.SensorType = req.SensorType
+	validatedConfig.Hardware.SensorName = validatedConfig.FriendlyName
+	validatedConfig.Hardware.Config = models.CloneHardwareConfigMap(req.Config)
+	validatedConfig.HardwareConfig = models.CloneHardwareConfigMap(req.Config)
+	validatedConfig.NormalizeThreeLayer(req.SensorType, metadata.StoredContext)
+
+	configJSON, err := json.Marshal(validatedConfig)
 	if err != nil {
 		http.Error(w, "invalid config object", http.StatusBadRequest)
 		return
@@ -944,7 +992,7 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 			    configured = true,
 			    updated_at = NOW()
 			WHERE id = $3 AND controller_id = $4
-		`, req.SensorName, req.SensorType, *sensor.controllerSensorID, controller.id)
+		`, validatedConfig.FriendlyName, req.SensorType, *sensor.controllerSensorID, controller.id)
 		if err != nil {
 			http.Error(w, "failed to update controller sensor", http.StatusInternalServerError)
 			return
@@ -985,7 +1033,7 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 		    END,
 		    updated_at = NOW()
 		WHERE id = $3
-	`, req.SensorName, req.SensorType, sensor.id)
+	`, validatedConfig.FriendlyName, req.SensorType, sensor.id)
 	if err != nil {
 		http.Error(w, "failed to update system sensor", http.StatusInternalServerError)
 		return
@@ -1021,7 +1069,6 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	legacyConfig := buildLegacySensorConfig(req)
 	legacySensor := legacySensorRecord{}
 	legacyErr := pgx.ErrNoRows
 	if sensor.legacyID != nil {
@@ -1037,12 +1084,6 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 		}
 	}
 	if legacyErr == nil {
-		legacyConfigJSON, marshalErr := json.Marshal(legacyConfig)
-		if marshalErr != nil {
-			http.Error(w, "failed to encode device configuration", http.StatusInternalServerError)
-			return
-		}
-
 		_, err = tx.Exec(r.Context(), `
 			UPDATE sensors
 			SET name = COALESCE($1, name),
@@ -1050,7 +1091,7 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 			    type = $3,
 			    system_sensor_id = $5
 			WHERE id = $4
-		`, nullableString(req.SensorName), nullableString(req.UsedFor), sensor.sensorType, legacySensor.id, sensor.id)
+		`, nullableString(validatedConfig.FriendlyName), nullableString(req.UsedFor), sensor.sensorType, legacySensor.id, sensor.id)
 		if err != nil {
 			http.Error(w, "failed to update discovered sensor", http.StatusInternalServerError)
 			return
@@ -1077,7 +1118,7 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 				purpose
 			)
 			VALUES ($1, $2, $3::jsonb, true, NOW(), $4)
-		`, uuid.New(), legacySensor.id, legacyConfigJSON, nullableString(req.UsedFor))
+		`, uuid.New(), legacySensor.id, configJSON, nullableString(req.UsedFor))
 		if err != nil {
 			http.Error(w, "failed to save device sensor config", http.StatusInternalServerError)
 			return
@@ -1266,23 +1307,23 @@ func (h *ControllerHandler) GetSensorConfigAPI(w http.ResponseWriter, r *http.Re
 			UsedFor:       usedFor,
 			DashboardView: dashboardView,
 			Config: map[string]interface{}{
-				"temperatureMin":        nil,
-				"temperatureMax":        nil,
-				"temperatureWarningMin": nil,
-				"temperatureWarningMax": nil,
-				"humidityMin":           nil,
-				"humidityMax":           nil,
-				"humidityWarningMin":    nil,
-				"humidityWarningMax":    nil,
-				"pressureMin":           nil,
-				"pressureMax":           nil,
-				"pressureWarningMin":    nil,
-				"pressureWarningMax":    nil,
-				"distanceMin":           nil,
-				"distanceMax":           nil,
-				"distanceWarningMin":    nil,
-				"distanceWarningMax":    nil,
-				"reportsPerDay":         24,
+				"temperatureMin":           nil,
+				"temperatureMax":           nil,
+				"temperatureWarningMin":    nil,
+				"temperatureWarningMax":    nil,
+				"humidityMin":              nil,
+				"humidityMax":              nil,
+				"humidityWarningMin":       nil,
+				"humidityWarningMax":       nil,
+				"pressureMin":              nil,
+				"pressureMax":              nil,
+				"pressureWarningMin":       nil,
+				"pressureWarningMax":       nil,
+				"distanceMin":              nil,
+				"distanceMax":              nil,
+				"distanceWarningMin":       nil,
+				"distanceWarningMax":       nil,
+				"reportsPerDay":            24,
 				"estimatedBatteryLifeDays": 77,
 			},
 		}
@@ -1304,6 +1345,21 @@ func (h *ControllerHandler) GetSensorConfigAPI(w http.ResponseWriter, r *http.Re
 		}
 	}
 
+	responseConfigJSON := configJSON
+	if appConfig != nil {
+		rawHardwareConfig := models.CloneHardwareConfigMap(appConfig.HardwareConfig)
+		if appConfig.Hardware != nil && len(appConfig.Hardware.Config) > 0 {
+			rawHardwareConfig = models.CloneHardwareConfigMap(appConfig.Hardware.Config)
+		}
+		if rawHardwareConfig != nil {
+			responseConfigJSON, err = json.Marshal(rawHardwareConfig)
+			if err != nil {
+				http.Error(w, "invalid hardware configuration", http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+
 	json.NewEncoder(w).Encode(models.HardwareSensorConfigResponse{
 		ControllerID:  controller.uid,
 		SystemID:      system.id.String(),
@@ -1313,7 +1369,7 @@ func (h *ControllerHandler) GetSensorConfigAPI(w http.ResponseWriter, r *http.Re
 		SensorName:    sensor.name,
 		UsedFor:       usedFor,
 		DashboardView: dashboardView,
-		Config:        json.RawMessage(configJSON),
+		Config:        json.RawMessage(responseConfigJSON),
 		AppConfig:     appConfig,
 	})
 }
@@ -1666,6 +1722,111 @@ func (h *ControllerHandler) loadHardwareSensors(ctx context.Context, controllerI
 	return sensors, rows.Err()
 }
 
+func (h *ControllerHandler) syncHardwareSensorsForActiveSystem(ctx context.Context, controllerID uuid.UUID) error {
+	system, err := loadActiveSystemForController(ctx, h.db, controllerID)
+	if err != nil {
+		return err
+	}
+
+	type pendingControllerSensor struct {
+		id         uuid.UUID
+		uid        string
+		name       string
+		sensorType string
+		status     string
+		configured bool
+	}
+
+	controllerRows, err := h.db.Query(ctx, `
+		SELECT
+			id,
+			COALESCE(sensor_uid, ''),
+			COALESCE(name, ''),
+			type,
+			COALESCE(status, 'live'),
+			configured
+		FROM controller_sensors
+		WHERE controller_id = $1
+		ORDER BY created_at ASC, sensor_uid ASC
+	`, controllerID)
+	if err != nil {
+		return err
+	}
+	defer controllerRows.Close()
+
+	pendingControllerSensors := []pendingControllerSensor{}
+	for controllerRows.Next() {
+		var sensor pendingControllerSensor
+		if err := controllerRows.Scan(&sensor.id, &sensor.uid, &sensor.name, &sensor.sensorType, &sensor.status, &sensor.configured); err != nil {
+			return err
+		}
+		pendingControllerSensors = append(pendingControllerSensors, sensor)
+	}
+	if err := controllerRows.Err(); err != nil {
+		return err
+	}
+	controllerRows.Close()
+
+	for _, sensor := range pendingControllerSensors {
+		trimmedUID := strings.TrimSpace(sensor.uid)
+		if trimmedUID == "" {
+			continue
+		}
+
+		if _, err := ensureSystemSensorBinding(
+			ctx,
+			h.db,
+			system.id,
+			controllerID,
+			trimmedUID,
+			sensor.sensorType,
+			sensor.name,
+			sensor.status,
+			sensor.configured,
+			&sensor.id,
+			nil,
+			nil,
+		); err != nil {
+			return err
+		}
+	}
+
+	legacyRows, err := h.db.Query(ctx, `
+		SELECT hw_id
+		FROM sensors
+		WHERE controller_id = $1
+		ORDER BY last_seen DESC NULLS LAST, hw_id ASC
+	`, controllerID)
+	if err != nil {
+		return err
+	}
+	defer legacyRows.Close()
+
+	legacySensorUIDs := []string{}
+	for legacyRows.Next() {
+		var sensorUID string
+		if err := legacyRows.Scan(&sensorUID); err != nil {
+			return err
+		}
+		legacySensorUIDs = append(legacySensorUIDs, sensorUID)
+	}
+	if err := legacyRows.Err(); err != nil {
+		return err
+	}
+	legacyRows.Close()
+
+	for _, sensorUID := range legacySensorUIDs {
+		if strings.TrimSpace(sensorUID) == "" {
+			continue
+		}
+		if _, err := h.ensureHardwareSensorForLegacy(ctx, controllerID, sensorUID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (h *ControllerHandler) loadLiveHardwareSensors(ctx context.Context, controllerID uuid.UUID, sessionStart time.Time) ([]models.HardwareSensorResponse, error) {
 	rows, err := h.db.Query(ctx, `
 		SELECT
@@ -1752,7 +1913,7 @@ func (h *ControllerHandler) ensureDefaultHardwareSensors(ctx context.Context, tx
 	}
 
 	if temperatureSensorID != uuid.Nil {
-		configJSON, err := json.Marshal(map[string]interface{}{
+		defaultHardwareConfig := map[string]interface{}{
 			"temperatureMin":           20,
 			"temperatureMax":           35,
 			"temperatureWarningMin":    18,
@@ -1761,10 +1922,18 @@ func (h *ControllerHandler) ensureDefaultHardwareSensors(ctx context.Context, tx
 			"humidityMax":              80,
 			"humidityWarningMin":       35,
 			"humidityWarningMax":       85,
-			"readingFlowType":          "Constant readings per day",
+			"readingFlowType":          "CONSTANT_PER_DAY",
 			"reportsPerDay":            24,
 			"estimatedBatteryLifeDays": 77,
+		}
+		defaultConfig := buildLegacySensorConfig(models.SaveHardwareSensorConfigRequest{
+			SensorType:    "temperature_humidity",
+			SensorName:    "Temperature & Humidity Sensor",
+			UsedFor:       "Climate Monitoring",
+			DashboardView: "Dual Climate",
+			Config:        defaultHardwareConfig,
 		})
+		configJSON, err := json.Marshal(defaultConfig)
 		if err != nil {
 			return err
 		}
@@ -1871,7 +2040,7 @@ func (h *ControllerHandler) ensureHardwareSensorForLegacy(ctx context.Context, c
 		false,
 		&controllerSensorID,
 		&legacySensor.id,
-		nil,
+		legacySensor.lastSeen,
 	)
 	if err != nil {
 		return hardwareSensorRecord{}, err
@@ -1893,8 +2062,9 @@ func (h *ControllerHandler) ensureHardwareSensorForLegacy(ctx context.Context, c
 
 func lookupLegacySensorRecord(ctx context.Context, q queryRower, controllerID uuid.UUID, sensorIdentifier string) (legacySensorRecord, error) {
 	var sensor legacySensorRecord
+	var lastSeen sql.NullTime
 	err := q.QueryRow(ctx, `
-		SELECT id, hw_id, COALESCE(name, ''), type, COALESCE(status, 'OK')
+		SELECT id, hw_id, COALESCE(name, ''), type, COALESCE(status, 'OK'), last_seen
 		FROM sensors
 		WHERE controller_id = $1
 		  AND (id::text = $2 OR hw_id = $2)
@@ -1904,7 +2074,11 @@ func lookupLegacySensorRecord(ctx context.Context, q queryRower, controllerID uu
 		&sensor.name,
 		&sensor.sensorType,
 		&sensor.status,
+		&lastSeen,
 	)
+	if lastSeen.Valid {
+		sensor.lastSeen = &lastSeen.Time
+	}
 	return sensor, err
 }
 
@@ -2092,6 +2266,15 @@ func hardwareConfigToAppConfig(configJSON []byte, sensorType string, sensorName 
 			appConfig.Thresholds = humidityThreshold
 		}
 	}
+	if appConfig.Hardware == nil {
+		appConfig.Hardware = &models.SensorHardwareLayer{}
+	}
+	appConfig.Hardware.SensorType = strings.TrimSpace(sensorType)
+	appConfig.Hardware.SensorName = strings.TrimSpace(sensorName)
+	if len(appConfig.Hardware.Config) == 0 {
+		appConfig.Hardware.Config = models.CloneHardwareConfigMap(appConfig.HardwareConfig)
+	}
+	appConfig.NormalizeThreeLayer(sensorType, nil)
 
 	return &appConfig, nil
 }
@@ -2102,6 +2285,14 @@ func buildLegacySensorConfig(req models.SaveHardwareSensorConfigRequest) models.
 		if strings.TrimSpace(cfg.FriendlyName) == "" {
 			cfg.FriendlyName = req.SensorName
 		}
+		cfg.HardwareConfig = models.CloneHardwareConfigMap(req.Config)
+		cfg.Hardware = &models.SensorHardwareLayer{
+			SystemName: strings.TrimSpace(req.SystemName),
+			SensorType: strings.TrimSpace(req.SensorType),
+			SensorName: strings.TrimSpace(req.SensorName),
+			Config:     models.CloneHardwareConfigMap(req.Config),
+		}
+		cfg.NormalizeThreeLayer(req.SensorType, nil)
 		return cfg
 	}
 
@@ -2120,7 +2311,7 @@ func buildLegacySensorConfig(req models.SaveHardwareSensorConfigRequest) models.
 		WarningMax: numericPointer(req.Config["humidityWarningMax"]),
 	}
 
-	return models.SensorConfig{
+	config := models.SensorConfig{
 		FriendlyName:         strings.TrimSpace(req.SensorName),
 		UseCase:              strings.TrimSpace(req.UsedFor),
 		PresentationProfile:  strings.TrimSpace(req.DashboardView),
@@ -2132,7 +2323,16 @@ func buildLegacySensorConfig(req models.SaveHardwareSensorConfigRequest) models.
 			BatteryLifeDays:   estimatedBatteryLifeDays,
 			SamplingFrequency: reportsPerDay,
 		},
+		HardwareConfig: models.CloneHardwareConfigMap(req.Config),
+		Hardware: &models.SensorHardwareLayer{
+			SystemName: strings.TrimSpace(req.SystemName),
+			SensorType: strings.TrimSpace(req.SensorType),
+			SensorName: strings.TrimSpace(req.SensorName),
+			Config:     models.CloneHardwareConfigMap(req.Config),
+		},
 	}
+	config.NormalizeThreeLayer(req.SensorType, nil)
+	return config
 }
 
 func positiveIntOrDefault(value any, fallback int) int {
@@ -2199,8 +2399,9 @@ func validateHardwareSensorConfigRequest(req models.SaveHardwareSensorConfigRequ
 }
 
 func isAllowedHardwareSensorType(sensorType string) bool {
-	switch strings.ToLower(strings.TrimSpace(sensorType)) {
-	case "load", "temperature_humidity", "ultrasonic", "gas", "weight", "temperature", "humidity":
+	normalized := strings.ToLower(strings.TrimSpace(sensorType))
+	switch normalized {
+	case "load", "temperature_humidity", "ultrasonic", "gas", "weight", "temperature", "humidity", "pressure", "bme280", "bmp280", "vl53l0x", "distance":
 		return true
 	default:
 		return false

@@ -50,11 +50,19 @@ Open `psql` as superuser and run:
 CREATE USER spectron WITH PASSWORD 'spectron';
 CREATE DATABASE spectron OWNER spectron;
 \c spectron
+GRANT USAGE, CREATE ON SCHEMA public TO spectron;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 ```
 
 > `timescaledb` is used for hypertable support on `sensor_readings`.
+
+If your database already exists and backend startup fails with `permission denied for schema public`, run this as a PostgreSQL superuser:
+
+```sql
+ALTER DATABASE spectron OWNER TO spectron;
+GRANT USAGE, CREATE ON SCHEMA public TO spectron;
+```
 
 ## Run Migrations
 

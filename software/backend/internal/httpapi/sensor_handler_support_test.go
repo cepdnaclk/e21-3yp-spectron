@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,5 +64,51 @@ func TestBuildSensorObservationReadyForReviewByElapsedWindow(t *testing.T) {
 	}
 	if observation.Status != "ready_for_review" {
 		t.Fatalf("expected ready_for_review, got %s", observation.Status)
+	}
+}
+
+func TestDecodeSaveSensorConfigRequestUsesNestedInterpretationContextAndPurpose(t *testing.T) {
+	body := `{
+		"config": {
+			"friendly_name": "Test Sensor",
+			"interpretation": {
+				"purpose": "Climate monitoring",
+				"context": {
+					"domain": "Greenhouse",
+					"environment_type": "Indoor",
+					"location": {
+						"mode": "manual",
+						"country": "USA",
+						"region": "California",
+						"label": "North Bay"
+					}
+				}
+			}
+		}
+	}`
+
+	req := httptest.NewRequest("POST", "/api/controllers/CTRL/sensors/SENSOR/config", strings.NewReader(body))
+
+	saveReq, err := decodeSaveSensorConfigRequest(req)
+	if err != nil {
+		t.Fatalf("unexpected decode error: %v", err)
+	}
+	if saveReq.Config == nil {
+		t.Fatal("expected config to be populated")
+	}
+	if saveReq.Purpose != "Climate monitoring" {
+		t.Fatalf("expected purpose fallback, got %q", saveReq.Purpose)
+	}
+	if saveReq.Context == nil {
+		t.Fatal("expected context fallback")
+	}
+	if saveReq.Context.Domain != "greenhouse" {
+		t.Fatalf("expected normalized domain, got %q", saveReq.Context.Domain)
+	}
+	if saveReq.Context.EnvironmentType != "indoor" {
+		t.Fatalf("expected normalized environment type, got %q", saveReq.Context.EnvironmentType)
+	}
+	if saveReq.Context.Location == nil || saveReq.Context.Location.Region != "California" {
+		t.Fatalf("expected restored location region, got %#v", saveReq.Context.Location)
 	}
 }

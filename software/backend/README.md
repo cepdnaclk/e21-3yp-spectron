@@ -68,6 +68,15 @@ Most important variable:
 $env:DATABASE_URL="postgres://spectron:spectron@localhost:5432/spectron?sslmode=disable"
 ```
 
+If startup fails with `permission denied for schema public`, the DB user can log in but does not have permission to create tables in the default schema. Connect to PostgreSQL as a superuser and run:
+
+```sql
+ALTER DATABASE spectron OWNER TO spectron;
+GRANT USAGE, CREATE ON SCHEMA public TO spectron;
+```
+
+If you use a different database or role name, replace `spectron` with your actual values from `DATABASE_URL`.
+
 Optional:
 
 ```powershell

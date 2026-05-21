@@ -2199,8 +2199,9 @@ func validateHardwareSensorConfigRequest(req models.SaveHardwareSensorConfigRequ
 }
 
 func isAllowedHardwareSensorType(sensorType string) bool {
-	switch strings.ToLower(strings.TrimSpace(sensorType)) {
-	case "load", "temperature_humidity", "ultrasonic", "gas", "weight", "temperature", "humidity":
+	normalized := strings.ToLower(strings.TrimSpace(sensorType))
+	switch normalized {
+	case "load", "temperature_humidity", "ultrasonic", "gas", "weight", "temperature", "humidity", "pressure", "bme280", "bmp280", "vl53l0x", "distance":
 		return true
 	default:
 		return false

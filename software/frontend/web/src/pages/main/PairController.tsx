@@ -9,50 +9,16 @@ import {
   Box,
   Alert,
   Stack,
-  FormControl,
-  FormHelperText,
-  InputLabel,
-  MenuItem,
-  Select,
 } from '@mui/material';
 import { CameraAlt, QrCodeScanner } from '@mui/icons-material';
 import { Html5Qrcode } from 'html5-qrcode';
 import {
   extractControllerId,
-  getMySystems,
-  HardwareSystemSummary,
   pairHardwareController,
 } from '../../services/hardwarePairingService';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 
 const SCANNER_REGION_ID = 'spectron-controller-qr-reader';
-
-const isGenericSystemName = (name?: string) => {
-  const normalized = (name || '').trim().toLowerCase();
-  return normalized === '' || normalized === 'main controller' || normalized === 'unnamed controller';
-};
-
-const getSystemDisplayName = (system: HardwareSystemSummary) => {
-  if (!isGenericSystemName(system.name)) {
-    return system.name;
-  }
-  if (system.location?.trim()) {
-    return `System at ${system.location.trim()}`;
-  }
-  if (system.purpose?.trim()) {
-    return system.purpose.trim();
-  }
-  return `Existing system ${system.id.slice(0, 8).toUpperCase()}`;
-};
-
-const getSystemSubtitle = (system: HardwareSystemSummary) => {
-  const details = [system.location, system.purpose].filter((value) => value && value.trim().length > 0);
-  const summary = `${system.sensorCount} sensor${system.sensorCount === 1 ? '' : 's'} saved`;
-  if (details.length > 0) {
-    return `${details[0]} • ${summary}`;
-  }
-  return `Standby monitoring setup • ${summary}`;
-};
 
 const PairController: React.FC = () => {
   const navigate = useNavigate();
@@ -64,8 +30,6 @@ const PairController: React.FC = () => {
   const [scanInfo, setScanInfo] = useState('');
   const [isScannerSupported, setIsScannerSupported] = useState(false);
   const [isCameraRunning, setIsCameraRunning] = useState(false);
-  const [availableSystems, setAvailableSystems] = useState<HardwareSystemSummary[]>([]);
-  const [selectedSystemId, setSelectedSystemId] = useState('');
 
   useEffect(() => {
     setIsScannerSupported(Boolean(navigator.mediaDevices?.getUserMedia));
@@ -76,21 +40,10 @@ const PairController: React.FC = () => {
       setScanInfo(`Controller ID loaded: ${controllerIdFromUrl}`);
     }
 
-    void loadSystems();
-
     return () => {
       stopCamera();
     };
   }, []);
-
-  const loadSystems = async () => {
-    try {
-      const systems = await getMySystems();
-      setAvailableSystems(systems.filter((system) => !system.activeControllerId));
-    } catch (loadError) {
-      console.error('Failed to load systems:', loadError);
-    }
-  };
 
   const stopCamera = async () => {
     const scanner = scannerRef.current;
@@ -150,7 +103,7 @@ const PairController: React.FC = () => {
         },
         () => undefined
       );
-    } catch (cameraError) {
+    } catch {
       await stopCamera();
       setError('Camera permission denied or camera scanner unavailable. Enter the controller ID manually.');
     }
@@ -169,7 +122,7 @@ const PairController: React.FC = () => {
 
     setLoading(true);
     try {
-      const pairing = await pairHardwareController(normalizedControllerId, selectedSystemId || undefined);
+      const pairing = await pairHardwareController(normalizedControllerId);
       setControllerCode(normalizedControllerId);
       navigate(`/hardware/${pairing.controllerId}/sensors`, {
         state: {
@@ -257,38 +210,6 @@ const PairController: React.FC = () => {
             disabled={loading}
             required
           />
-          {availableSystems.length > 0 && (
-            <FormControl fullWidth sx={{ mt: 2 }}>
-              <InputLabel id="pair-system-select-label">Attach To Existing System</InputLabel>
-              <Select
-                labelId="pair-system-select-label"
-                value={selectedSystemId}
-                label="Attach To Existing System"
-                onChange={(event) => setSelectedSystemId(event.target.value)}
-                disabled={loading}
-              >
-                <MenuItem value="">
-                  Create New System
-                </MenuItem>
-                {availableSystems.map((system) => (
-                  <MenuItem key={system.id} value={system.id}>
-                    <Box>
-                      <Typography variant="body2" fontWeight={700}>
-                        {getSystemDisplayName(system)}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {getSystemSubtitle(system)}
-                      </Typography>
-                    </Box>
-                  </MenuItem>
-                ))}
-              </Select>
-              <FormHelperText>
-                Reattach this controller to a saved monitoring system, or leave it on
-                “Create New System” to start a fresh setup.
-              </FormHelperText>
-            </FormControl>
-          )}
           <Button
             type="submit"
             variant="contained"

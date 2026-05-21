@@ -26,7 +26,7 @@ export interface AuthResponse {
     status?: 'ACTIVE' | 'PENDING_APPROVAL' | 'REJECTED' | 'DISABLED';
     is_email_verified?: boolean;
   };
-  status?: 'ACTIVE' | 'PENDING_APPROVAL' | 'REJECTED' | 'DISABLED' | 'EMAIL_VERIFICATION_REQUIRED';
+  status?: 'ACTIVE' | 'PENDING_APPROVAL' | 'REJECTED' | 'DISABLED';
   message?: string;
 }
 

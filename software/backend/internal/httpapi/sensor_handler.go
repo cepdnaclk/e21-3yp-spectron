@@ -759,7 +759,14 @@ func (h *SensorHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	contextToStore := mergeSensorContext(saveReq.Context, metadata.StoredContext)
+	if contextToStore == nil && saveReq.Config != nil && saveReq.Config.Interpretation != nil {
+		contextToStore = mergeSensorContext(saveReq.Config.Interpretation.Context, metadata.StoredContext)
+	}
+
 	purposeToStore := strings.TrimSpace(saveReq.Purpose)
+	if purposeToStore == "" && saveReq.Config != nil && saveReq.Config.Interpretation != nil {
+		purposeToStore = strings.TrimSpace(saveReq.Config.Interpretation.Purpose)
+	}
 	if purposeToStore == "" {
 		purposeToStore = strings.TrimSpace(metadata.StoredPurpose)
 	}
