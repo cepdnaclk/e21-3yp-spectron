@@ -4,6 +4,7 @@
       home: "Home",
       overview: "Overview",
       architecture: "Architecture",
+      hardware: "Hardware",
       software: "Software",
       testing: "Testing",
       budget: "Budget",
@@ -71,6 +72,17 @@
         "Sensor and ESP32-C3 nodes communicate over ESP-NOW to an ESP32 gateway, then through a SIM module, MQTT broker, Kafka streaming layer, backend services, API gateway, and React applications.",
       diagramImageAlt:
         "Spectron solution architecture showing sensor nodes, ESP32 gateway, SIM module, MQTT broker, Kafka, backend services, API gateway, and React applications.",
+    },
+    hardware: {
+      title: "Hardware",
+      subtitle:
+        "The hardware layer combines a controller gateway, removable sensor modules, firmware packaging, OTA loading, and an SHT30 payload app for real temperature and humidity sensing.",
+      flowEyebrow: "Device workflow",
+      flowTitle: "From packaged sensor module to uploaded telemetry",
+      summaryEyebrow: "What the boards provide",
+      summaryTitle: "A modular ESP32 hardware system for field sensing",
+      summaryText:
+        "SPECTRON separates the controller gateway from the sensor module firmware path. This keeps the core hardware reusable while allowing each sensor module to carry its own identity, configuration, and payload firmware.",
     },
     software: {
       title: "Software",

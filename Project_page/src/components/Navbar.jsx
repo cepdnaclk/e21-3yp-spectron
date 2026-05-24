@@ -8,6 +8,7 @@ function Navbar({ copy, theme, onToggleTheme }) {
       { id: "home", label: copy.nav.home },
       { id: "overview", label: copy.nav.overview },
       { id: "architecture", label: copy.nav.architecture },
+      { id: "hardware", label: copy.nav.hardware },
       { id: "software", label: copy.nav.software },
       { id: "testing", label: copy.nav.testing },
       { id: "budget", label: copy.nav.budget },

@@ -3,6 +3,7 @@ import ArchitectureDiagram from "../components/ArchitectureDiagram.jsx";
 import BrandLogo from "../components/BrandLogo.jsx";
 import BudgetSection from "../components/BudgetSection.jsx";
 import ExplanationPanel from "../components/ExplanationPanel.jsx";
+import HardwareSection from "../components/HardwareSection.jsx";
 import SoftwareSection from "../components/SoftwareSection.jsx";
 import TeamSection from "../components/TeamSection.jsx";
 import TestingSection from "../components/TestingSection.jsx";
@@ -104,6 +105,8 @@ function Home({ copy }) {
             </div>
           </div>
         </section>
+
+        <HardwareSection copy={copy.hardware} />
 
         <SoftwareSection copy={copy.software} />
 
