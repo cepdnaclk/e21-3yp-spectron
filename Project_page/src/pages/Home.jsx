@@ -4,6 +4,7 @@ import BrandLogo from "../components/BrandLogo.jsx";
 import BudgetSection from "../components/BudgetSection.jsx";
 import ExplanationPanel from "../components/ExplanationPanel.jsx";
 import TeamSection from "../components/TeamSection.jsx";
+import TestingSection from "../components/TestingSection.jsx";
 import Footer from "../components/Footer.jsx";
 import { architectureFlow, architectureScenarios } from "../data/architectureData.js";
 import { teamMembers } from "../data/teamData.js";
@@ -116,6 +117,8 @@ function Home({ copy }) {
             </div>
           </div>
         </section>
+
+        <TestingSection copy={copy.testing} />
 
         <BudgetSection copy={copy.budget} />
 

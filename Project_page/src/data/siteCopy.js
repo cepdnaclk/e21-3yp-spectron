@@ -5,6 +5,7 @@
       overview: "Overview",
       architecture: "Architecture",
       tech: "Tech",
+      testing: "Testing",
       budget: "Budget",
       team: "Team",
     },
@@ -83,6 +84,11 @@
         "PostgreSQL",
         "Time-Series Storage",
       ],
+    },
+    testing: {
+      title: "Testing",
+      subtitle:
+        "SPECTRON is tested across hardware, connectivity, backend services, and the React dashboard to verify reliability, data integrity, and field readiness.",
     },
     budget: {
       eyebrow: "Cost Breakdown",
