@@ -1,7 +1,6 @@
 import Tooltip from "./Tooltip.jsx";
+import architectureImage from "../assets/architecture-solution.png";
 import "../styles/architecture.css";
-
-const architectureImage = `${import.meta.env.BASE_URL}team/Solution.png`;
 
 function ArchitectureDiagram({ scenarios, activeItem, onSelect, copy }) {
   return (
