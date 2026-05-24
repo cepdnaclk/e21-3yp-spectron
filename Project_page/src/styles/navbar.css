@@ -1,17 +1,45 @@
 /* =========================
    Header + navigation
    ========================= */
+:root {
+  --header-height: 88px;
+}
+
+html {
+  scroll-padding-top: calc(var(--header-height) + 18px);
+}
+
+main {
+  padding-top: var(--header-height);
+}
+
+section[id] {
+  scroll-margin-top: calc(var(--header-height) + 16px);
+}
+
+#home {
+  scroll-margin-top: 0;
+}
+
 .site-header {
-  position: sticky;
+  position: fixed;
   top: 0;
-  z-index: 10;
-  background: rgba(243, 241, 235, 0.94);
-  border-bottom: 1px solid var(--border);
-  backdrop-filter: blur(12px);
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background: rgba(5, 8, 20, 0.82);
+  border-bottom: 1px solid rgba(142, 219, 209, 0.2);
+  box-shadow: 0 16px 34px rgba(7, 11, 29, 0.24);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  transition: background 0.25s ease, box-shadow 0.25s ease,
+    border-color 0.25s ease;
 }
 
 :root[data-theme="dark"] .site-header {
-  background: rgba(5, 8, 20, 0.9);
+  background: rgba(3, 6, 16, 0.86);
+  border-bottom-color: rgba(94, 228, 214, 0.16);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.46);
 }
 
 .header__inner {
@@ -34,6 +62,20 @@
 .logo-link:focus-visible {
   outline: 3px solid rgba(12, 159, 152, 0.28);
   outline-offset: 6px;
+}
+
+.site-header .brand-logo__mark {
+  background: rgba(244, 251, 250, 0.96);
+  color: #070b1d;
+  box-shadow: none;
+}
+
+.site-header .brand-logo__name {
+  color: #f4fbfa;
+}
+
+.site-header .brand-logo__tagline {
+  color: rgba(237, 247, 245, 0.72);
 }
 
 .header__links {
@@ -69,7 +111,7 @@
   min-height: 38px;
   padding: 8px 9px;
   border-radius: 8px;
-  color: var(--muted);
+  color: rgba(237, 247, 245, 0.74);
   font-size: clamp(0.78rem, 0.9vw, 0.9rem);
   font-weight: 800;
   white-space: nowrap;
@@ -79,8 +121,8 @@
 .nav__link:hover,
 .nav__link:focus-visible,
 .nav__link.active {
-  background: var(--accent-soft);
-  color: var(--accent-dark);
+  background: rgba(94, 228, 214, 0.17);
+  color: #ffffff;
 }
 
 .nav__actions {
@@ -90,9 +132,9 @@
 
 .toggle-button {
   min-height: 38px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--ink);
+  border: 1px solid rgba(142, 219, 209, 0.24);
+  background: rgba(13, 19, 38, 0.72);
+  color: #f4fbfa;
   padding: 8px 12px;
   border-radius: 8px;
   font-weight: 800;
@@ -119,6 +161,10 @@
 }
 
 @media (max-width: 780px) {
+  :root {
+    --header-height: 76px;
+  }
+
   .header__inner {
     gap: 10px;
     min-height: 76px;

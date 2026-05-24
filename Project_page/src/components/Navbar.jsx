@@ -21,36 +21,99 @@ function Navbar({ copy, theme, onToggleTheme }) {
   const [activeId, setActiveId] = useState(navItems[0]?.id ?? "home");
 
   useEffect(() => {
-    const sections = navItems
-      .map((item) => document.getElementById(item.id))
-      .filter(Boolean);
+    let rafId = 0;
 
-    if (!sections.length || !("IntersectionObserver" in window)) {
+    const getSections = () =>
+      navItems.map((item) => document.getElementById(item.id)).filter(Boolean);
+
+    const getHeaderHeight = () =>
+      document.querySelector(".site-header")?.getBoundingClientRect().height ?? 0;
+
+    const updateActiveSection = () => {
+      rafId = 0;
+
+      const sections = getSections();
+      if (!sections.length) {
+        return;
+      }
+
+      const scrollMarker =
+        window.scrollY +
+        getHeaderHeight() +
+        Math.max(window.innerHeight * 0.18, 72);
+      const isAtBottom =
+        window.scrollY + window.innerHeight >=
+        document.documentElement.scrollHeight - 4;
+
+      let nextActiveId = sections[0].id;
+
+      for (const section of sections) {
+        if (scrollMarker >= section.offsetTop) {
+          nextActiveId = section.id;
+        } else {
+          break;
+        }
+      }
+
+      if (isAtBottom) {
+        nextActiveId = sections[sections.length - 1].id;
+      }
+
+      setActiveId((currentId) =>
+        currentId === nextActiveId ? currentId : nextActiveId
+      );
+    };
+
+    const requestUpdate = () => {
+      if (rafId) {
+        return;
+      }
+
+      rafId = window.requestAnimationFrame(updateActiveSection);
+    };
+
+    updateActiveSection();
+    window.addEventListener("scroll", requestUpdate, { passive: true });
+    window.addEventListener("resize", requestUpdate);
+
+    return () => {
+      window.removeEventListener("scroll", requestUpdate);
+      window.removeEventListener("resize", requestUpdate);
+
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+      }
+    };
+  }, [navItems]);
+
+  const handleLinkClick = (event, id) => {
+    event.preventDefault();
+    setActiveId(id);
+
+    const target = document.getElementById(id);
+    if (!target) {
       return;
     }
 
-    // Highlight the nav item for the section currently in view.
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            setActiveId(entry.target.id);
-          }
-        });
-      },
-      {
-        rootMargin: "-35% 0px -55% 0px",
-        threshold: 0.1,
-      }
-    );
+    const header = document.querySelector(".site-header");
+    const headerHeight = header?.getBoundingClientRect().height ?? 0;
+    const extraOffset = id === "home" ? 0 : 16;
+    const nextTop =
+      id === "home"
+        ? 0
+        : Math.max(
+            window.scrollY +
+              target.getBoundingClientRect().top -
+              headerHeight -
+              extraOffset,
+            0
+          );
 
-    sections.forEach((section) => observer.observe(section));
-
-    return () => observer.disconnect();
-  }, [navItems]);
-
-  const handleLinkClick = (id) => {
-    setActiveId(id);
+    window.history.pushState(null, "", `#${id}`);
+    window.scrollTo({
+      top: nextTop,
+      behavior: "smooth",
+    });
   };
 
   const themeLabel =
@@ -70,7 +133,7 @@ function Navbar({ copy, theme, onToggleTheme }) {
                   key={item.id}
                   className={`nav__link${isActive ? " active" : ""}`}
                   href={`#${item.id}`}
-                  onClick={() => handleLinkClick(item.id)}
+                  onClick={(event) => handleLinkClick(event, item.id)}
                   aria-current={isActive ? "page" : undefined}
                 >
                   {item.label}
