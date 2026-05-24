@@ -5,6 +5,7 @@ import BrandLogo from "./BrandLogo.jsx";
 const quickLinkIds = [
   "home",
   "overview",
+  "features",
   "architecture",
   "hardware",
   "software",

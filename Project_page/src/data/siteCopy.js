@@ -3,6 +3,7 @@
     nav: {
       home: "Home",
       overview: "Overview",
+      features: "Features",
       architecture: "Architecture",
       hardware: "Hardware",
       software: "Software",
@@ -52,6 +53,14 @@
             "Web interface for monitoring, analytics, and remote configuration.",
         },
       ],
+    },
+    features: {
+      eyebrow: "Core Features",
+      title: "Features built around real SPECTRON workflows",
+      subtitle:
+        "The platform covers the full path from modular sensor setup to controller ownership, live readings, alerts, and stored telemetry.",
+      workflowEyebrow: "How users move through the system",
+      workflowTitle: "A simple flow from hardware setup to dashboard insight",
     },
     architecture: {
       title: "Solution Architecture",

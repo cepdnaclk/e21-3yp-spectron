@@ -7,6 +7,7 @@ function Navbar({ copy, theme, onToggleTheme }) {
     () => [
       { id: "home", label: copy.nav.home },
       { id: "overview", label: copy.nav.overview },
+      { id: "features", label: copy.nav.features },
       { id: "architecture", label: copy.nav.architecture },
       { id: "hardware", label: copy.nav.hardware },
       { id: "software", label: copy.nav.software },
