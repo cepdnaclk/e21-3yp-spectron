@@ -91,8 +91,8 @@
         "The project budget tracks the hardware modules, power components, 3D printing, hosting, and miscellaneous costs required for the Spectron prototype.",
       totalLabel: "Estimated Budget",
       totalValue: "Rs20,481.00",
-      imageAlt:
-        "Spectron project budget table listing components, unit prices, quantity, and total price.",
+      totalTableValue: "20,481.00",
+      tableLabel: "Spectron project budget table",
     },
     team: {
       title: "Our Team",

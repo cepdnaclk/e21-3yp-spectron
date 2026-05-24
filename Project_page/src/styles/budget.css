@@ -56,7 +56,7 @@
   line-height: 1.1;
 }
 
-.budget-card {
+.budget-table-shell {
   margin: 0;
   overflow-x: auto;
   border: 1px solid var(--border-strong);
@@ -65,11 +65,94 @@
   box-shadow: var(--shadow-soft);
 }
 
-.budget-card__image {
+.budget-table {
   width: 100%;
-  min-width: 880px;
-  height: auto;
-  display: block;
+  min-width: 980px;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--ink);
+  font-size: 0.94rem;
+}
+
+.budget-table th,
+.budget-table td {
+  padding: 17px 24px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.budget-table thead th {
+  background: #070b1d;
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.25;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.budget-table thead th:first-child {
+  width: 70px;
+  border-top-left-radius: var(--radius);
+}
+
+.budget-table thead th:last-child {
+  border-top-right-radius: var(--radius);
+}
+
+.budget-table tbody tr:nth-child(even) {
+  background: rgba(12, 159, 152, 0.045);
+}
+
+.budget-table tbody td {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.budget-table tbody td:nth-child(2),
+.budget-table tbody td:nth-child(6) {
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.budget-table th:nth-child(4),
+.budget-table td:nth-child(4) {
+  width: 86px;
+  text-align: center;
+}
+
+.budget-table th:nth-child(5),
+.budget-table th:nth-child(6),
+.budget-table td:nth-child(5),
+.budget-table td:nth-child(6) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.budget-table th:nth-child(2) {
+  width: 230px;
+}
+
+.budget-table th:nth-child(3) {
+  width: 380px;
+}
+
+.budget-table tfoot td {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.budget-table tfoot td:first-child {
+  text-align: right;
+}
+
+.budget-table tfoot td:last-child {
+  color: var(--ink);
+  text-align: right;
 }
 
 @media (max-width: 820px) {
@@ -82,7 +165,13 @@
     width: 100%;
   }
 
-  .budget-card__image {
-    min-width: 760px;
+  .budget-table {
+    min-width: 900px;
+    font-size: 0.88rem;
+  }
+
+  .budget-table th,
+  .budget-table td {
+    padding: 14px 18px;
   }
 }

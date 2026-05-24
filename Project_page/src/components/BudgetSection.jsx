@@ -1,6 +1,5 @@
 import "../styles/budget.css";
-
-const budgetImage = `${import.meta.env.BASE_URL}team/budget.png`;
+import { budgetItems } from "../data/budgetData.js";
 
 function BudgetSection({ copy }) {
   return (
@@ -18,13 +17,38 @@ function BudgetSection({ copy }) {
           </div>
         </div>
 
-        <figure className="budget-card">
-          <img
-            className="budget-card__image"
-            src={budgetImage}
-            alt={copy.imageAlt}
-          />
-        </figure>
+        <div className="budget-table-shell">
+          <table className="budget-table" aria-label={copy.tableLabel}>
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">Item</th>
+                <th scope="col">Model / Notes</th>
+                <th scope="col">Qty</th>
+                <th scope="col">Unit Price (LKR)</th>
+                <th scope="col">Total (LKR)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {budgetItems.map((item, index) => (
+                <tr key={`${item.item}-${item.model}`}>
+                  <td>{index + 1}</td>
+                  <td>{item.item}</td>
+                  <td>{item.model}</td>
+                  <td>{item.qty}</td>
+                  <td>{item.unitPrice}</td>
+                  <td>{item.total}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan="5">Estimated Budget</td>
+                <td>{copy.totalTableValue}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       </div>
     </section>
   );
