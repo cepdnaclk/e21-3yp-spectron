@@ -6,7 +6,7 @@ const quickLinkIds = [
   "home",
   "overview",
   "architecture",
-  "tech",
+  "software",
   "testing",
   "budget",
   "team",

@@ -3,6 +3,7 @@ import ArchitectureDiagram from "../components/ArchitectureDiagram.jsx";
 import BrandLogo from "../components/BrandLogo.jsx";
 import BudgetSection from "../components/BudgetSection.jsx";
 import ExplanationPanel from "../components/ExplanationPanel.jsx";
+import SoftwareSection from "../components/SoftwareSection.jsx";
 import TeamSection from "../components/TeamSection.jsx";
 import TestingSection from "../components/TestingSection.jsx";
 import Footer from "../components/Footer.jsx";
@@ -104,19 +105,7 @@ function Home({ copy }) {
           </div>
         </section>
 
-        <section className="section" id="tech">
-          <div className="container">
-            <h2 className="section__title">{copy.tech.title}</h2>
-            <p className="section__subtitle">{copy.tech.subtitle}</p>
-            <div className="tech-list">
-              {copy.tech.pills.map((pill) => (
-                <span className="tech-pill" key={pill}>
-                  {pill}
-                </span>
-              ))}
-            </div>
-          </div>
-        </section>
+        <SoftwareSection copy={copy.software} />
 
         <TestingSection copy={copy.testing} />
 

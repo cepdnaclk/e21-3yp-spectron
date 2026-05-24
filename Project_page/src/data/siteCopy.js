@@ -4,7 +4,7 @@
       home: "Home",
       overview: "Overview",
       architecture: "Architecture",
-      tech: "Tech",
+      software: "Software",
       testing: "Testing",
       budget: "Budget",
       team: "Team",
@@ -72,18 +72,10 @@
       diagramImageAlt:
         "Spectron solution architecture showing sensor nodes, ESP32 gateway, SIM module, MQTT broker, Kafka, backend services, API gateway, and React applications.",
     },
-    tech: {
-      title: "Technology Stack",
+    software: {
+      title: "Software",
       subtitle:
-        "A balanced, production-ready stack chosen for reliability and long-term maintainability.",
-      pills: [
-        "React Native",
-        "Go",
-        "ESP32",
-        "MQTT",
-        "PostgreSQL",
-        "Time-Series Storage",
-      ],
+        "The SPECTRON codebase combines a React dashboard, Go API services, MQTT/Kafka ingestion, PostgreSQL storage, and admin tooling for real controller and sensor operations.",
     },
     testing: {
       title: "Testing",
