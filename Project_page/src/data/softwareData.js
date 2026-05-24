@@ -3,37 +3,37 @@ const simpleIcon = (slug, color) => `https://cdn.simpleicons.org/${slug}/${color
 export const softwareViews = [
   {
     id: "dashboard",
-    label: "Dashboard",
-    eyebrow: "software/frontend/web",
-    title: "React dashboard for controller owners and system administrators",
+    label: "Web & Mobile",
+    eyebrow: "User applications",
+    title: "Web dashboard and mobile sensor configuration app",
     text:
-      "The web application is a React 18 + TypeScript dashboard with protected user routes, a separate admin area, controller pairing, sensor configuration, monitoring, alerts, and profile management.",
+      "SPECTRON includes two user-facing apps: a web dashboard for day-to-day monitoring and administration, and a mobile app screen for configuring sensors during setup or field work.",
     features: [
       {
-        title: "Role-aware application routing",
+        title: "Web dashboard for users",
         text:
-          "User routes and admin routes are separated in App.tsx with PrivateRoute and AdminRoute guards.",
+          "Owners and operators can sign in, pair controllers, view connected sensors, monitor readings, configure sensors, and manage alerts from the browser.",
       },
       {
-        title: "Controller pairing workflow",
+        title: "Admin web area",
         text:
-          "Users can claim controllers, view owned systems, rename hardware, release devices, and manage paired sensors.",
+          "Administrators get separate screens for device registration, QR-based pairing support, users, system health, and device operations.",
       },
       {
-        title: "Five-step sensor configuration",
+        title: "Mobile sensor setup",
         text:
-          "The SensorConfig page guides users through sensor details, observable metric, visualization, alerts, and review.",
+          "The mobile app provides a focused sensor configuration flow with purpose entry, AI-assisted suggestions, thresholds, and battery-life settings.",
       },
       {
-        title: "Operational views",
+        title: "Same backend data",
         text:
-          "The app includes controller dashboards, monitoring, alerts, profile, team, and admin device/user/system screens.",
+          "Both apps communicate with the backend API for sensor data, saved configurations, controller ownership, and account permissions.",
       },
     ],
     stats: [
-      { label: "Frontend", value: "React 18 + TypeScript" },
-      { label: "UI", value: "Material UI + Recharts" },
-      { label: "Tests", value: "Vitest + Testing Library" },
+      { label: "Web App", value: "React 18 + TypeScript" },
+      { label: "Mobile App", value: "React Native" },
+      { label: "UI Systems", value: "Material UI + React Native Paper" },
     ],
   },
   {
@@ -111,7 +111,7 @@ export const softwareViews = [
 export const softwareTechCards = [
   {
     title: "React 18 + TypeScript",
-    text: "Main dashboard frontend in software/frontend/web.",
+    text: "Browser dashboard for monitoring, pairing, alerts, and admin views.",
     tone: "frontend",
     logos: [
       { src: simpleIcon("react", "61DAFB"), alt: "React logo" },
@@ -128,8 +128,17 @@ export const softwareTechCards = [
     ],
   },
   {
+    title: "React Native + Paper",
+    text: "Mobile sensor setup interface for field configuration.",
+    tone: "frontend",
+    logos: [
+      { src: simpleIcon("react", "61DAFB"), alt: "React Native logo" },
+      { label: "RP", alt: "React Native Paper" },
+    ],
+  },
+  {
     title: "Capacitor",
-    text: "Mobile packaging path for the React dashboard.",
+    text: "Optional mobile packaging path for the React web dashboard.",
     tone: "frontend",
     logos: [{ src: simpleIcon("capacitor", "119EFF"), alt: "Capacitor logo" }],
   },
