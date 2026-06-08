@@ -31,6 +31,7 @@ export const API_ENDPOINTS = {
   ALERTS: {
     LIST: '/alerts',
     ACK: (id: string) => `/alerts/${id}/ack`,
+    APPLY_RECOMMENDATION: (id: string) => `/alerts/${id}/apply-recommendation`,
   },
   USERS: {
     LIST: '/users',

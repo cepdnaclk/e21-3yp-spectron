@@ -280,23 +280,19 @@ const ControllerDashboard: React.FC = () => {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ py: { xs: 2, md: 3 } }}>
+    <Container maxWidth="xl" sx={{ pt: { xs: 10, md: 11 }, pb: { xs: 2, md: 3 } }}>
       <Box
         sx={{
-          position: 'sticky',
-          top: { xs: 12, md: 20 },
-          zIndex: 5,
-          display: 'flex',
-          justifyContent: 'flex-start',
-          mb: 1.5,
-          pointerEvents: 'none',
+          position: 'fixed',
+          top: { xs: 16, md: 24 },
+          left: { xs: 16, md: 'calc(268px + 32px)' },
+          zIndex: 20,
         }}
       >
         <IconButton
           aria-label="Go back"
           onClick={handleBack}
           sx={{
-            pointerEvents: 'auto',
             border: '1px solid rgba(60, 57, 17, 0.12)',
             bgcolor: '#fffdf8',
             boxShadow: '0 12px 24px rgba(60, 57, 17, 0.08)',
@@ -318,7 +314,7 @@ const ControllerDashboard: React.FC = () => {
             {saveNotice?.configuredSensorName || 'Sensor'} is now configured.
           </Typography>
           <Typography variant="body2">
-            {saveNotice?.observationMessage || 'The system is now observing live readings with the saved three-layer setup.'}
+            {saveNotice?.observationMessage || 'System observing live readings.'}
           </Typography>
       </AutoDismissAlert>
       <Snackbar
@@ -626,7 +622,7 @@ const ControllerDashboard: React.FC = () => {
                         </Typography>
                       ) : sensor.config_active ? (
                         <Typography variant="body2" color="text.secondary" fontStyle="italic">
-                          {sensor.observation?.message || 'Configured and collecting live readings for later review.'}
+                          {sensor.observation?.message || 'Collecting live readings.'}
                         </Typography>
                       ) : sensor.status === 'OK' ? (
                         <Typography variant="body2" color="text.secondary" fontStyle="italic">

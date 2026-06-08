@@ -449,53 +449,26 @@ const CONFIGURABLE_DERIVED_METRICS: Record<string, ConfigurableDerivedMetric[]> 
       key: 'occupancy_count',
       label: 'Occupancy Count',
       unit: 'people',
-      description: 'Interpret the sensing setup as the number of people currently occupying a zone.',
+      description: 'Interpret the sensing setup as an estimated live count for a zone or doorway crossing area.',
       runtime_metric_key: 'occupancy_count',
       use_case: 'occupancy_monitoring',
       recommended_profile: 'counter_status',
       supported_profiles: ['counter_status', 'event_timeline', 'single_trend'],
       purposes: [
         {
-          key: 'room_occupancy_monitoring',
-          label: 'Room Occupancy Monitoring',
-          description: 'Track how many people are inside a room or hall right now.',
+          key: 'room_occupancy_estimation',
+          label: 'Room Occupancy Estimation',
+          description: 'Estimate how many people are inside a room or hall right now.',
+        },
+        {
+          key: 'doorway_traffic_tracking',
+          label: 'Doorway Traffic Tracking',
+          description: 'Track how often people pass through an entry or exit point.',
         },
         {
           key: 'queue_density_tracking',
           label: 'Queue Density Tracking',
           description: 'Track how crowded a queue or service zone becomes.',
-        },
-        {
-          key: 'crowd_zone_monitoring',
-          label: 'Crowd Zone Monitoring',
-          description: 'Track occupancy in public or shared activity zones.',
-        },
-      ],
-    },
-    {
-      key: 'attendance_count',
-      label: 'Attendance Count',
-      unit: 'people',
-      description: 'Interpret the sensing setup as attendance or presence count for a session.',
-      runtime_metric_key: 'attendance_count',
-      use_case: 'attendance_monitoring',
-      recommended_profile: 'counter_status',
-      supported_profiles: ['counter_status', 'event_timeline', 'single_trend'],
-      purposes: [
-        {
-          key: 'classroom_attendance_tracking',
-          label: 'Classroom Attendance Tracking',
-          description: 'Track how many students or participants are present in a class.',
-        },
-        {
-          key: 'event_attendance_monitoring',
-          label: 'Event Attendance Monitoring',
-          description: 'Track attendee presence for halls, meetings, or sessions.',
-        },
-        {
-          key: 'session_presence_tracking',
-          label: 'Session Presence Tracking',
-          description: 'Track presence count during scheduled or timed sessions.',
         },
       ],
     },
@@ -601,9 +574,9 @@ const SENSOR_KNOWLEDGE_PROFILES: Record<string, SensorKnowledgeProfile> = {
   dht22: {} as SensorKnowledgeProfile,
   ultrasonic: {
     module_name: 'GY-VL53L0X Time-of-Flight Distance Sensor',
-    sensor_family: 'VL53L0X ToF distance sensor used as the physical source for level and people-count interpretations',
+    sensor_family: 'VL53L0X ToF distance sensor used as the physical source for level, presence, and traffic interpretations',
     description:
-      'The app may still refer to this slot as ultrasonic for compatibility, but the current hardware bill of materials points to a VL53L0X time-of-flight distance module. Layer 2 decides whether that distance becomes fill level, occupancy, attendance, or direct distance.',
+      'The app may still refer to this slot as ultrasonic for compatibility, but the current hardware bill of materials points to a VL53L0X time-of-flight distance module. Layer 2 decides whether that distance becomes fill level, occupancy estimation, doorway traffic cues, or direct distance.',
     measures: [
       {
         label: 'Distance',
@@ -613,8 +586,8 @@ const SENSOR_KNOWLEDGE_PROFILES: Record<string, SensorKnowledgeProfile> = {
     readable_ranges: SENSOR_HARDWARE_METRICS.ultrasonic,
     common_use_cases: [
       'Fill-level monitoring for bins and tanks',
-      'Room occupancy monitoring',
-      'Attendance counting for sessions',
+      'Room occupancy estimation',
+      'Doorway traffic monitoring',
       'Clearance and proximity diagnostics',
     ],
     notes: [
@@ -626,7 +599,7 @@ const SENSOR_KNOWLEDGE_PROFILES: Record<string, SensorKnowledgeProfile> = {
     module_name: 'GY-VL53L0X Time-of-Flight Distance Sensor',
     sensor_family: 'VL53L0X ToF distance sensor',
     description:
-      'This module provides the raw distance reading used directly or transformed into customer-facing level and people-count metrics.',
+      'This module provides the raw distance reading used directly or transformed into customer-facing level, proximity, and estimated occupancy metrics.',
     measures: [
       {
         label: 'Distance',
@@ -637,7 +610,7 @@ const SENSOR_KNOWLEDGE_PROFILES: Record<string, SensorKnowledgeProfile> = {
     common_use_cases: [
       'Distance diagnostics',
       'Level monitoring',
-      'Presence and occupancy sensing',
+      'Presence, occupancy, and doorway traffic sensing',
     ],
     notes: ['High-accuracy profile is typically below +/-3% at up to 1.2 m.'],
   },
@@ -944,12 +917,28 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       key: 'attendance_count',
       label: 'Attendance Count',
       unit: 'people',
-      description: 'Attendance or session presence count inferred from the sensing setup.',
+      description: 'Legacy attendance or session presence count inferred from the sensing setup.',
       runtime_metric_key: 'attendance_count',
       use_case: 'attendance_monitoring',
       recommended_profile: 'counter_status',
       supported_profiles: ['counter_status', 'event_timeline', 'single_trend'],
-      purposes: CONFIGURABLE_DERIVED_METRICS.ultrasonic[3].purposes,
+      purposes: [
+        {
+          key: 'classroom_attendance_tracking',
+          label: 'Classroom Attendance Tracking',
+          description: 'Track how many students or participants are present in a class.',
+        },
+        {
+          key: 'event_attendance_monitoring',
+          label: 'Event Attendance Monitoring',
+          description: 'Track attendee presence for halls, meetings, or sessions.',
+        },
+        {
+          key: 'session_presence_tracking',
+          label: 'Session Presence Tracking',
+          description: 'Track presence count during scheduled or timed sessions.',
+        },
+      ],
       availability: 'supported_now',
       source_metrics: ['distance'],
       formula: 'Distance-trigger events converted into session presence counts',
@@ -1341,8 +1330,8 @@ const PRESENTATION_PROFILE_DEFINITIONS: Record<PresentationProfileKey, Presentat
     description: 'Count-first dashboard.',
     visualization_method: 'counter_bars',
     visualization_label: 'Live Count + Bar Trend',
-    visualization_summary: 'Best for occupancy and attendance where each reading is a count.',
-    best_for: ['occupancy', 'attendance', 'session counts'],
+    visualization_summary: 'Best for occupancy and doorway traffic views where each reading is a count.',
+    best_for: ['occupancy', 'door traffic', 'live counts'],
     primary_widget: 'counter',
     secondary_widgets: ['status', 'trend'],
     chart_style: 'bar',

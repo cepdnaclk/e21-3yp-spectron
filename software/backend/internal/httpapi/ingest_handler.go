@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,6 +76,15 @@ func (h *IngestHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	if err := h.processor.ProcessEvent(r.Context(), event); err != nil {
 		http.Error(w, "failed to persist sensor data", http.StatusInternalServerError)
 		return
+	}
+
+	for _, sensor := range req.Sensors {
+		sensorUID := sensor.ID
+		go func() {
+			bgCtx, cancel := context.WithTimeout(context.Background(), hostedAITimeout())
+			defer cancel()
+			maybeGenerateLearningFeedbackForUpload(bgCtx, h.db, controllerID, sensorUID)
+		}()
 	}
 
 	queued := false

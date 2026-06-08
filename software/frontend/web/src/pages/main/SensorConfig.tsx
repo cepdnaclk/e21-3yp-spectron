@@ -16,6 +16,7 @@ import {
   Alert,
   Stack,
   Chip,
+  Popover,
   Stepper,
   Step,
   StepButton,
@@ -35,6 +36,7 @@ import {
   Speed as SpeedIcon,
   Timeline as TimelineIcon,
   ExpandMore as ExpandMoreIcon,
+  Info as InfoIcon,
 } from '@mui/icons-material';
 import {
   getSensor,
@@ -76,6 +78,13 @@ import {
 } from '../../utils/sensorConfig';
 import { SensorConfigSkeleton } from '../../components/LoadingSkeletons';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
+import {
+  AIFollowUpQuestion,
+  ConfigurationAiSuggestionResponse,
+  LearningPhaseStatusResponse,
+  parseConfigurationFromAi,
+  getLearningPhaseStatus,
+} from '../../services/sensorConfigurationAiService';
 
 type MetricThresholdInput = {
   mode: ThresholdMode;
@@ -116,7 +125,7 @@ type UseCaseOption =
   | 'safety_monitoring';
 type PresentationProfileOption =
   PresentationProfileKey;
-type WizardStepKey = 'about' | 'metric' | 'visualization' | 'alerts' | 'review';
+type WizardStepKey = 'setup' | 'alerts';
 type SensorConfigNavigationState = {
   returnTo?: string;
   controllerId?: string;
@@ -125,6 +134,36 @@ type SensorConfigNavigationState = {
   sensorName?: string;
   configured?: boolean;
 };
+
+type ClarificationFieldKey = 'fullScaleDistanceCm' | 'sustainedWindowMinutes';
+
+type ClarificationPrompt = {
+  key: ClarificationFieldKey;
+  title: string;
+  label: string;
+  helperText: string;
+  placeholder: string;
+  unit: string;
+};
+
+type ReportingPreset = {
+  key: 'fast' | 'normal' | 'eco';
+  label: string;
+  description: string;
+  reportsPerDay: number;
+};
+
+type AIDraftSummary = ConfigurationAiSuggestionResponse & {
+  metric: string;
+  purpose: string;
+  presentationProfile: string;
+  alertThresholds: {
+    warning: string;
+    critical: string;
+  };
+};
+
+type AIFollowUpAnswers = Record<string, string>;
 
 const toNumberOrUndefined = (value: string): number | undefined => {
   if (!value || value.trim() === '') {
@@ -233,17 +272,27 @@ const getConfigContext = (config?: SensorConfigPayload) =>
 const getConfigPurpose = (config?: SensorConfigPayload) =>
   config?.interpretation?.purpose;
 
+const resolvePurposeLabel = (
+  options: Array<{ label: string }>,
+  ...candidates: Array<string | undefined>
+) => {
+  for (const candidate of candidates) {
+    const normalizedCandidate = candidate?.trim();
+    if (!normalizedCandidate) {
+      continue;
+    }
+
+    const matchedOption = options.find((option) => option.label === normalizedCandidate);
+    if (matchedOption) {
+      return matchedOption.label;
+    }
+  }
+
+  return options[0]?.label || '';
+};
+
 const getConfigReportsPerDay = (config?: SensorConfigPayload) =>
   config?.operational?.report_interval_per_day || config?.report_interval_per_day;
-
-const getConfigReadingFlowType = (config?: SensorConfigPayload) => {
-  const readingFlowType =
-    config?.operational?.reading_flow_type ||
-    (typeof getConfigHardware(config).readingFlowType === 'string'
-      ? (getConfigHardware(config).readingFlowType as string)
-      : undefined);
-  return readingFlowType === 'TRIGGER' ? 'TRIGGER' : 'CONSTANT_PER_DAY';
-};
 
 const normalizeUseCaseOption = (value?: string): UseCaseOption | undefined => {
   switch ((value || '').trim().toLowerCase()) {
@@ -359,6 +408,97 @@ const getRecommendedProfileForUseCase = (
   }
 };
 
+const REPORTING_PRESETS: ReportingPreset[] = [
+  {
+    key: 'fast',
+    label: 'Fast',
+    description: 'Frequent updates for live operational decisions.',
+    reportsPerDay: 96,
+  },
+  {
+    key: 'normal',
+    label: 'Normal',
+    description: 'Balanced update speed for everyday monitoring.',
+    reportsPerDay: 24,
+  },
+  {
+    key: 'eco',
+    label: 'Eco',
+    description: 'Battery-friendly updates for slower-changing conditions.',
+    reportsPerDay: 6,
+  },
+];
+
+const metricNeedsContainerDepth = (metricKey: string, useCase: UseCaseOption) =>
+  ['fill_level', 'remaining_capacity_percent', 'fill_rate'].includes(metricKey) ||
+  useCase === 'fill_level_monitoring';
+
+const metricNeedsSustainedWindow = (metricKey: string, useCase: UseCaseOption) =>
+  [
+    'temperature',
+    'humidity',
+    'heat_index',
+    'dew_point',
+    'climate_condition',
+    'pressure',
+    'gas_level',
+    'aqi',
+  ].includes(metricKey) || useCase === 'climate_monitoring' || useCase === 'safety_monitoring';
+
+const getClarificationPrompts = (
+  sensorType: string,
+  metricKey: string,
+  useCase: UseCaseOption
+): ClarificationPrompt[] => {
+  const normalizedSensorType = sensorType.toLowerCase();
+  const prompts: ClarificationPrompt[] = [];
+
+  if (
+    ['vl53l0x', 'distance', 'ultrasonic'].includes(normalizedSensorType) &&
+    metricNeedsContainerDepth(metricKey, useCase)
+  ) {
+    prompts.push({
+      key: 'fullScaleDistanceCm',
+      title: 'One physical detail is still needed',
+      label: 'How deep is the container when it is completely full?',
+      helperText: 'This lets Spectron turn raw distance into a meaningful fill-level view.',
+      placeholder: 'e.g. 40',
+      unit: 'cm',
+    });
+  }
+
+  if (metricNeedsSustainedWindow(metricKey, useCase)) {
+    prompts.push({
+      key: 'sustainedWindowMinutes',
+      title: 'How patient should alerts be?',
+      label: 'Only alert me if the condition stays unsafe for',
+      helperText: 'Use this to avoid false alarms caused by short spikes or brief door openings.',
+      placeholder: 'e.g. 15',
+      unit: 'minutes',
+    });
+  }
+
+  return prompts;
+};
+
+const inferReportingPreset = (reportsPerDay: string) => {
+  const numericReports = Number(reportsPerDay);
+  if (!Number.isFinite(numericReports) || numericReports <= 0) {
+    return 'normal';
+  }
+
+  let closest = REPORTING_PRESETS[0];
+  let closestDistance = Math.abs(numericReports - closest.reportsPerDay);
+  REPORTING_PRESETS.slice(1).forEach((preset) => {
+    const distance = Math.abs(numericReports - preset.reportsPerDay);
+    if (distance < closestDistance) {
+      closest = preset;
+      closestDistance = distance;
+    }
+  });
+  return closest.key;
+};
+
 const pageKickerSx = {
   color: 'secondary.main',
   fontWeight: 900,
@@ -427,29 +567,14 @@ const CONFIGURATION_STEPS: Array<{
   description: string;
 }> = [
   {
-    key: 'about',
-    title: 'Sensor info',
-    description: 'Review the detected hardware and give it a friendly name.',
-  },
-  {
-    key: 'metric',
-    title: 'What to measure',
-    description: 'Select the most important value this sensor should report.',
-  },
-  {
-    key: 'visualization',
-    title: 'Dashboard style',
-    description: 'Pick the view that makes this easy to understand.',
+    key: 'setup',
+    title: 'Setup',
+    description: 'Tell us about your sensor and how to display it.',
   },
   {
     key: 'alerts',
-    title: 'Alert settings',
-    description: 'Set a simple alert level and reporting frequency.',
-  },
-  {
-    key: 'review',
-    title: 'Final check',
-    description: 'Quickly confirm the setup before saving.',
+    title: 'Alerts',
+    description: 'Decide when we should alert you.',
   },
 ];
 
@@ -1131,6 +1256,72 @@ const renderDashboardPreviewVisualization = (
   }
 };
 
+// Info button component for optional information
+interface InfoButtonProps {
+  children?: React.ReactNode;
+  tooltip?: string;
+}
+
+const InfoButton: React.FC<InfoButtonProps> = ({ children, tooltip = 'More info' }) => {
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+
+  if (!children) return null;
+
+  const open = Boolean(anchorEl);
+  const popoverId = open ? 'sensor-config-info-popover' : undefined;
+
+  return (
+    <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
+      <IconButton
+        size="small"
+        aria-describedby={popoverId}
+        onClick={(event) => setAnchorEl(open ? null : event.currentTarget)}
+        sx={{
+          p: 0.5,
+          color: 'text.secondary',
+          '&:hover': { color: 'primary.main', bgcolor: 'rgba(108, 137, 48, 0.08)' },
+        }}
+        title={tooltip}
+      >
+        <InfoIcon sx={{ fontSize: '1.1rem' }} />
+      </IconButton>
+      <Popover
+        id={popoverId}
+        open={open}
+        anchorEl={anchorEl}
+        onClose={() => setAnchorEl(null)}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'left',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'left',
+        }}
+        PaperProps={{
+          sx: {
+            mt: 0.75,
+            maxWidth: 360,
+            p: 1.5,
+            borderRadius: 1.5,
+            bgcolor: '#fffdf8',
+            border: '1px solid rgba(60, 57, 17, 0.12)',
+            boxShadow: '0 16px 30px rgba(60, 57, 17, 0.12)',
+          },
+        }}
+      >
+        {typeof children === 'string' ? (
+          <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+            {children}
+          </Typography>
+        ) : (
+          <Box sx={{ color: 'text.secondary', '& p': { lineHeight: 1.6 } }}>{children}</Box>
+        )}
+      </Popover>
+    </Box>
+  );
+};
+
 const SensorConfig: React.FC = () => {
   const { id, controllerId, sensorId } = useParams<{
     id?: string;
@@ -1156,6 +1347,8 @@ const SensorConfig: React.FC = () => {
   const [installationNotes, setInstallationNotes] = useState('');
   const [friendlyName, setFriendlyName] = useState('');
   const [systemName, setSystemName] = useState('');
+  const [fullScaleDistanceCm, setFullScaleDistanceCm] = useState('');
+  const [sustainedWindowMinutes, setSustainedWindowMinutes] = useState('15');
   const [useCase, setUseCase] = useState<UseCaseOption>('generic_monitoring');
   const [presentationProfile, setPresentationProfile] = useState<PresentationProfileOption>('single_trend');
   const [presentationConfig, setPresentationConfig] = useState<PresentationConfigValue>({});
@@ -1163,11 +1356,18 @@ const SensorConfig: React.FC = () => {
   const [alertSettings, setAlertSettings] = useState<AlertSettingInput[]>([]);
   const [, setMetricThresholds] = useState<Record<string, MetricThresholdInput>>({});
   const [reportsPerDay, setReportsPerDay] = useState('24');
-  const [readingFlowType, setReadingFlowType] = useState<'CONSTANT_PER_DAY' | 'TRIGGER'>('CONSTANT_PER_DAY');
+  const readingFlowType: 'CONSTANT_PER_DAY' = 'CONSTANT_PER_DAY';
   const [pageError, setPageError] = useState<string | null>(null);
   const [activeStep, setActiveStep] = useState(0);
   const [visitedSteps, setVisitedSteps] = useState<Set<number>>(new Set([0]));
-  const [simpleMode, setSimpleMode] = useState(true);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [learningPhaseDay, setLearningPhaseDay] = useState(0);
+  const [learningPhaseStatus, setLearningPhaseStatus] = useState<LearningPhaseStatusResponse | null>(null);
+  const [aiSuggestions, setAiSuggestions] = useState<AIDraftSummary | null>(null);
+  const [showAiSuggestions, setShowAiSuggestions] = useState(false);
+  const [aiFollowUpQuestions, setAiFollowUpQuestions] = useState<AIFollowUpQuestion[]>([]);
+  const [aiFollowUpAnswers, setAiFollowUpAnswers] = useState<AIFollowUpAnswers>({});
+  const [requestingAi, setRequestingAi] = useState(false);
   const [resolvedHardwareControllerId, setResolvedHardwareControllerId] = useState('');
   const initializedSensorIdRef = useRef<string | null>(null);
   const activeSensorId = sensorId || id || navigationState?.sensorId || '';
@@ -1240,12 +1440,22 @@ const SensorConfig: React.FC = () => {
     () => getMetricPreviewSampleData(primaryMetric),
     [primaryMetric]
   );
+  const clarificationPrompts = useMemo(
+    () => getClarificationPrompts(sensor?.type || navigationState?.sensorType || '', primaryMetric, useCase),
+    [navigationState?.sensorType, primaryMetric, sensor?.type, useCase]
+  );
+  const selectedReportingPreset = useMemo(() => inferReportingPreset(reportsPerDay), [reportsPerDay]);
+  const activeReportingPreset = useMemo(
+    () => REPORTING_PRESETS.find((preset) => preset.key === selectedReportingPreset) || REPORTING_PRESETS[1],
+    [selectedReportingPreset]
+  );
+  const resolvedReportsPerDay = activeReportingPreset.reportsPerDay;
   const estimatedBatteryLifeDays = estimateBatteryLifeDays(
-    parseInt(reportsPerDay, 10) || 1,
+    resolvedReportsPerDay,
     sensorMetrics.length,
     readingFlowType
   );
-  const showInterpretationContext = false;
+  const showInterpretationContext = true;
   const activeStepMeta = CONFIGURATION_STEPS[activeStep];
 
   useEffect(() => {
@@ -1265,14 +1475,37 @@ const SensorConfig: React.FC = () => {
       reportsPerDay,
       readingFlowType,
       purpose,
-      simpleMode,
+      aiPrompt,
+      learningPhaseDay,
+      aiSuggestions,
+      aiFollowUpQuestions,
+      aiFollowUpAnswers,
+      fullScaleDistanceCm,
+      sustainedWindowMinutes,
     };
     try {
       localStorage.setItem(key, JSON.stringify(draft));
     } catch (e) {
       // ignore storage errors
     }
-  }, [activeSensorId, friendlyName, primaryMetric, presentationProfile, presentationConfig, alertSettings, reportsPerDay, readingFlowType, purpose, simpleMode]);
+  }, [
+    activeSensorId,
+    aiPrompt,
+    aiFollowUpAnswers,
+    aiFollowUpQuestions,
+    aiSuggestions,
+    alertSettings,
+    friendlyName,
+    fullScaleDistanceCm,
+    learningPhaseDay,
+    presentationConfig,
+    presentationProfile,
+    primaryMetric,
+    purpose,
+    readingFlowType,
+    reportsPerDay,
+    sustainedWindowMinutes,
+  ]);
 
   useEffect(() => {
     if (!activeSensorId) return;
@@ -1287,9 +1520,16 @@ const SensorConfig: React.FC = () => {
       if (draft.presentationConfig) setPresentationConfig(draft.presentationConfig);
       if (Array.isArray(draft.alertSettings)) setAlertSettings(draft.alertSettings);
       if (draft.reportsPerDay) setReportsPerDay(draft.reportsPerDay);
-      if (draft.readingFlowType) setReadingFlowType(draft.readingFlowType);
       if (draft.purpose) setPurpose(draft.purpose);
-      if (typeof draft.simpleMode === 'boolean') setSimpleMode(draft.simpleMode);
+      if (draft.aiPrompt) setAiPrompt(draft.aiPrompt);
+      if (typeof draft.learningPhaseDay === 'number') setLearningPhaseDay(draft.learningPhaseDay);
+      if (draft.aiSuggestions) setAiSuggestions(draft.aiSuggestions);
+      if (Array.isArray(draft.aiFollowUpQuestions)) setAiFollowUpQuestions(draft.aiFollowUpQuestions);
+      if (draft.aiFollowUpAnswers && typeof draft.aiFollowUpAnswers === 'object') {
+        setAiFollowUpAnswers(draft.aiFollowUpAnswers);
+      }
+      if (typeof draft.fullScaleDistanceCm === 'string') setFullScaleDistanceCm(draft.fullScaleDistanceCm);
+      if (typeof draft.sustainedWindowMinutes === 'string') setSustainedWindowMinutes(draft.sustainedWindowMinutes);
     } catch (e) {
       // ignore parse errors
     }
@@ -1410,6 +1650,17 @@ const SensorConfig: React.FC = () => {
     );
   }, [navigationState?.sensorType, presentationProfile, primaryMetric, sensor?.type]);
 
+  useEffect(() => {
+    if (!purposeOptions.length) {
+      return;
+    }
+
+    const nextPurpose = resolvePurposeLabel(purposeOptions, purpose);
+    if (nextPurpose !== purpose) {
+      setPurpose(nextPurpose);
+    }
+  }, [purpose, purposeOptions]);
+
   const loadSensor = useCallback(async () => {
     if (!activeSensorId) return;
 
@@ -1470,7 +1721,14 @@ const SensorConfig: React.FC = () => {
         const defaultPurposeLabel = configuredMetric?.purposes[0]?.label || '';
 
         setSystemName(activeConfig?.hardware?.system_name || controllerData?.name || '');
-        setPurpose(getConfigPurpose(activeConfig) || sensorData.purpose || defaultPurposeLabel);
+        setPurpose(
+          resolvePurposeLabel(
+            configuredMetric?.purposes || [],
+            getConfigPurpose(activeConfig),
+            sensorData.purpose,
+            defaultPurposeLabel
+          )
+        );
         setFriendlyName(
           activeConfig?.interpretation?.friendly_name ||
             activeConfig?.friendly_name ||
@@ -1486,8 +1744,20 @@ const SensorConfig: React.FC = () => {
         setLocationLabel(context?.location?.label || '');
         setHistoricalWindowDays(context?.historical_window_days?.toString() || '');
         setInstallationNotes(context?.installation_notes || '');
+        const existingHardwareConfig = getConfigHardware(activeConfig);
+        setFullScaleDistanceCm(
+          typeof existingHardwareConfig.fullScaleDistanceCm === 'number'
+            ? existingHardwareConfig.fullScaleDistanceCm.toString()
+            : typeof existingHardwareConfig.tankDepthCm === 'number'
+              ? existingHardwareConfig.tankDepthCm.toString()
+              : ''
+        );
+        setSustainedWindowMinutes(
+          typeof existingHardwareConfig.sustainedWindowMinutes === 'number'
+            ? existingHardwareConfig.sustainedWindowMinutes.toString()
+            : '15'
+        );
         setReportsPerDay(getConfigReportsPerDay(activeConfig)?.toString() || '24');
-        setReadingFlowType(getConfigReadingFlowType(activeConfig));
         setUseCase(configuredUseCase);
         setPresentationProfile(configuredProfile);
         setPresentationConfig(
@@ -1594,7 +1864,27 @@ const SensorConfig: React.FC = () => {
     }
   }, [activeSensorId, loadSensor]);
 
-  const buildContextPayload = (): SensorContext | undefined => {
+  // Check learning phase status on load
+  useEffect(() => {
+    if (activeSensorId) {
+      getLearningPhaseStatus(activeSensorId)
+        .then((status) => {
+          setLearningPhaseStatus(status || null);
+          if (status && status.phase === 'learning') {
+            setLearningPhaseDay(status.dayNumber);
+          } else if (status && status.phase === 'completed') {
+            setLearningPhaseDay((status.requiredDays || 7) + 1);
+          } else {
+            setLearningPhaseDay(0);
+          }
+        })
+        .catch(() => {
+          // If learning phase check fails, just continue without learning phase info
+        });
+    }
+  }, [activeSensorId]);
+
+  const buildContextPayload = useCallback((): SensorContext | undefined => {
     const historicalDays = toPositiveIntOrUndefined(historicalWindowDays);
 
     const payload: SensorContext = {
@@ -1627,41 +1917,263 @@ const SensorConfig: React.FC = () => {
     }
 
     return payload;
+  }, [
+    assetType,
+    domain,
+    environmentType,
+    historicalWindowDays,
+    indoorOutdoor,
+    installationNotes,
+    locationCountry,
+    locationLabel,
+    locationRegion,
+  ]);
+
+  const resetAiFollowUpState = useCallback(() => {
+    setAiFollowUpQuestions([]);
+    setAiFollowUpAnswers({});
+  }, []);
+
+  const buildAiDraftSummary = useCallback((
+    suggestions: ConfigurationAiSuggestionResponse,
+    sensorType: string
+  ): AIDraftSummary => {
+    const suggestedMetricKey =
+      getConfigPrimaryMetric(suggestions.validated_config) ||
+      getConfigPrimaryMetric(suggestions.suggested_config) ||
+      primaryMetric ||
+      'value';
+    const suggestedMetric =
+      getObservableMetricDefinition(sensorType, suggestedMetricKey) ||
+      getDefaultObservableMetric(sensorType);
+    const suggestedPurpose = resolvePurposeLabel(
+      suggestedMetric?.purposes || [],
+      getConfigPurpose(suggestions.validated_config),
+      getConfigPurpose(suggestions.suggested_config),
+      purpose,
+      suggestedMetric?.purposes[0]?.label
+    );
+    const suggestedProfile =
+      getConfigPresentationProfile(suggestions.validated_config) ||
+      getConfigPresentationProfile(suggestions.suggested_config) ||
+      presentationProfile;
+    const firstAlert =
+      suggestions.validated_config.settings?.alerts?.[0] ||
+      suggestions.suggested_config.settings?.alerts?.[0];
+
+    return {
+      ...suggestions,
+      metric: getMetricLabel(suggestedMetricKey),
+      purpose: suggestedPurpose,
+      presentationProfile: suggestedProfile,
+      alertThresholds: {
+        warning:
+          firstAlert?.warning_threshold !== undefined
+            ? String(firstAlert.warning_threshold)
+            : '--',
+        critical:
+          firstAlert?.critical_threshold !== undefined
+            ? String(firstAlert.critical_threshold)
+            : '--',
+      },
+    };
+  }, [presentationProfile, primaryMetric, purpose]);
+
+  const handleAiSuggestionResponse = useCallback((
+    suggestions: ConfigurationAiSuggestionResponse,
+    sensorType: string
+  ) => {
+    if (suggestions.needs_follow_up && suggestions.follow_up_questions?.length) {
+      const questions = suggestions.follow_up_questions.slice(0, 3);
+      setAiFollowUpQuestions(questions);
+      setAiFollowUpAnswers((current) => {
+        const next: AIFollowUpAnswers = {};
+        questions.forEach((question) => {
+          next[question.id] = current[question.id] || '';
+        });
+        return next;
+      });
+      setShowAiSuggestions(false);
+      setAiSuggestions(null);
+      return;
+    }
+
+    resetAiFollowUpState();
+    setShowAiSuggestions(true);
+    setAiSuggestions(buildAiDraftSummary(suggestions, sensorType));
+  }, [buildAiDraftSummary, resetAiFollowUpState]);
+
+  const requestAiConfiguration = useCallback(async (followUpAnswers?: AIFollowUpAnswers) => {
+    if (!aiPrompt.trim()) {
+      return;
+    }
+
+    try {
+      setRequestingAi(true);
+      setPageError(null);
+      const sensorType = sensor?.type || navigationState?.sensorType || 'unknown';
+      const suggestions = await parseConfigurationFromAi({
+        description: aiPrompt.trim(),
+        sensorId: activeSensorId,
+        sensorType,
+        controllerId: isHardwareContext ? activeControllerId : undefined,
+        context: buildContextPayload(),
+        followUpAnswers,
+      });
+      handleAiSuggestionResponse(suggestions, sensorType);
+    } catch (error) {
+      setPageError('Failed to get AI suggestions. Please try again or configure manually.');
+      console.error('AI parse error:', error);
+    } finally {
+      setRequestingAi(false);
+    }
+  }, [
+    activeControllerId,
+    activeSensorId,
+    aiPrompt,
+    buildContextPayload,
+    handleAiSuggestionResponse,
+    isHardwareContext,
+    navigationState?.sensorType,
+    sensor?.type,
+  ]);
+
+  const applyAiSuggestionToForm = (
+    response: ConfigurationAiSuggestionResponse,
+    fallbackDescription: string
+  ) => {
+    const sensorType = sensor?.type || navigationState?.sensorType || '';
+    const suggestedConfig = response.validated_config || response.suggested_config;
+    const suggestedMetricKey =
+      getConfigPrimaryMetric(suggestedConfig) ||
+      getDefaultObservableMetric(sensorType)?.key ||
+      primaryMetric;
+    const suggestedMetric =
+      getObservableMetricDefinition(sensorType, suggestedMetricKey) ||
+      getDefaultObservableMetric(sensorType);
+
+    if (!suggestedMetric) {
+      return;
+    }
+
+    const suggestedUseCase =
+      suggestedMetric.use_case ||
+      normalizeUseCaseOption(getConfigUseCase(suggestedConfig)) ||
+      getDefaultUseCaseForSensorType(sensorType);
+    const suggestedProfile =
+      normalizePresentationProfileOption(getConfigPresentationProfile(suggestedConfig)) ||
+      (suggestedMetric.recommended_profile as PresentationProfileOption | undefined) ||
+      getRecommendedProfileForUseCase(suggestedUseCase, sensorType);
+    const suggestedPurpose = resolvePurposeLabel(
+      suggestedMetric.purposes || [],
+      getConfigPurpose(suggestedConfig),
+      purpose,
+      suggestedMetric.purposes[0]?.label
+    );
+    const suggestedContext = getConfigContext(suggestedConfig);
+    const suggestedHardwareConfig = getConfigHardware(suggestedConfig);
+
+    setFriendlyName(
+      suggestedConfig.interpretation?.friendly_name ||
+        suggestedConfig.friendly_name ||
+        friendlyName
+    );
+    setPurpose(suggestedPurpose);
+    setUseCase(suggestedUseCase);
+    setPrimaryMetric(suggestedMetric.key);
+    setPresentationProfile(suggestedProfile);
+    setPresentationConfig(
+      normalizePresentationConfig(sensorType, suggestedMetric.key, suggestedProfile, {
+        headline_metric: suggestedConfig.presentation?.headline_metric,
+        status_mode: suggestedConfig.presentation?.status_mode,
+        comparison_mode: suggestedConfig.presentation?.comparison_mode,
+        detail_mode: suggestedConfig.presentation?.detail_mode,
+      })
+    );
+    setReportsPerDay(getConfigReportsPerDay(suggestedConfig)?.toString() || reportsPerDay);
+
+    if (suggestedConfig.hardware?.system_name) {
+      setSystemName(suggestedConfig.hardware.system_name);
+    }
+
+    if (suggestedContext) {
+      setDomain(suggestedContext.domain || '');
+      setEnvironmentType(suggestedContext.environment_type || '');
+      setIndoorOutdoor(suggestedContext.indoor_outdoor || '');
+      setAssetType(suggestedContext.asset_type || '');
+      setLocationCountry(suggestedContext.location?.country || '');
+      setLocationRegion(suggestedContext.location?.region || '');
+      setLocationLabel(suggestedContext.location?.label || '');
+      setHistoricalWindowDays(suggestedContext.historical_window_days?.toString() || '');
+      setInstallationNotes(suggestedContext.installation_notes || '');
+    }
+
+    if (typeof suggestedHardwareConfig.fullScaleDistanceCm === 'number') {
+      setFullScaleDistanceCm(suggestedHardwareConfig.fullScaleDistanceCm.toString());
+    }
+    if (typeof suggestedHardwareConfig.sustainedWindowMinutes === 'number') {
+      setSustainedWindowMinutes(suggestedHardwareConfig.sustainedWindowMinutes.toString());
+    }
+
+    const previewMetrics = getPresentationMetrics(sensorType, suggestedMetric.key, suggestedProfile);
+    const baseThresholds = { ...(getConfigMetricThresholds(suggestedConfig) || {}) };
+    if (previewMetrics.length === 1 && previewMetrics[0]?.key && !baseThresholds[previewMetrics[0].key]) {
+      const primaryThreshold = getConfigThresholds(suggestedConfig);
+      if (primaryThreshold) {
+        baseThresholds[previewMetrics[0].key] = primaryThreshold;
+      }
+    }
+
+    const nextAlertSettings = buildPresentationAlertSettings(
+      sensorType,
+      suggestedMetric.key,
+      suggestedProfile,
+      suggestedConfig.settings?.alerts,
+      baseThresholds
+    ).map(toAlertSettingInput);
+    setAlertSettings(nextAlertSettings);
+    setMetricThresholds(alertInputsToMetricThresholds(nextAlertSettings));
   };
 
   const validateStep = (stepIndex: number) => {
     switch (CONFIGURATION_STEPS[stepIndex]?.key) {
-      case 'about':
+      case 'setup':
         if (!friendlyName.trim()) {
-          setPageError('Please enter a sensor name to continue.');
+          setPageError('Please give your sensor a name.');
           return false;
         }
-        return true;
-      case 'metric':
         if (!selectedDerivedMetric) {
-          setPageError('Please choose the observed metric for this sensor.');
+          setPageError('Please choose what to measure.');
           return false;
         }
         if (!purpose.trim()) {
-          setPageError('Please choose the monitoring purpose for this metric.');
+          setPageError('Please explain why you are measuring this.');
           return false;
         }
-        return true;
-      case 'visualization':
         if (!presentationProfile.trim()) {
-          setPageError('Please choose how the dashboard should show this metric.');
+          setPageError('Please choose how to display it.');
+          return false;
+        }
+        if (
+          clarificationPrompts.some((prompt) => prompt.key === 'fullScaleDistanceCm') &&
+          !toPositiveIntOrUndefined(fullScaleDistanceCm)
+        ) {
+          setPageError('Please tell us how deep the container is when it is full.');
+          return false;
+        }
+        if (
+          clarificationPrompts.some((prompt) => prompt.key === 'sustainedWindowMinutes') &&
+          !toPositiveIntOrUndefined(sustainedWindowMinutes)
+        ) {
+          setPageError('Please choose how many minutes a condition must stay unsafe before alerting.');
           return false;
         }
         return true;
       case 'alerts':
-        if (readingFlowType !== 'TRIGGER' && !toPositiveIntOrUndefined(reportsPerDay)) {
-          setPageError('Reports per day is required.');
-          return false;
-        }
         if (isHardwareContext) {
           const missingAlert = alertSettings.find((alert) => !alert.warningThreshold.trim());
           if (missingAlert) {
-            setPageError(`${missingAlert.label} requires at least one warning threshold.`);
+            setPageError(`Please set a warning level for ${missingAlert.label}.`);
             return false;
           }
         }
@@ -1712,11 +2224,6 @@ const SensorConfig: React.FC = () => {
       return;
     }
 
-    if (readingFlowType !== 'TRIGGER' && !toPositiveIntOrUndefined(reportsPerDay)) {
-      setPageError('Reports per day is required.');
-      return;
-    }
-
     if (isHardwareContext) {
       const missingAlert = alertSettings.find((alert) => !alert.warningThreshold.trim());
 
@@ -1735,7 +2242,7 @@ const SensorConfig: React.FC = () => {
         sensor.active_config?.hardware?.system_name ||
         friendlyName.trim() ||
         'Monitoring System';
-      const reports = readingFlowType === 'TRIGGER' ? 1 : (reportsPerDay ? parseInt(reportsPerDay, 10) : 24);
+      const reports = resolvedReportsPerDay;
       const alertSettingPayload = alertSettings.map((alert) => ({
         key: alert.key,
         label: alert.label,
@@ -1764,6 +2271,24 @@ const SensorConfig: React.FC = () => {
         : {};
 
       const presentationMetadata = getPresentationMetadata(presentationProfile, useCase);
+      const fullScaleDistance = toPositiveIntOrUndefined(fullScaleDistanceCm);
+      const sustainedWindow = toPositiveIntOrUndefined(sustainedWindowMinutes);
+      const existingHardwareConfig = getConfigHardware(sensor.active_config);
+      const conversationalHardwareConfig: Record<string, unknown> = {
+        ...existingHardwareConfig,
+        readingFlowType,
+        reportsPerDay: reports,
+        estimatedBatteryLifeDays,
+      };
+
+      if (fullScaleDistance !== undefined) {
+        conversationalHardwareConfig.fullScaleDistanceCm = fullScaleDistance;
+        conversationalHardwareConfig.tankDepthCm = fullScaleDistance;
+      }
+
+      if (sustainedWindow !== undefined) {
+        conversationalHardwareConfig.sustainedWindowMinutes = sustainedWindow;
+      }
 
       const config: SensorConfigPayload = {
         friendly_name: friendlyName.trim(),
@@ -1782,11 +2307,12 @@ const SensorConfig: React.FC = () => {
           battery_life_days: estimatedBatteryLifeDays,
           sampling_frequency: reports,
         },
+        hardware_config: conversationalHardwareConfig,
         hardware: {
           system_name: resolvedSystemName,
           sensor_type: sensor.type,
           sensor_name: friendlyName.trim(),
-          config: getConfigHardware(sensor.active_config),
+          config: conversationalHardwareConfig,
         },
         interpretation: {
           friendly_name: friendlyName.trim(),
@@ -1859,10 +2385,8 @@ const SensorConfig: React.FC = () => {
           {}
         );
         const hardwareConfig = {
+          ...conversationalHardwareConfig,
           ...flattenedMetricConfig,
-          readingFlowType,
-          reportsPerDay: reports,
-          estimatedBatteryLifeDays,
         };
         const appConfig = {
           ...config,
@@ -1943,88 +2467,448 @@ const SensorConfig: React.FC = () => {
     }
   };
 
-  const renderAboutStep = () => (
+  // ===== NEW SIMPLIFIED 2-PAGE FLOW =====
+  const renderSetupStep = () => (
     <Box sx={sectionSx}>
-      <Typography variant="subtitle1" sx={sectionTitleSx}>
-        Step 1: About Sensor
-      </Typography>
-      <Typography variant="body2" sx={sectionIntroSx}>
-        Layer 1 is already detected for you. Just review the sensor details and give it a clear name.
-      </Typography>
+      <Stack spacing={3}>
+        {/* LEARNING PHASE INDICATOR */}
+        {learningPhaseStatus?.phase === 'learning' && learningPhaseDay > 0 && learningPhaseDay <= 7 && (
+          <Alert severity="info" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ fontWeight: 700 }}>Learning Phase: Day {learningPhaseDay} of 7</Box>
+            <Box sx={{ fontSize: '0.85rem', opacity: 0.8 }}>
+              {learningPhaseStatus.message || 'Our AI is learning from your sensor readings. On day 8, it will suggest improvements to your alert settings.'}
+            </Box>
+          </Alert>
+        )}
 
-      <TextField
-        fullWidth
-        label="Sensor Name"
-        value={friendlyName}
-        onChange={(e) => setFriendlyName(e.target.value)}
-        margin="normal"
-        required
-      />
-
-      <Box sx={{ mt: 2.5, p: 2.25, borderRadius: 2, bgcolor: '#fffaf0', border: '1px solid rgba(60, 57, 17, 0.08)' }}>
-        <Typography variant="subtitle2" sx={fieldGroupTitleSx}>
-          Detected Physical Sensor
-        </Typography>
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={4}>
-            <Typography variant="caption" sx={captionTextSx}>Module</Typography>
-            <Typography variant="body1">
-              {sensorKnowledgeProfile?.module_name || sensor?.name || sensor?.type || navigationState?.sensorType}
-            </Typography>
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <Typography variant="caption" sx={captionTextSx}>Sensor Family</Typography>
-            <Typography variant="body1">
-              {sensorKnowledgeProfile?.sensor_family || sensor?.type || navigationState?.sensorType}
-            </Typography>
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <Typography variant="caption" sx={captionTextSx}>What It Measures</Typography>
-            <Typography variant="body1">
-              {sensorKnowledgeProfile?.measures.map((measure) => measure.label).join(', ') || sensor?.type || navigationState?.sensorType}
-            </Typography>
-          </Grid>
-        </Grid>
-
-        <Typography variant="subtitle2" sx={{ ...fieldGroupTitleSx, mt: 3 }}>
-          Readable Range and Accuracy
-        </Typography>
-        <Grid container spacing={2} sx={{ mt: 0.5 }}>
-          {(sensorKnowledgeProfile?.readable_ranges || []).map((metric) => (
-            <Grid item xs={12} md={6} key={metric.key}>
-              <Box sx={{ p: 2, borderRadius: 2, bgcolor: '#fffdf8', border: '1px solid rgba(60, 57, 17, 0.08)', height: '100%' }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                  {metric.label}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-                  Range: {formatHardwareMetricRange(metric)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-                  Accuracy: {metric.accuracy || 'Module-specific accuracy is not yet pinned in the current catalog.'}
-                </Typography>
-                {metric.notes && (
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-                    {metric.notes}
-                  </Typography>
-                )}
+        {learningPhaseStatus?.phase === 'completed' && learningPhaseStatus.feedback && (
+          <Alert severity="success" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Stack spacing={1.25} sx={{ width: '100%' }}>
+              <Box sx={{ fontWeight: 700 }}>Learning Complete</Box>
+              <Box sx={{ fontSize: '0.9rem', opacity: 0.9 }}>
+                {learningPhaseStatus.feedback.summary}
               </Box>
-            </Grid>
-          ))}
-        </Grid>
-
-        {sensorKnowledgeProfile?.common_use_cases?.length ? (
-          <>
-            <Typography variant="subtitle2" sx={{ ...fieldGroupTitleSx, mt: 3 }}>
-              Common Use Cases
-            </Typography>
-            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-              {sensorKnowledgeProfile.common_use_cases.map((useCaseLabel) => (
-                <Chip key={useCaseLabel} label={useCaseLabel} variant="outlined" />
-              ))}
+              {learningPhaseStatus.feedback.observations && learningPhaseStatus.feedback.observations.length > 0 && (
+                <Box>
+                  <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5 }}>
+                    What the 7-day report observed
+                  </Typography>
+                  <Box component="ul" sx={{ pl: 2.25, my: 0, fontSize: '0.85rem' }}>
+                    {learningPhaseStatus.feedback.observations.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </Box>
+                </Box>
+              )}
+              {learningPhaseStatus.feedback.recommendations && learningPhaseStatus.feedback.recommendations.length > 0 && (
+                <Box>
+                  <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5 }}>
+                    AI recommendations
+                  </Typography>
+                  <Box component="ul" sx={{ pl: 2.25, my: 0, fontSize: '0.85rem' }}>
+                    {learningPhaseStatus.feedback.recommendations.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </Box>
+                </Box>
+              )}
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                <Chip
+                  size="small"
+                  label={`${learningPhaseStatus.readingsCollected} readings reviewed`}
+                  sx={{ width: 'fit-content' }}
+                />
+                <Chip
+                  size="small"
+                  label={`${learningPhaseStatus.alertCount} alerts in learning window`}
+                  sx={{ width: 'fit-content' }}
+                />
+                <Chip
+                  size="small"
+                  label={`AI confidence ${Math.round((learningPhaseStatus.feedback.confidenceScore || 0) * 100)}%`}
+                  sx={{ width: 'fit-content' }}
+                />
+              </Stack>
             </Stack>
-          </>
-        ) : null}
-      </Box>
+          </Alert>
+        )}
+
+        {/* AI PROMPT INPUT */}
+        <Box sx={{ p: 2.5, borderRadius: 2, bgcolor: '#f0f7f0', border: '2px solid rgba(108, 137, 48, 0.2)' }}>
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            spacing={1}
+            justifyContent="space-between"
+            alignItems={{ xs: 'flex-start', sm: 'center' }}
+            sx={{ mb: 1 }}
+          >
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+              Describe Your Setup
+            </Typography>
+            <InfoButton tooltip="What should I include?">
+              <Stack spacing={1}>
+                <Typography variant="body2">
+                  Tell the AI what you are monitoring, where it is installed, which risks matter, and any ideal ranges you already know.
+                </Typography>
+                <Box component="ul" sx={{ pl: 2.25, my: 0, fontSize: '0.875rem' }}>
+                  <li>What you are monitoring, for example tomatoes, a storage room, or a tank</li>
+                  <li>The environment, for example greenhouse, warehouse, or outdoor</li>
+                  <li>The main risks, for example extreme heat, high humidity, or overflow</li>
+                  <li>Ideal conditions if you already know them</li>
+                </Box>
+                <Typography variant="body2" sx={{ fontStyle: 'italic' }}>
+                  Example: "I grow basil indoors on a windowsill. Temperature should stay between 18 and 25 C. Below 15 C the plants suffer, and above 30 C they wilt. Humidity below 40 percent is too dry."
+                </Typography>
+              </Stack>
+            </InfoButton>
+          </Stack>
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            label="Describe your monitoring setup..."
+            value={aiPrompt}
+            onChange={(e) => {
+              setAiPrompt(e.target.value);
+              if (aiFollowUpQuestions.length > 0) {
+                resetAiFollowUpState();
+              }
+            }}
+            placeholder="Example: I am monitoring a greenhouse with tomatoes. Temperature should stay 20 to 28 C and humidity 60 to 80 percent."
+            variant="outlined"
+            helperText={`${aiPrompt.length}/300 characters`}
+            error={aiPrompt.length > 300}
+          />
+          <Button
+            variant="contained"
+            color="secondary"
+            fullWidth
+            disabled={!aiPrompt.trim() || requestingAi}
+            sx={{ mt: 1.5, fontWeight: 700 }}
+            onClick={() => requestAiConfiguration()}
+              
+          >
+            Use AI to Fill Configuration
+          </Button>
+
+          {aiFollowUpQuestions.length > 0 && (
+            <Box sx={{ mt: 2, p: 2, borderRadius: 2, bgcolor: '#fffdf8', border: '1px solid rgba(60, 57, 17, 0.12)' }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.75 }}>
+                AI needs {aiFollowUpQuestions.length} quick answers before it can finish the configuration
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                This helps it set thresholds for your exact environment instead of guessing.
+              </Typography>
+              <Stack spacing={1.5}>
+                {aiFollowUpQuestions.map((question, index) => (
+                  <TextField
+                    key={question.id}
+                    fullWidth
+                    label={`Question ${index + 1}`}
+                    value={aiFollowUpAnswers[question.id] || ''}
+                    onChange={(e) =>
+                      setAiFollowUpAnswers((current) => ({
+                        ...current,
+                        [question.id]: e.target.value,
+                      }))
+                    }
+                    placeholder={question.placeholder}
+                    helperText={question.question}
+                  />
+                ))}
+              </Stack>
+              <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+                <Button
+                  variant="contained"
+                  disabled={
+                    requestingAi ||
+                    aiFollowUpQuestions.some((question) => !(aiFollowUpAnswers[question.id] || '').trim())
+                  }
+                  onClick={() => requestAiConfiguration(aiFollowUpAnswers)}
+                >
+                  {requestingAi ? 'Finishing...' : 'Continue with AI'}
+                </Button>
+                <Button
+                  variant="outlined"
+                  disabled={requestingAi}
+                  onClick={resetAiFollowUpState}
+                >
+                  Clear Questions
+                </Button>
+              </Stack>
+            </Box>
+          )}
+
+          {showAiSuggestions && aiSuggestions && (
+            <Alert severity="success" sx={{ mt: 2 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+                AI Configuration Ready
+              </Typography>
+              <Stack spacing={0.75} sx={{ fontSize: '0.9rem' }}>
+                <Box>Metric: <strong>{aiSuggestions.metric}</strong></Box>
+                <Box>Purpose: <strong>{aiSuggestions.purpose}</strong></Box>
+                <Box>Display: <strong>{aiSuggestions.presentationProfile}</strong></Box>
+                <Box>Alerts: <strong>Warning {aiSuggestions.alertThresholds.warning} | Critical {aiSuggestions.alertThresholds.critical}</strong></Box>
+              </Stack>
+              <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  onClick={() => {
+                    applyAiSuggestionToForm(aiSuggestions, aiPrompt);
+                    setShowAiSuggestions(false);
+                  }}
+                >
+                  Accept
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => setShowAiSuggestions(false)}
+                >
+                  Customize Myself
+                </Button>
+              </Stack>
+            </Alert>
+          )}
+        </Box>
+
+        {/* SENSOR NAME */}
+        <Box>
+          <Stack
+            direction="row"
+            spacing={1}
+            alignItems="center"
+            justifyContent="space-between"
+            sx={{ mb: 1.5 }}
+          >
+            <Typography variant="subtitle2" sx={{ ...fieldGroupTitleSx, mb: 0 }}>
+              Sensor Name
+            </Typography>
+            <InfoButton tooltip="Name guidance">
+              Give your sensor a friendly name that helps people recognize it quickly on the dashboard, such as "Greenhouse A" or "Storage Room Temperature".
+            </InfoButton>
+          </Stack>
+          <TextField
+            fullWidth
+            label="Sensor Name"
+            value={friendlyName}
+            onChange={(e) => setFriendlyName(e.target.value)}
+            placeholder="e.g., Greenhouse A"
+            required
+          />
+        </Box>
+
+        {/* SENSOR INFO DISPLAY */}
+        {sensorKnowledgeProfile && (
+          <Box sx={{ p: 2, borderRadius: 2, bgcolor: '#fffdf8', border: '1px solid rgba(60, 57, 17, 0.08)' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+              Your sensor
+            </Typography>
+            <Stack spacing={1}>
+              <Box>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>Module</Typography>
+                <Typography variant="body2">{sensorKnowledgeProfile?.module_name || sensor?.type}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>Can measure</Typography>
+                <Typography variant="body2">{sensorKnowledgeProfile?.measures.map((m) => m.label).join(', ')}</Typography>
+              </Box>
+            </Stack>
+          </Box>
+        )}
+
+        {/* WHAT TO MEASURE */}
+        <Box>
+          <Stack
+            direction="row"
+            spacing={1}
+            alignItems="center"
+            justifyContent="space-between"
+            sx={{ mb: 1.5 }}
+          >
+            <Typography variant="subtitle2" sx={{ ...fieldGroupTitleSx, mb: 0 }}>
+              What to Measure
+            </Typography>
+            <InfoButton tooltip="Metric guidance">
+              Pick the main value that matters most for this sensor. This choice controls the alerts, dashboard view, and AI recommendations that follow.
+            </InfoButton>
+          </Stack>
+          <Grid container spacing={2}>
+            {observableMetricCatalog.map((metric) => {
+              const selected = metric.key === primaryMetric;
+              return (
+                <Grid item xs={12} md={6} key={metric.key}>
+                  <Box
+                    onClick={() => applyMetricSelection(metric)}
+                    sx={{
+                      p: 2,
+                      borderRadius: 2,
+                      border: '2px solid',
+                      borderColor: selected ? 'primary.main' : 'rgba(60, 57, 17, 0.12)',
+                      bgcolor: selected ? 'rgba(108, 137, 48, 0.08)' : '#fff',
+                      cursor: 'pointer',
+                      boxShadow: selected ? '0 8px 16px rgba(108, 137, 48, 0.12)' : 'none',
+                    }}
+                  >
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                      {metric.label}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                      {metric.description}
+                    </Typography>
+                    {selected && (
+                      <Chip size="small" color="primary" label="Selected" sx={{ mt: 1 }} />
+                    )}
+                  </Box>
+                </Grid>
+              );
+            })}
+          </Grid>
+        </Box>
+
+        {/* WHY - PURPOSE */}
+        {selectedDerivedMetric && (
+          <Box>
+            <Stack
+              direction="row"
+              spacing={1}
+              alignItems="center"
+              justifyContent="space-between"
+              sx={{ mb: 1.5 }}
+            >
+              <Typography variant="subtitle2" sx={{ ...fieldGroupTitleSx, mb: 0 }}>
+                Why (What's it for?)
+              </Typography>
+              <InfoButton tooltip="Purpose guidance">
+                Choose the real-world use case for this sensor. The purpose helps Spectron interpret the readings correctly and suggest better alerts and visualizations.
+              </InfoButton>
+            </Stack>
+            <FormControl fullWidth>
+              <InputLabel id="purpose-label">Choose a purpose</InputLabel>
+              <Select
+                labelId="purpose-label"
+                value={purpose}
+                label="Choose a purpose"
+                onChange={(e) => setPurpose(e.target.value)}
+              >
+                {purposeOptions.map((option) => (
+                  <MenuItem key={option.key} value={option.label}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
+        )}
+
+        {clarificationPrompts.length > 0 && (
+          <Box>
+            <Stack
+              direction="row"
+              spacing={1}
+              alignItems="center"
+              justifyContent="space-between"
+              sx={{ mb: 1.5 }}
+            >
+              <Typography variant="subtitle2" sx={{ ...fieldGroupTitleSx, mb: 0 }}>
+                One quick clarification
+              </Typography>
+              <InfoButton tooltip="Why is this needed?">
+                Spectron can draft the setup, but it still needs a few physical details that only the installer knows, such as tank depth or how long a risky condition should persist before raising an alert.
+              </InfoButton>
+            </Stack>
+            <Stack spacing={2}>
+              {clarificationPrompts.map((prompt) => {
+                const value =
+                  prompt.key === 'fullScaleDistanceCm' ? fullScaleDistanceCm : sustainedWindowMinutes;
+                const onChange =
+                  prompt.key === 'fullScaleDistanceCm'
+                    ? setFullScaleDistanceCm
+                    : setSustainedWindowMinutes;
+
+                return (
+                  <Box
+                    key={prompt.key}
+                    sx={{
+                      p: 2,
+                      borderRadius: 2,
+                      border: '1px solid rgba(60, 57, 17, 0.12)',
+                      bgcolor: '#fffdf8',
+                    }}
+                  >
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.5 }}>
+                      {prompt.title}
+                    </Typography>
+                    <TextField
+                      fullWidth
+                      label={prompt.label}
+                      value={value}
+                      onChange={(e) => onChange(e.target.value)}
+                      type="number"
+                      placeholder={prompt.placeholder}
+                      helperText={`${prompt.helperText} (${prompt.unit})`}
+                    />
+                  </Box>
+                );
+              })}
+            </Stack>
+          </Box>
+        )}
+
+        {/* HOW - DASHBOARD VIEW */}
+        {selectedDerivedMetric && (
+          <Box>
+            <Stack
+              direction="row"
+              spacing={1}
+              alignItems="center"
+              justifyContent="space-between"
+              sx={{ mb: 1.5 }}
+            >
+              <Typography variant="subtitle2" sx={{ ...fieldGroupTitleSx, mb: 0 }}>
+                Dashboard View
+              </Typography>
+              <InfoButton tooltip="Visualization guidance">
+                Choose the view that makes the sensor easiest to understand at a glance. Different chart styles work better for trends, ranges, occupancy, or fill-level tracking.
+              </InfoButton>
+            </Stack>
+            <Grid container spacing={2}>
+              {presentationProfiles
+                .filter((profile) => allowedPresentationProfiles.includes(profile.value))
+                .map((profile) => {
+                  const active = presentationProfile === profile.value;
+                  return (
+                    <Grid item xs={12} md={6} key={profile.value}>
+                      <Box
+                        onClick={() => applyPresentationProfileSelection(profile.value)}
+                        sx={{
+                          p: 2,
+                          borderRadius: 2,
+                          border: '2px solid',
+                          borderColor: active ? 'primary.main' : 'rgba(60, 57, 17, 0.12)',
+                          bgcolor: active ? 'rgba(108, 137, 48, 0.08)' : '#fff',
+                          cursor: 'pointer',
+                          boxShadow: active ? '0 8px 16px rgba(108, 137, 48, 0.12)' : 'none',
+                        }}
+                      >
+                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                          {profile.visualization_label}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                          {profile.description}
+                        </Typography>
+                        {active && (
+                          <Chip size="small" color="primary" label="Selected" sx={{ mt: 1 }} />
+                        )}
+                      </Box>
+                    </Grid>
+                  );
+                })}
+            </Grid>
+          </Box>
+        )}
+      </Stack>
     </Box>
   );
 
@@ -2033,9 +2917,9 @@ const SensorConfig: React.FC = () => {
       <Typography variant="subtitle1" sx={sectionTitleSx}>
         Step 2: Observable Metric
       </Typography>
-      <Typography variant="body2" sx={sectionIntroSx}>
-        Choose what the customer wants to watch from this sensor.
-      </Typography>
+      <InfoButton tooltip="Help">
+        Select the main metric to monitor.
+      </InfoButton>
       <Typography variant="caption" sx={captionTextSx}>
         {supportedObservableMetrics.length} supported now, {plannedObservableMetrics.length} planned analytics.
       </Typography>
@@ -2090,7 +2974,7 @@ const SensorConfig: React.FC = () => {
 
       {plannedObservableMetrics.length > 0 && (
         <Alert severity="info" sx={{ mt: 2 }}>
-          Some advanced metrics can be previewed here, but they still need backend analytics before they can be activated.
+          Some metrics are preview only and need backend analytics to activate.
         </Alert>
       )}
 
@@ -2133,8 +3017,7 @@ const SensorConfig: React.FC = () => {
             </Select>
           </FormControl>
           <Typography variant="caption" sx={captionTextSx}>
-            {purposeOptions.find((option) => option.label === purpose)?.description ||
-              'Choose why this metric is being monitored.'}
+            {purposeOptions.find((option) => option.label === purpose)?.description || ''}
           </Typography>
         </Box>
       )}
@@ -2142,11 +3025,7 @@ const SensorConfig: React.FC = () => {
       {showInterpretationContext && (
         <>
           <Typography variant="subtitle2" sx={{ ...fieldGroupTitleSx, mt: 3 }}>
-            Interpretation Context
-          </Typography>
-          <Typography variant="body2" sx={fieldGroupIntroSx}>
-            These optional fields help preserve the environment and deployment meaning around the
-            selected metric and purpose.
+            Context (Optional)
           </Typography>
 
           <Grid container spacing={2} sx={{ mt: 1.5 }}>
@@ -2219,7 +3098,7 @@ const SensorConfig: React.FC = () => {
                 value={historicalWindowDays}
                 onChange={(e) => setHistoricalWindowDays(e.target.value)}
                 placeholder="14"
-                helperText="Stored as part of the interpretation layer for later review."
+                helperText="For review."
               />
             </Grid>
 
@@ -2271,9 +3150,9 @@ const SensorConfig: React.FC = () => {
       <Typography variant="subtitle1" sx={sectionTitleSx}>
         Step 3: Visualization
       </Typography>
-      <Typography variant="body2" sx={sectionIntroSx}>
-        Choose how this metric should look on the dashboard.
-      </Typography>
+      <InfoButton tooltip="Help">
+        Choose how to display this metric on the dashboard.
+      </InfoButton>
 
       <Grid container spacing={2} sx={{ mt: 2 }}>
         {presentationProfiles
@@ -2330,341 +3209,418 @@ const SensorConfig: React.FC = () => {
           })}
       </Grid>
 
-      {presentationConfigFields.length > 0 && (
-        <Accordion
-          disableGutters
-          elevation={0}
-          sx={{
-            mt: 2.5,
-            borderRadius: 2,
-            bgcolor: '#fffdf8',
-            border: '1px solid rgba(60, 57, 17, 0.08)',
-            '&:before': { display: 'none' },
-          }}
-        >
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Box>
-              <Typography variant="subtitle2" sx={fieldGroupTitleSx}>
-                Advanced dashboard options
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Optional. The default dashboard style is already selected for you.
-              </Typography>
-            </Box>
-          </AccordionSummary>
-          <AccordionDetails sx={{ pt: 0 }}>
-            <Grid container spacing={2}>
-              {presentationConfigFields.map((field) => (
-                <Grid item xs={12} md={6} key={field.key}>
-                  <FormControl fullWidth>
-                    <InputLabel id={`${field.key}-label`}>{field.label}</InputLabel>
-                    <Select
-                      labelId={`${field.key}-label`}
-                      value={presentationConfig[field.key] || ''}
-                      label={field.label}
-                      onChange={(event) =>
-                        updatePresentationConfig(field.key, event.target.value)
-                      }
-                    >
-                      {field.options.map((option) => (
-                        <MenuItem key={option.value} value={option.value}>
-                          {option.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <Typography variant="caption" sx={captionTextSx}>
-                    {getPresentationConfigOption(
-                      sensor?.type || navigationState?.sensorType || '',
-                      primaryMetric,
-                      presentationProfile,
-                      field.key,
-                      presentationConfig[field.key]
-                    )?.description || field.description}
-                  </Typography>
-                </Grid>
-              ))}
-            </Grid>
-          </AccordionDetails>
-        </Accordion>
-      )}
+
     </Box>
   );
 
-  const renderAlertsStep = () => (
+  const getMetricSpecificAlertContext = (): string => {
+    if (!primaryMetric) return '';
+    
+    const contextMap: Record<string, string> = {
+      temperature: 'Temperature extremes can damage products, affect comfort, or trigger alarms.',
+      humidity: 'Humidity levels affect product quality, health, and structural integrity.',
+      fill_level: 'Fill levels determine when to schedule maintenance, refills, or pickup services.',
+      occupancy_count: 'Occupancy counts help manage capacity, safety, and operational efficiency.',
+      attendance_count: 'Attendance tracking confirms presence and helps manage sessions.',
+      distance: 'Distance measurements help detect obstructions and track proximity.',
+      pressure: 'Pressure changes indicate equipment status or environmental conditions.',
+      odour_gas: 'Gas and odor levels indicate air quality and safety conditions.',
+      light: 'Light levels affect visibility, energy efficiency, and operational decisions.',
+    };
+    
+    return contextMap[primaryMetric] || 'Set thresholds that matter for your use case.';
+  };
+
+  const renderAlertsReviewStep = () => (
     <Box sx={sectionSx}>
       <Typography variant="subtitle1" sx={sectionTitleSx}>
         Step 4: Alerts
       </Typography>
-      <Typography variant="body2" sx={sectionIntroSx}>
-        Set the alert values and choose how often this sensor should report.
-      </Typography>
+      <InfoButton tooltip="Help">
+        Set thresholds for warning and critical states. Alerts adapt to your metric and purpose.
+      </InfoButton>
 
       {!primaryMetric ? (
         <Alert severity="info" sx={{ mt: 2 }}>
-          Alerts depend on the selected main metric and use case. Please choose "What to measure" first to see relevant alert options.
+          Select a metric first to see alert options.
         </Alert>
       ) : (
-        <Grid container spacing={2} sx={{ mt: 0.5 }}>
-          {alertSettings.map((alert) => (
-            <Grid item xs={12} md={6} key={alert.key}>
-              <Box sx={{ p: 2.25, borderRadius: 2, bgcolor: '#fffdf8', border: '1px solid rgba(60, 57, 17, 0.08)', height: '100%' }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                  {alert.label}
-                </Typography>
-                <Typography variant="caption" sx={captionTextSx}>
-                  {sensorMetrics.find((metric) => metric.key === alert.metricKey)?.label || alert.metricKey}
-                  {alert.unit ? ` (${alert.unit})` : ''} | {alert.condition === 'below' ? 'Lower-bound alert' : 'Upper-bound alert'}
-                </Typography>
-                {alert.description && (
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    {alert.description}
+        <Box sx={{ mt: 2 }}>
+          {(purpose || primaryMetric) && (
+            <Box sx={{ mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+              {primaryMetric && (
+                <Chip label={`Metric: ${selectedDerivedMetric?.label}`} size="small" variant="outlined" />
+              )}
+              {purpose && (
+                <Chip label={`Purpose: ${purpose}`} size="small" variant="outlined" />
+              )}
+            </Box>
+          )}
+          <Grid container spacing={2}>
+            {alertSettings.map((alert) => (
+              <Grid item xs={12} md={6} key={alert.key}>
+                <Box sx={{ p: 2.25, borderRadius: 2, bgcolor: '#fffdf8', border: '1px solid rgba(60, 57, 17, 0.08)', height: '100%' }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.75 }}>
+                    {alert.label}
                   </Typography>
-                )}
-                <Grid container spacing={2} sx={{ mt: 0.5 }}>
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      label={alert.warningLabel}
-                      type="number"
-                      value={alert.warningThreshold}
-                      onChange={(e) => updateAlertSetting(alert.key, 'warningThreshold', e.target.value)}
-                    />
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
+                    {alert.condition === 'below' ? 'Alert when below' : 'Alert when above'}
+                  </Typography>
+                  {alert.description && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: '0.85rem' }}>
+                      {alert.description}
+                    </Typography>
+                  )}
+                  {(() => {
+                    const hwMetric = (sensorKnowledgeProfile?.readable_ranges || []).find((m: any) => m.key === alert.metricKey);
+                    if (hwMetric?.minimum_value !== undefined || hwMetric?.maximum_value !== undefined) {
+                      const min = hwMetric.minimum_value !== undefined ? hwMetric.minimum_value : 'N/A';
+                      const max = hwMetric.maximum_value !== undefined ? hwMetric.maximum_value : 'N/A';
+                      
+                      // Calculate suggested thresholds (1/4 and 3/4 of range)
+                      let suggestedWarning = '';
+                      let suggestedCritical = '';
+                      if (typeof min === 'number' && typeof max === 'number') {
+                        const range = max - min;
+                        if (alert.condition === 'above') {
+                          suggestedCritical = `~${(max - range * 0.15).toFixed(1)}`;
+                          suggestedWarning = `~${(max - range * 0.3).toFixed(1)}`;
+                        } else {
+                          suggestedWarning = `~${(min + range * 0.3).toFixed(1)}`;
+                          suggestedCritical = `~${(min + range * 0.15).toFixed(1)}`;
+                        }
+                      }
+                      
+                      return (
+                        <InfoButton tooltip="Threshold guidance">
+                          <Stack spacing={0.5}>
+                            <Typography variant="body2">
+                              Sensor range: {min} to {max} {hwMetric.unit || ''}
+                            </Typography>
+                            {(suggestedWarning || suggestedCritical) && (
+                              <Typography variant="body2" sx={{ fontWeight: 600, color: '#6c8930' }}>
+                                Suggested values: warning {suggestedWarning} | critical {suggestedCritical}
+                              </Typography>
+                            )}
+                          </Stack>
+                        </InfoButton>
+                      );
+                    }
+                    return null;
+                  })()}
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label={alert.warningLabel}
+                        type="number"
+                        value={alert.warningThreshold}
+                        onChange={(e) => updateAlertSetting(alert.key, 'warningThreshold', e.target.value)}
+                        size="small"
+                        helperText={alert.warningThreshold ? 'Set' : 'Enter a warning threshold'}
+                        error={!alert.warningThreshold}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label={alert.criticalLabel}
+                        type="number"
+                        value={alert.criticalThreshold}
+                        onChange={(e) => updateAlertSetting(alert.key, 'criticalThreshold', e.target.value)}
+                        size="small"
+                        helperText={alert.criticalThreshold ? 'Set' : 'Enter a critical threshold'}
+                        error={!alert.criticalThreshold}
+                      />
+                    </Grid>
                   </Grid>
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      label={alert.criticalLabel}
-                      type="number"
-                      value={alert.criticalThreshold}
-                      onChange={(e) => updateAlertSetting(alert.key, 'criticalThreshold', e.target.value)}
-                      helperText="Optional, but recommended for escalations."
-                    />
-                  </Grid>
-                </Grid>
-              </Box>
-            </Grid>
-          ))}
-        </Grid>
+                </Box>
+              </Grid>
+            ))}
+          </Grid>
+        </Box>
       )}
 
-      {simpleMode ? (
-        <Accordion
-          disableGutters
-          elevation={0}
-          sx={{ mt: 3, borderRadius: 2, bgcolor: '#fffdf8', border: '1px solid rgba(60, 57, 17, 0.08)', '&:before': { display: 'none' } }}
+      <Stack
+        direction="row"
+        spacing={1}
+        alignItems="center"
+        justifyContent="space-between"
+        sx={{ mt: 3, pt: 2.25, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}
+      >
+        <Typography variant="subtitle2" sx={{ ...fieldGroupTitleSx, mb: 0 }}>
+          Reporting & Power Settings
+        </Typography>
+        <InfoButton tooltip="Reporting guidance">
+          Reporting frequency affects both freshness and battery life. Faster updates give more responsive monitoring, while fewer reports extend battery runtime.
+        </InfoButton>
+      </Stack>
+      <Box sx={{ p: 2, borderRadius: 2, bgcolor: '#fffdf8', border: '1px solid rgba(60, 57, 17, 0.08)', mt: 2 }}>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ color: 'primary.main', mb: 2 }}>
+          <BatteryChargingFull />
+          <Typography variant="body2" fontWeight={800}>
+            Battery runtime updates automatically based on your reporting frequency.
+          </Typography>
+        </Stack>
+        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+            Update speed
+          </Typography>
+          <InfoButton tooltip="Update speed help">
+            Use faster reporting when you need quick reactions to changes. Use slower reporting when long battery life matters more than minute-by-minute visibility.
+          </InfoButton>
+        </Stack>
+        <Grid container spacing={1.5} sx={{ mb: 2 }}>
+          {REPORTING_PRESETS.map((preset) => {
+            const selected = selectedReportingPreset === preset.key;
+            return (
+              <Grid item xs={12} md={4} key={preset.key}>
+                <Box
+                  onClick={() => {
+                    setReportsPerDay(String(preset.reportsPerDay));
+                  }}
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 2,
+                    border: '1px solid',
+                    borderColor: selected ? 'primary.main' : 'rgba(60, 57, 17, 0.12)',
+                    bgcolor: selected ? 'rgba(108, 137, 48, 0.08)' : '#ffffff',
+                    cursor: 'pointer',
+                    height: '100%',
+                  }}
+                >
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                    {preset.label}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {preset.description}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.75 }}>
+                    {preset.reportsPerDay} reports per day
+                  </Typography>
+                </Box>
+              </Grid>
+            );
+          })}
+        </Grid>
+        <Box
+          sx={{
+            mb: 2,
+            p: 1.5,
+            borderRadius: 2,
+            border: '1px solid rgba(60, 57, 17, 0.08)',
+            bgcolor: '#ffffff',
+          }}
         >
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Stack direction="row" justifyContent="space-between" spacing={2}>
             <Box>
-              <Typography variant="subtitle2" sx={fieldGroupTitleSx}>
-                Reporting & Power Settings
+              <Typography variant="caption" color="text.secondary">
+                Selected speed
               </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Optional. Expand to adjust reporting frequency or power settings.
+              <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                {activeReportingPreset.label}
               </Typography>
             </Box>
-          </AccordionSummary>
-          <AccordionDetails sx={{ pt: 0 }}>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ color: 'primary.main', mb: 1 }}>
-              <BatteryChargingFull />
-              <Typography variant="body2" fontWeight={800}>
-                Estimated runtime updates as reporting frequency changes.
+            <Box sx={{ textAlign: 'right' }}>
+              <Typography variant="caption" color="text.secondary">
+                Reporting cadence
               </Typography>
-            </Stack>
-            <FormControl fullWidth sx={{ mt: 1 }}>
-              <InputLabel id="reading-flow-type-label">Reading Flow Type</InputLabel>
-              <Select
-                labelId="reading-flow-type-label"
-                value={readingFlowType}
-                label="Reading Flow Type"
-                onChange={(e) => setReadingFlowType(e.target.value as 'CONSTANT_PER_DAY' | 'TRIGGER')}
-              >
-                <MenuItem value="CONSTANT_PER_DAY">Constant readings per day</MenuItem>
-                <MenuItem value="TRIGGER">Trigger-based readings</MenuItem>
-              </Select>
-            </FormControl>
-            <TextField
-              fullWidth
-              label="Reports Per Day"
-              type="number"
-              value={reportsPerDay}
-              onChange={(e) => setReportsPerDay(e.target.value)}
-              placeholder="24"
-              margin="normal"
-              disabled={readingFlowType === 'TRIGGER'}
-            />
-            <TextField
-              fullWidth
-              label="Estimated Battery Life (Days)"
-              type="number"
-              value={estimatedBatteryLifeDays.toString()}
-              margin="normal"
-              InputProps={{ readOnly: true }}
-            />
-          </AccordionDetails>
-        </Accordion>
-      ) : (
-        <>
-          <Typography
-            variant="subtitle2"
-            sx={{ ...fieldGroupTitleSx, mt: 3, pt: 2.25, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}
-          >
-            Reporting & Power Settings
-          </Typography>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ color: 'primary.main', mb: 1 }}>
-            <BatteryChargingFull />
-            <Typography variant="body2" fontWeight={800}>
-              Estimated runtime updates as reporting frequency changes.
-            </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                {resolvedReportsPerDay} reports per day
+              </Typography>
+            </Box>
           </Stack>
-          <FormControl fullWidth sx={{ mt: 1 }}>
-            <InputLabel id="reading-flow-type-label">Reading Flow Type</InputLabel>
-            <Select
-              labelId="reading-flow-type-label"
-              value={readingFlowType}
-              label="Reading Flow Type"
-              onChange={(e) => setReadingFlowType(e.target.value as 'CONSTANT_PER_DAY' | 'TRIGGER')}
-            >
-              <MenuItem value="CONSTANT_PER_DAY">Constant readings per day</MenuItem>
-              <MenuItem value="TRIGGER">Trigger-based readings</MenuItem>
-            </Select>
-          </FormControl>
+        </Box>
+        {clarificationPrompts.some((prompt) => prompt.key === 'sustainedWindowMinutes') && (
           <TextField
             fullWidth
-            label="Reports Per Day"
+            label="Only alert me if the condition stays unsafe for"
             type="number"
-            value={reportsPerDay}
-            onChange={(e) => setReportsPerDay(e.target.value)}
-            placeholder="24"
-            margin="normal"
-            disabled={readingFlowType === 'TRIGGER'}
-            helperText="How many times per day the sensor should send data"
+            value={sustainedWindowMinutes}
+            onChange={(e) => setSustainedWindowMinutes(e.target.value)}
+            helperText="This reduces false alarms from brief spikes or short door openings."
+            sx={{ mb: 2 }}
           />
-          <TextField
-            fullWidth
-            label="Estimated Battery Life (Days)"
-            type="number"
-            value={estimatedBatteryLifeDays.toString()}
-            margin="normal"
-            InputProps={{ readOnly: true }}
-            helperText="Automatically calculated from reports/day and sensor metrics"
-          />
-        </>
-      )}
+        )}
+        <Box
+          sx={{
+            p: 1.5,
+            borderRadius: 2,
+            border: '1px solid rgba(60, 57, 17, 0.08)',
+            bgcolor: '#ffffff',
+          }}
+        >
+          <Typography variant="caption" color="text.secondary">
+            Estimated battery life
+          </Typography>
+          <Typography variant="body2" sx={{ fontWeight: 800, mt: 0.35 }}>
+            {estimatedBatteryLifeDays} days
+          </Typography>
+        </Box>
+      </Box>
     </Box>
   );
 
-  const renderReviewStep = () => (
-    <Box sx={sectionSx}>
-      <Typography variant="subtitle1" sx={sectionTitleSx}>
-        Step 5: Review
-      </Typography>
-      <Typography variant="body2" sx={sectionIntroSx}>
-        This is how the sensor card will look in Monitoring after you save it.
-      </Typography>
+  const renderLivePreviewPanel = () => {
+    const previewProfile =
+      selectedPresentationDefinition ||
+      presentationProfiles.find((profile) => profile.value === presentationProfile);
+    const sensorSummaryType = sensorKnowledgeProfile?.module_name || sensor?.type || navigationState?.sensorType || 'Sensor';
 
-      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
-        <Chip size="small" variant="outlined" label={friendlyName || 'Unnamed sensor'} />
-        {selectedDerivedMetric && <Chip size="small" variant="outlined" label={selectedDerivedMetric.label} />}
-        <Chip
-          size="small"
-          variant="outlined"
-          label={selectedPresentationDefinition?.visualization_label || selectedPresentationDefinition?.label || 'Visualization'}
-        />
-        <Chip
-          size="small"
-          variant="outlined"
-          label={readingFlowType === 'TRIGGER' ? 'Trigger-based readings' : `${reportsPerDay || '24'} reports/day`}
-        />
-      </Stack>
-
-      <Box sx={{ mt: 3, p: 2, borderRadius: 2, bgcolor: '#f6f7fb' }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
-          Alert configuration
+    return (
+      <Box
+        sx={{
+          position: { md: 'sticky' },
+          top: { md: 24 },
+          p: 2.5,
+          borderRadius: 2,
+          bgcolor: '#fffdf8',
+          border: '1px solid rgba(60, 57, 17, 0.1)',
+          boxShadow: '0 20px 32px rgba(60, 57, 17, 0.06)',
+        }}
+      >
+        <Typography variant="overline" sx={pageKickerSx}>
+          Live Dashboard Preview
         </Typography>
-        {alertSettings.length > 0 ? (
-          <Stack spacing={1}>
-            {alertSettings.map((alert) => (
-              <Box key={alert.key} sx={{ p: 1.25, borderRadius: 1, bgcolor: '#ffffff', border: '1px solid rgba(60, 57, 17, 0.08)' }}>
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                  {alert.label}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {alert.condition === 'below' ? 'Lower-bound' : 'Upper-bound'} alert for {sensorMetrics.find((metric) => metric.key === alert.metricKey)?.label || alert.metricKey}
-                </Typography>
-                <Typography variant="body2" sx={{ mt: 0.5 }}>
-                  Warning: {alert.warningThreshold || 'Not set'}{alert.unit ? ` ${alert.unit}` : ''}
-                  {alert.criticalThreshold ? ` • Critical: ${alert.criticalThreshold}${alert.unit ? ` ${alert.unit}` : ''}` : ''}
-                </Typography>
-              </Box>
-            ))}
-          </Stack>
-        ) : (
-          <Typography variant="body2" color="text.secondary">
-            No alert values were configured.
-          </Typography>
-        )}
-      </Box>
+        <Typography variant="h6" sx={{ ...pageTitleSx, fontSize: '1.2rem', mt: 0.25 }}>
+          {friendlyName.trim() || 'Preview your configured sensor'}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+          The right panel reflects the current metric, alert thresholds, and dashboard presentation as you configure the sensor.
+        </Typography>
 
-      {selectedDerivedMetric?.availability === 'planned_analytics' && (
-        <Alert severity="warning" sx={{ mt: 2 }}>
-          `{selectedDerivedMetric.label}` is preview only for now.
-        </Alert>
-      )}
+        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2 }}>
+          <Chip size="small" variant="outlined" label={sensorSummaryType} />
+          {selectedDerivedMetric && <Chip size="small" variant="outlined" label={selectedDerivedMetric.label} />}
+          {purpose.trim() && <Chip size="small" variant="outlined" label={purpose.trim()} />}
+        </Stack>
 
-      <Box sx={{ mt: 2, p: 2.25, borderRadius: 2, bgcolor: '#f6f8ef', border: '1px solid rgba(108, 137, 48, 0.16)' }}>
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          spacing={1.5}
-          justifyContent="space-between"
-          alignItems={{ xs: 'flex-start', sm: 'center' }}
+        <Box
+          sx={{
+            mt: 2.25,
+            p: 2.25,
+            borderRadius: 2,
+            bgcolor: '#ffffff',
+            border: '1px solid rgba(60, 57, 17, 0.08)',
+          }}
         >
-          <Box>
-            <Typography variant="overline" color="secondary" fontWeight={800}>
-              {friendlyName || sensor?.name || sensorKnowledgeProfile?.module_name || 'Sensor'}
-            </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 900, lineHeight: 1.1 }}>
-              {metricPreviewSnapshot.headline}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-              {purpose || selectedDerivedMetric?.label || 'Dashboard view'}
-            </Typography>
-          </Box>
-          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-            <Chip
-              size="small"
-              variant="outlined"
-              label={selectedPresentationDefinition?.visualization_label || selectedPresentationDefinition?.label || 'Visualization'}
-            />
+          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
+            <Box>
+              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                Headline metric
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 900, mt: 0.35 }}>
+                {metricPreviewSnapshot.headline}
+              </Typography>
+            </Box>
             <Chip
               size="small"
               color={selectedDerivedMetric?.availability === 'planned_analytics' ? 'warning' : 'success'}
-              label={selectedDerivedMetric?.availability === 'planned_analytics' ? 'Preview only' : metricPreviewSnapshot.status}
+              label={selectedDerivedMetric?.availability === 'planned_analytics' ? 'Preview only' : 'Ready to save'}
             />
           </Stack>
-        </Stack>
+          <Typography variant="body2" sx={{ mt: 1.25 }}>
+            {metricPreviewSnapshot.status}
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+            {metricPreviewSnapshot.comparison}
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+            {metricPreviewSnapshot.detail}
+          </Typography>
+          {renderDashboardPreviewVisualization(previewProfile?.visualization_method, metricPreviewSampleData)}
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1.25 }}>
+            {metricPreviewSampleData.trendLabel}
+          </Typography>
+        </Box>
 
-        {renderDashboardPreviewVisualization(
-          selectedPresentationDefinition?.visualization_method,
-          metricPreviewSampleData
+        <Box sx={{ mt: 2.25 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
+            Configuration snapshot
+          </Typography>
+          <Stack spacing={1}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                Display style
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'right' }}>
+                {previewProfile?.visualization_label || 'Choose a dashboard view'}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                Update plan
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'right' }}>
+                {`${resolvedReportsPerDay} reports / day`}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                Battery estimate
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'right' }}>
+                {estimatedBatteryLifeDays} days
+              </Typography>
+            </Box>
+          </Stack>
+        </Box>
+
+        {alertSettings.length > 0 && (
+          <Box sx={{ mt: 2.25 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
+              Plain-English alerts
+            </Typography>
+            <Stack spacing={1}>
+              {alertSettings.slice(0, 3).map((alert) => (
+                <Box
+                  key={alert.key}
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 2,
+                    bgcolor: '#ffffff',
+                    border: '1px solid rgba(60, 57, 17, 0.08)',
+                  }}
+                >
+                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                    {alert.label}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.35 }}>
+                    Warn at {alert.warningThreshold || '--'} {alert.unit || ''} and escalate at {alert.criticalThreshold || '--'} {alert.unit || ''}.
+                  </Typography>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        )}
+
+        {clarificationPrompts.length > 0 && (
+          <Alert severity="info" sx={{ mt: 2.25 }}>
+            {clarificationPrompts.length === 1
+              ? 'One targeted clarification is still waiting in the left panel.'
+              : `${clarificationPrompts.length} targeted clarifications are still waiting in the left panel.`}
+          </Alert>
+        )}
+
+        {aiSuggestions && (
+          <Alert severity={aiSuggestions.requires_user_confirmation ? 'warning' : 'success'} sx={{ mt: 2.25 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.5 }}>
+              Latest AI draft
+            </Typography>
+            <Typography variant="body2">{aiSuggestions.explanation}</Typography>
+          </Alert>
         )}
       </Box>
-    </Box>
-  );
+    );
+  };
 
   const renderActiveStep = () => {
     switch (activeStepMeta.key) {
-      case 'about':
-        return renderAboutStep();
-      case 'metric':
-        return renderMetricStep();
-      case 'visualization':
-        return renderVisualizationStep();
+      case 'setup':
+        return renderSetupStep();
       case 'alerts':
-        return renderAlertsStep();
-      case 'review':
       default:
-        return renderReviewStep();
+        return renderAlertsReviewStep();
     }
   };
 
@@ -2751,25 +3707,27 @@ const SensorConfig: React.FC = () => {
           Only a few simple choices are needed to set this up.
         </Alert>
 
-        <Box sx={{ mt: 3, p: { xs: 1.5, md: 2 }, borderRadius: 2, bgcolor: '#fffdf8', border: '1px solid rgba(60, 57, 17, 0.08)' }}>
-          <Stepper activeStep={activeStep} alternativeLabel>
-            {CONFIGURATION_STEPS.map((step, index) => (
-              <Step key={step.key}>
-                <StepButton
-                  disabled={!visitedSteps.has(index)}
-                  onClick={() => visitedSteps.has(index) && setActiveStep(index)}
-                >
-                  {step.title}
-                </StepButton>
-              </Step>
-            ))}
-          </Stepper>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
-            <FormControlLabel
-              control={<Switch checked={simpleMode} onChange={(e) => setSimpleMode(e.target.checked)} />}
-              label={simpleMode ? 'Simple mode' : 'Expert mode'}
-            />
-          </Box>
+        {/* SIMPLE TAB NAVIGATION */}
+        <Box sx={{ mt: 3, display: 'flex', gap: 1, borderBottom: '1px solid rgba(60, 57, 17, 0.1)' }}>
+          {CONFIGURATION_STEPS.map((step, index) => (
+            <Button
+              key={step.key}
+              onClick={() => setActiveStep(index)}
+              sx={{
+                px: 3,
+                py: 1.5,
+                borderBottom: activeStep === index ? '3px solid' : '3px solid transparent',
+                borderColor: activeStep === index ? 'primary.main' : 'transparent',
+                fontWeight: activeStep === index ? 700 : 500,
+                textTransform: 'none',
+                fontSize: '1rem',
+                color: activeStep === index ? 'primary.main' : 'text.secondary',
+                '&:hover': { bgcolor: 'rgba(108, 137, 48, 0.04)' },
+              }}
+            >
+              {index + 1}. {step.title}
+            </Button>
+          ))}
         </Box>
 
         <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2.5 }}>
@@ -2792,18 +3750,29 @@ const SensorConfig: React.FC = () => {
           </Typography>
         </Box>
 
-        {renderActiveStep()}
+        <Grid container spacing={3} sx={{ mt: 0.5 }}>
+          <Grid item xs={12} lg={7}>
+            {renderActiveStep()}
 
-        {activeStepMeta.key === 'review' && (
-          <Alert severity="info" sx={{ mt: 3 }}>
-            Saving activates this configuration immediately. Future readings will follow this layered
-            setup unless you customize it again.
-          </Alert>
-        )}
+            {activeStepMeta.key === 'alerts' && (
+              <Alert severity="info" sx={{ mt: 3 }}>
+                Once you save, this configuration activates immediately and your sensor will start reporting with these settings.
+              </Alert>
+            )}
 
-        <AutoDismissAlert open={Boolean(pageError)} severity="error" sx={{ mt: 2 }} onCloseAlert={() => setPageError(null)}>
-          {pageError}
-        </AutoDismissAlert>
+            <AutoDismissAlert
+              open={Boolean(pageError)}
+              severity="error"
+              sx={{ mt: 2 }}
+              onCloseAlert={() => setPageError(null)}
+            >
+              {pageError}
+            </AutoDismissAlert>
+          </Grid>
+          <Grid item xs={12} lg={5}>
+            {renderLivePreviewPanel()}
+          </Grid>
+        </Grid>
 
         <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={1.5} sx={{ mt: 3 }}>
           <Button

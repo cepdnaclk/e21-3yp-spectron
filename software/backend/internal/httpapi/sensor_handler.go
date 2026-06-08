@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -245,6 +246,7 @@ func (h *SensorHandler) AISuggestConfig(w http.ResponseWriter, r *http.Request) 
 	}
 	req.Purpose = strings.TrimSpace(req.Purpose)
 	req.Context = normalizeSensorContext(req.Context)
+	req.FollowUpAnswers = normalizeFollowUpAnswers(req.FollowUpAnswers)
 	if req.Purpose == "" {
 		http.Error(w, "purpose is required", http.StatusBadRequest)
 		return
@@ -258,9 +260,10 @@ func (h *SensorHandler) AISuggestConfig(w http.ResponseWriter, r *http.Request) 
 
 	mergedContext := mergeSensorContext(req.Context, metadata.StoredContext)
 	req.Context = mergedContext
+	req = enrichAISuggestRequest(req)
 	historyDays := 14
-	if mergedContext != nil && mergedContext.HistoricalWindowDays != nil && *mergedContext.HistoricalWindowDays > 0 {
-		historyDays = *mergedContext.HistoricalWindowDays
+	if req.Context != nil && req.Context.HistoricalWindowDays != nil && *req.Context.HistoricalWindowDays > 0 {
+		historyDays = *req.Context.HistoricalWindowDays
 	}
 	historySummary := h.loadSensorHistorySummary(r.Context(), sensorID, historyDays)
 
@@ -277,14 +280,18 @@ func (h *SensorHandler) AISuggestConfig(w http.ResponseWriter, r *http.Request) 
 		}
 	} else {
 		// Fallback to deterministic local suggestion if hosted AI is unavailable.
-		log.Printf("hosted AI unavailable, using fallback: %v", hostedErr)
+		log.Printf("hosted AI unavailable, using fallback: %s", sanitizeHostedAIError(hostedErr))
 		suggestedConfig = h.generateAISuggestion(metadata.SensorType, req)
-		explanation = fmt.Sprintf("Configuration suggested by local fallback logic (%v).", hostedErr)
+		explanation = hostedAIFallbackExplanation(hostedErr)
 	}
 
-	validation := validateAndFinalizeConfig(metadata.SensorType, req.Purpose, mergedContext, suggestedConfig, metadata.ControllerCapability, metadata.CalibrationStatus)
+	validation := validateAndFinalizeConfig(metadata.SensorType, req.Purpose, req.Context, suggestedConfig, metadata.ControllerCapability, metadata.CalibrationStatus)
 	if validation.ValidationStatus == "adjusted" {
 		explanation = strings.TrimSpace(explanation + " The backend safety validator adjusted one or more values before returning the final recommendation.")
+	}
+	followUpQuestions := buildAIFollowUpQuestions(metadata.SensorType, req, validation)
+	if len(followUpQuestions) > 0 {
+		explanation = "I need a bit more context before finalizing the configuration. Answer these quick questions and I can tighten the thresholds for your setup."
 	}
 
 	response := models.AISuggestResponse{
@@ -296,6 +303,8 @@ func (h *SensorHandler) AISuggestConfig(w http.ResponseWriter, r *http.Request) 
 		AppliedRules:             validation.AppliedRules,
 		ConfidenceScore:          validation.ConfidenceScore,
 		RequiresUserConfirmation: validation.RequiresUserConfirmation,
+		NeedsFollowUp:            len(followUpQuestions) > 0,
+		FollowUpQuestions:        followUpQuestions,
 	}
 
 	json.NewEncoder(w).Encode(response)
@@ -334,6 +343,282 @@ type hostedAISuggestion struct {
 	Explanation          string                            `json:"explanation"`
 }
 
+func normalizeFollowUpAnswers(answers map[string]string) map[string]string {
+	if len(answers) == 0 {
+		return nil
+	}
+
+	normalized := make(map[string]string, len(answers))
+	for key, value := range answers {
+		trimmedKey := strings.TrimSpace(key)
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedKey == "" || trimmedValue == "" {
+			continue
+		}
+		normalized[trimmedKey] = trimmedValue
+	}
+
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	return normalized
+}
+
+func enrichAISuggestRequest(req models.AISuggestRequest) models.AISuggestRequest {
+	req.FollowUpAnswers = normalizeFollowUpAnswers(req.FollowUpAnswers)
+	if len(req.FollowUpAnswers) == 0 {
+		return req
+	}
+
+	orderedKeys := []string{
+		"environment_details",
+		"physical_scale",
+		"normal_operating_range",
+		"alert_trigger_point",
+		"alert_timing",
+		"capacity_limit",
+	}
+
+	details := make([]string, 0, len(req.FollowUpAnswers))
+	for _, key := range orderedKeys {
+		answer := req.FollowUpAnswers[key]
+		if answer == "" {
+			continue
+		}
+		details = append(details, fmt.Sprintf("%s: %s", humanizeFollowUpAnswerKey(key), answer))
+	}
+	for key, answer := range req.FollowUpAnswers {
+		found := false
+		for _, orderedKey := range orderedKeys {
+			if orderedKey == key {
+				found = true
+				break
+			}
+		}
+		if !found {
+			details = append(details, fmt.Sprintf("%s: %s", humanizeFollowUpAnswerKey(key), answer))
+		}
+	}
+
+	if len(details) == 0 {
+		return req
+	}
+
+	followUpSummary := "Follow-up details: " + strings.Join(details, "; ")
+	if !strings.Contains(strings.ToLower(req.Purpose), strings.ToLower(followUpSummary)) {
+		req.Purpose = strings.TrimSpace(req.Purpose + ". " + followUpSummary)
+	}
+
+	if req.Context == nil {
+		req.Context = &models.SensorContext{}
+	}
+	if req.Context.InstallationNotes == "" {
+		req.Context.InstallationNotes = followUpSummary
+	} else if !strings.Contains(strings.ToLower(req.Context.InstallationNotes), strings.ToLower(followUpSummary)) {
+		req.Context.InstallationNotes = strings.TrimSpace(req.Context.InstallationNotes + " | " + followUpSummary)
+	}
+
+	return req
+}
+
+func humanizeFollowUpAnswerKey(key string) string {
+	switch key {
+	case "environment_details":
+		return "Environment"
+	case "physical_scale":
+		return "Physical scale"
+	case "normal_operating_range":
+		return "Normal range"
+	case "alert_trigger_point":
+		return "Alert trigger"
+	case "alert_timing":
+		return "Alert timing"
+	case "capacity_limit":
+		return "Capacity limit"
+	default:
+		return strings.ReplaceAll(key, "_", " ")
+	}
+}
+
+func buildAIFollowUpQuestions(
+	sensorType string,
+	req models.AISuggestRequest,
+	validation models.ConfigValidationResult,
+) []models.AIFollowUpQuestion {
+	useCase, _, primaryMetric, _ := inferUseCaseAndProfile(
+		sensorType,
+		req.Purpose,
+		req.Context,
+		validation.FinalConfig.UseCase,
+		validation.FinalConfig.PresentationProfile,
+		validation.FinalConfig.PrimaryMetric,
+	)
+
+	if validation.ConfidenceScore >= 0.92 && !validation.RequiresUserConfirmation {
+		return nil
+	}
+
+	contextText := ""
+	if req.Context != nil {
+		contextText = strings.Join([]string{
+			req.Context.Domain,
+			req.Context.EnvironmentType,
+			req.Context.IndoorOutdoor,
+			req.Context.AssetType,
+			req.Context.InstallationNotes,
+			func() string {
+				if req.Context.Location == nil {
+					return ""
+				}
+				return strings.Join([]string{
+					req.Context.Location.Label,
+					req.Context.Location.Region,
+					req.Context.Location.Country,
+				}, " ")
+			}(),
+		}, " ")
+	}
+
+	combinedText := strings.ToLower(compactSuggestionText(req.Purpose, contextText))
+	questions := make([]models.AIFollowUpQuestion, 0, 3)
+
+	addQuestion := func(question models.AIFollowUpQuestion, shouldAsk bool) {
+		if !shouldAsk || len(questions) >= 3 {
+			return
+		}
+		for _, existing := range questions {
+			if existing.ID == question.ID {
+				return
+			}
+		}
+		questions = append(questions, question)
+	}
+
+	addQuestion(models.AIFollowUpQuestion{
+		ID:          "environment_details",
+		Question:    "Where exactly is this sensor installed, and what is it monitoring there?",
+		Placeholder: "Example: Indoor household water tank on the roof of my home",
+	}, needsEnvironmentDetails(req.Context, combinedText))
+
+	switch useCase {
+	case useCaseFillLevel:
+		addQuestion(models.AIFollowUpQuestion{
+			ID:          "physical_scale",
+			Question:    "What is the full tank or container height/depth when it is completely full?",
+			Placeholder: "Example: 100 cm tall water tank",
+		}, !hasPhysicalScaleHint(combinedText))
+		addQuestion(models.AIFollowUpQuestion{
+			ID:          "alert_trigger_point",
+			Question:    "At what remaining level or percentage should Spectron warn you?",
+			Placeholder: "Example: Alert at 10% remaining or when the level drops below 12 cm",
+		}, !hasAlertTriggerHint(combinedText))
+		addQuestion(models.AIFollowUpQuestion{
+			ID:          "alert_timing",
+			Question:    "Should the alert trigger immediately, or only if the level stays low for a while?",
+			Placeholder: "Example: Alert immediately, or only after 10 minutes",
+		}, !hasTimingHint(combinedText))
+	case useCaseClimate, useCaseSafety:
+		addQuestion(models.AIFollowUpQuestion{
+			ID:          "normal_operating_range",
+			Question:    "What is the normal safe range you want to maintain?",
+			Placeholder: "Example: Temperature 18-25 C and humidity 40-60%",
+		}, !hasRangeHint(combinedText))
+		addQuestion(models.AIFollowUpQuestion{
+			ID:          "alert_trigger_point",
+			Question:    "What exact condition should trigger a warning or critical alert?",
+			Placeholder: "Example: Warn below 15 C, critical below 10 C",
+		}, !hasAlertTriggerHint(combinedText))
+		addQuestion(models.AIFollowUpQuestion{
+			ID:          "alert_timing",
+			Question:    "How long should the condition stay unsafe before we alert you?",
+			Placeholder: "Example: Only if it stays unsafe for 15 minutes",
+		}, !hasTimingHint(combinedText))
+	case useCaseOccupancy, useCaseAttendance:
+		addQuestion(models.AIFollowUpQuestion{
+			ID:          "capacity_limit",
+			Question:    "What occupancy or count should be considered too high or too low?",
+			Placeholder: "Example: Warn above 25 people, critical above 35",
+		}, !hasCountHint(combinedText))
+		addQuestion(models.AIFollowUpQuestion{
+			ID:          "alert_timing",
+			Question:    "Should the count alert immediately, or only after it stays high for some minutes?",
+			Placeholder: "Example: Only if it stays above the limit for 5 minutes",
+		}, !hasTimingHint(combinedText))
+		addQuestion(models.AIFollowUpQuestion{
+			ID:          "environment_details",
+			Question:    "What kind of area is this monitoring, and what does a normal busy period look like?",
+			Placeholder: "Example: Classroom entrance during school hours",
+		}, needsEnvironmentDetails(req.Context, combinedText))
+	default:
+		addQuestion(models.AIFollowUpQuestion{
+			ID:          "normal_operating_range",
+			Question:    "What values should be considered normal before alerts begin?",
+			Placeholder: "Example: Normal pressure should stay between 98 and 103 kPa",
+		}, !hasRangeHint(combinedText) && primaryMetric != "")
+		addQuestion(models.AIFollowUpQuestion{
+			ID:          "alert_timing",
+			Question:    "Should Spectron alert immediately, or only after the condition persists for some time?",
+			Placeholder: "Example: Only if the issue lasts more than 10 minutes",
+		}, !hasTimingHint(combinedText))
+	}
+
+	return questions
+}
+
+func needsEnvironmentDetails(ctx *models.SensorContext, combinedText string) bool {
+	if ctx != nil {
+		if strings.TrimSpace(ctx.EnvironmentType) != "" ||
+			strings.TrimSpace(ctx.IndoorOutdoor) != "" ||
+			strings.TrimSpace(ctx.AssetType) != "" {
+			return false
+		}
+		if ctx.Location != nil && strings.TrimSpace(ctx.Location.Label) != "" {
+			return false
+		}
+	}
+
+	return !containsAnyKeyword(
+		combinedText,
+		"indoor", "outdoor", "home", "house", "roof", "rooftop", "room", "warehouse",
+		"greenhouse", "factory", "classroom", "office", "tank", "bin", "silo", "cold room",
+	)
+}
+
+var (
+	physicalScalePattern = regexp.MustCompile(`\b\d+(?:\.\d+)?\s*(cm|mm|m|meter|meters|metre|metres|ft|feet|inch|inches|l|litre|litres|liter|liters|gallon|gallons)\b`)
+	percentagePattern    = regexp.MustCompile(`\b\d+(?:\.\d+)?\s*%\b`)
+	rangePattern         = regexp.MustCompile(`\b\d+(?:\.\d+)?\s*(?:to|-|–)\s*\d+(?:\.\d+)?\b`)
+	timingPattern        = regexp.MustCompile(`\b\d+(?:\.\d+)?\s*(second|seconds|sec|secs|minute|minutes|min|mins|hour|hours|hr|hrs)\b`)
+	countPattern         = regexp.MustCompile(`\b\d+(?:\.\d+)?\s*(people|person|students|student|visitors|visitor|cars|car|vehicles|vehicle|items|item|seats|seat)\b`)
+)
+
+func hasPhysicalScaleHint(text string) bool {
+	return physicalScalePattern.MatchString(text) ||
+		containsAnyKeyword(text, "height", "depth", "deep", "tall", "capacity", "full tank", "full bin")
+}
+
+func hasAlertTriggerHint(text string) bool {
+	return percentagePattern.MatchString(text) ||
+		rangePattern.MatchString(text) ||
+		containsAnyKeyword(text, "below", "above", "at ", "when it becomes", "when it reaches", "warn at", "alert at", "critical at")
+}
+
+func hasRangeHint(text string) bool {
+	return rangePattern.MatchString(text) ||
+		containsAnyKeyword(text, "between", "range", "minimum", "maximum", "min", "max")
+}
+
+func hasTimingHint(text string) bool {
+	return timingPattern.MatchString(text) ||
+		containsAnyKeyword(text, "immediately", "instant", "persistent", "sustained", "delay", "after")
+}
+
+func hasCountHint(text string) bool {
+	return countPattern.MatchString(text) ||
+		containsAnyKeyword(text, "occupancy", "attendance", "crowd", "capacity")
+}
+
 func (h *SensorHandler) generateHostedAISuggestion(ctx context.Context, sensorType string, req models.AISuggestRequest, historySummary string) (models.SensorConfig, string, error) {
 	apiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
 	provider := strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER")))
@@ -341,6 +626,9 @@ func (h *SensorHandler) generateHostedAISuggestion(ctx context.Context, sensorTy
 	if apiKey == "" || (provider != "" && provider != "gemini") {
 		return models.SensorConfig{}, "", fmt.Errorf("hosted AI not configured")
 	}
+
+	hostedCtx, cancel := context.WithTimeout(ctx, hostedAITimeout())
+	defer cancel()
 
 	model := strings.TrimSpace(os.Getenv("GEMINI_MODEL"))
 	if model == "" {
@@ -415,7 +703,12 @@ Rules:
 	var selectedModel string
 	var lastErr error
 	for _, candidate := range orderedModels {
-		candidateRespBody, callErr := callGeminiGenerate(ctx, baseURL, apiKey, candidate, body)
+		if hostedCtx.Err() != nil {
+			lastErr = hostedCtx.Err()
+			break
+		}
+
+		candidateRespBody, callErr := callGeminiGenerate(hostedCtx, baseURL, apiKey, candidate, body)
 		if callErr == nil {
 			respBody = candidateRespBody
 			selectedModel = candidate
@@ -425,7 +718,7 @@ Rules:
 
 		lastErr = callErr
 		errText := strings.ToLower(callErr.Error())
-		if !(strings.Contains(errText, "404") || strings.Contains(errText, "429")) {
+		if !shouldTryNextGeminiModel(errText) {
 			break
 		}
 	}
@@ -542,22 +835,15 @@ func buildGeminiCandidateModels(envModel string) []string {
 	return []string{
 		normalizedEnv,
 		"gemini-2.5-flash",
-		"gemini-2.5-flash-latest",
-		"gemini-2.5-flash-001",
-		"gemini-2.0-flash",
-		"gemini-2.0-flash-001",
 		"gemini-2.0-flash-lite",
-		"gemini-2.0-flash-lite-001",
-		"gemini-1.5-flash",
-		"gemini-1.5-flash-latest",
 	}
 }
 
 func callGeminiGenerate(ctx context.Context, baseURL string, apiKey string, model string, requestBody []byte) ([]byte, error) {
 	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", strings.TrimRight(baseURL, "/"), normalizeGeminiModelName(model), apiKey)
-	httpClient := &http.Client{Timeout: 20 * time.Second}
+	httpClient := &http.Client{Timeout: geminiHTTPTimeout()}
 
-	maxAttempts := 6
+	maxAttempts := geminiMaxAttempts()
 	backoff := 1 * time.Second
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -612,6 +898,83 @@ func callGeminiGenerate(ctx context.Context, baseURL string, apiKey string, mode
 	}
 
 	return nil, fmt.Errorf("gemini api error for model %s: exhausted retries", model)
+}
+
+func hostedAITimeout() time.Duration {
+	return durationFromEnvMs("GEMINI_TIMEOUT_MS", 12000, 3000, 60000)
+}
+
+func geminiHTTPTimeout() time.Duration {
+	return durationFromEnvMs("GEMINI_HTTP_TIMEOUT_MS", 8000, 2000, 30000)
+}
+
+func aiHistoryQueryTimeout() time.Duration {
+	return durationFromEnvMs("AI_HISTORY_QUERY_TIMEOUT_MS", 2000, 500, 10000)
+}
+
+func geminiMaxAttempts() int {
+	return intFromEnv("GEMINI_MAX_ATTEMPTS", 2, 1, 4)
+}
+
+func shouldTryNextGeminiModel(errText string) bool {
+	return strings.Contains(errText, "404") ||
+		strings.Contains(errText, "429") ||
+		strings.Contains(errText, "500") ||
+		strings.Contains(errText, "502") ||
+		strings.Contains(errText, "503") ||
+		strings.Contains(errText, "504") ||
+		strings.Contains(errText, "unavailable") ||
+		strings.Contains(errText, "high demand")
+}
+
+var geminiAPIKeyPattern = regexp.MustCompile(`([?&]key=)[^&\s]+`)
+
+func sanitizeHostedAIError(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	sanitized := geminiAPIKeyPattern.ReplaceAllString(err.Error(), "${1}[redacted]")
+	return strings.TrimSpace(sanitized)
+}
+
+func hostedAIFallbackExplanation(err error) string {
+	errText := strings.ToLower(sanitizeHostedAIError(err))
+
+	switch {
+	case strings.Contains(errText, "429") || strings.Contains(errText, "quota"):
+		return "Configuration suggested by local fallback logic (hosted Gemini AI quota is currently exhausted)."
+	case strings.Contains(errText, "503") || strings.Contains(errText, "unavailable") || strings.Contains(errText, "high demand"):
+		return "Configuration suggested by local fallback logic (hosted Gemini AI is temporarily overloaded)."
+	case strings.Contains(errText, "deadline exceeded") || strings.Contains(errText, "timeout"):
+		return "Configuration suggested by local fallback logic (hosted Gemini AI timed out)."
+	default:
+		return "Configuration suggested by local fallback logic (hosted Gemini AI is temporarily unavailable)."
+	}
+}
+
+func durationFromEnvMs(envKey string, fallbackMs int, minMs int, maxMs int) time.Duration {
+	valueMs := intFromEnv(envKey, fallbackMs, minMs, maxMs)
+	return time.Duration(valueMs) * time.Millisecond
+}
+
+func intFromEnv(envKey string, fallback int, min int, max int) int {
+	raw := strings.TrimSpace(os.Getenv(envKey))
+	if raw == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	if parsed < min {
+		return min
+	}
+	if parsed > max {
+		return max
+	}
+	return parsed
 }
 
 func retryAfterDuration(value string) time.Duration {
@@ -839,6 +1202,11 @@ func (h *SensorHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 	`, validation.FinalConfig.FriendlyName, purposeToStore, contextPayload, sensorID)
 	if err != nil {
 		http.Error(w, "failed to update sensor metadata", http.StatusInternalServerError)
+		return
+	}
+
+	if err := resetLearningPhase(r.Context(), tx, "legacy", sensorID); err != nil {
+		http.Error(w, "failed to reset learning phase", http.StatusInternalServerError)
 		return
 	}
 

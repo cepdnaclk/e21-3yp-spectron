@@ -1148,6 +1148,17 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	if err := resetLearningPhase(r.Context(), tx, "system", sensor.id); err != nil {
+		http.Error(w, "failed to reset system learning phase", http.StatusInternalServerError)
+		return
+	}
+	if legacyErr == nil {
+		if err := resetLearningPhase(r.Context(), tx, "legacy", legacySensor.id); err != nil {
+			http.Error(w, "failed to reset sensor learning phase", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		http.Error(w, "failed to commit configuration", http.StatusInternalServerError)
 		return
@@ -1190,6 +1201,7 @@ func (h *ControllerHandler) AISuggestHardwareSensorConfigAPI(w http.ResponseWrit
 	}
 	req.Purpose = strings.TrimSpace(req.Purpose)
 	req.Context = normalizeSensorContext(req.Context)
+	req.FollowUpAnswers = normalizeFollowUpAnswers(req.FollowUpAnswers)
 	if req.Purpose == "" {
 		http.Error(w, "purpose is required", http.StatusBadRequest)
 		return
@@ -1203,9 +1215,10 @@ func (h *ControllerHandler) AISuggestHardwareSensorConfigAPI(w http.ResponseWrit
 
 	mergedContext := mergeSensorContext(req.Context, metadata.StoredContext)
 	req.Context = mergedContext
+	req = enrichAISuggestRequest(req)
 	historyDays := 14
-	if mergedContext != nil && mergedContext.HistoricalWindowDays != nil && *mergedContext.HistoricalWindowDays > 0 {
-		historyDays = *mergedContext.HistoricalWindowDays
+	if req.Context != nil && req.Context.HistoricalWindowDays != nil && *req.Context.HistoricalWindowDays > 0 {
+		historyDays = *req.Context.HistoricalWindowDays
 	}
 	historySummary := h.loadHardwareSensorHistorySummary(r.Context(), sensor.id, sensor.legacyID, historyDays)
 
@@ -1228,21 +1241,25 @@ func (h *ControllerHandler) AISuggestHardwareSensorConfigAPI(w http.ResponseWrit
 			explanation = "Configuration suggested by hosted AI model."
 		}
 	} else {
-		log.Printf("hosted AI unavailable for hardware sensor, using fallback: %v", hostedErr)
+		log.Printf("hosted AI unavailable for hardware sensor, using fallback: %s", sanitizeHostedAIError(hostedErr))
 		suggestedConfig = sensorHelper.generateAISuggestion(metadata.SensorType, req)
-		explanation = fmt.Sprintf("Configuration suggested by local fallback logic (%v).", hostedErr)
+		explanation = hostedAIFallbackExplanation(hostedErr)
 	}
 
 	validation := validateAndFinalizeConfig(
 		metadata.SensorType,
 		req.Purpose,
-		mergedContext,
+		req.Context,
 		suggestedConfig,
 		metadata.ControllerCapability,
 		metadata.CalibrationStatus,
 	)
 	if validation.ValidationStatus == "adjusted" {
 		explanation = strings.TrimSpace(explanation + " The backend safety validator adjusted one or more values before returning the final recommendation.")
+	}
+	followUpQuestions := buildAIFollowUpQuestions(metadata.SensorType, req, validation)
+	if len(followUpQuestions) > 0 {
+		explanation = "I need a bit more context before finalizing the configuration. Answer these quick questions and I can tighten the thresholds for your setup."
 	}
 
 	json.NewEncoder(w).Encode(models.AISuggestResponse{
@@ -1254,6 +1271,8 @@ func (h *ControllerHandler) AISuggestHardwareSensorConfigAPI(w http.ResponseWrit
 		AppliedRules:             validation.AppliedRules,
 		ConfidenceScore:          validation.ConfidenceScore,
 		RequiresUserConfirmation: validation.RequiresUserConfirmation,
+		NeedsFollowUp:            len(followUpQuestions) > 0,
+		FollowUpQuestions:        followUpQuestions,
 	})
 }
 
@@ -2180,13 +2199,16 @@ func (h *ControllerHandler) loadHardwareSensorHistorySummary(
 		days = 90
 	}
 
+	queryCtx, cancel := context.WithTimeout(ctx, aiHistoryQueryTimeout())
+	defer cancel()
+
 	var count int
 	var minValue *float64
 	var maxValue *float64
 	var avgValue *float64
 	var lastValue *float64
 
-	err := h.db.QueryRow(ctx, `
+	err := h.db.QueryRow(queryCtx, `
 		SELECT
 			COUNT(*),
 			MIN(value),

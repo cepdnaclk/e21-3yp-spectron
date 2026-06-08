@@ -37,6 +37,8 @@ import {
   Download,
   PictureAsPdf,
   TableChart,
+  Fullscreen,
+  FullscreenExit,
 } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import type { jsPDF as JsPDFDocument } from 'jspdf';
@@ -172,6 +174,15 @@ const formatYAxisTick = (value: number) => {
 
   return value.toFixed(0);
 };
+
+const compactChartMargin = {
+  top: 8,
+  right: 8,
+  left: -12,
+  bottom: 24,
+};
+
+const compactChartXAxisHeight = 36;
 
 const toReadingValue = (reading: SensorReading): number | null => {
   if (typeof reading.value === 'number') return reading.value;
@@ -1344,8 +1355,19 @@ const Monitoring: React.FC = () => {
   const [reportDays, setReportDays] = useState(REPORT_MAX_DAYS.toString());
   const [reportError, setReportError] = useState<string | null>(null);
   const [exportingReport, setExportingReport] = useState<'csv' | 'pdf' | null>(null);
+  const [expandedChartSensorId, setExpandedChartSensorId] = useState<string | null>(null);
+  const [expandedChartData, setExpandedChartData] = useState<{ controller: ControllerMonitoringGroup; sensorCard: SensorCardData } | null>(null);
+  const [timeRange, setTimeRange] = useState<'24h' | '7d' | '30d'>('24h');
 
-  const loadMonitoringData = useCallback(async ({ showSkeleton = false }: { showSkeleton?: boolean } = {}) => {
+  const getDateRangeForTimeRange = (range: '24h' | '7d' | '30d') => {
+    const to = new Date();
+    const from = new Date();
+    const daysMap = { '24h': 1, '7d': 7, '30d': 30 };
+    from.setDate(to.getDate() - daysMap[range]);
+    return { from, to };
+  };
+
+  const loadMonitoringData = useCallback(async ({ showSkeleton = false, range = timeRange }: { showSkeleton?: boolean; range?: '24h' | '7d' | '30d' } = {}) => {
     try {
       if (showSkeleton) {
         setLoading(true);
@@ -1361,9 +1383,7 @@ const Monitoring: React.FC = () => {
           const sensors = await getHardwareSensors(controller.id);
           // Filter to only live/active sensors
           const activeSensors = sensors.filter((s) => s.status === 'OK');
-          const to = new Date();
-          const from = new Date();
-          from.setDate(to.getDate() - 1);
+          const { from, to } = getDateRangeForTimeRange(range);
 
           const sensorCards = await Promise.all(
             activeSensors.map(async (sensor) => {
@@ -1464,7 +1484,7 @@ const Monitoring: React.FC = () => {
       }
       setRefreshing(false);
     }
-  }, []);
+  }, [timeRange]);
 
   useEffect(() => {
     loadMonitoringData({ showSkeleton: true });
@@ -1641,6 +1661,32 @@ const Monitoring: React.FC = () => {
           </Stack>
         </Stack>
       </Box>
+
+      {/* Time Range Selector */}
+      <Stack direction="row" spacing={1} sx={{ mb: 3, alignItems: 'center' }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+          Data Range:
+        </Typography>
+        <Stack direction="row" spacing={1}>
+          {(['24h', '7d', '30d'] as const).map((range) => (
+            <Button
+              key={range}
+              variant={timeRange === range ? 'contained' : 'outlined'}
+              size="small"
+              onClick={() => {
+                setTimeRange(range);
+                loadMonitoringData({ showSkeleton: false, range });
+              }}
+              sx={{
+                minWidth: '70px',
+                fontWeight: timeRange === range ? 800 : 600,
+              }}
+            >
+              {range === '24h' ? '24 hours' : range === '7d' ? '7 days' : '30 days'}
+            </Button>
+          ))}
+        </Stack>
+      </Stack>
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 3 }}>
         <Card sx={{ flex: 1, bgcolor: '#fffaf4' }}>
@@ -2004,7 +2050,7 @@ const Monitoring: React.FC = () => {
                                 />
                               </Box>
                             ) : (
-                              <Box sx={{ width: '100%', height: 160 }}>
+                              <Box sx={{ width: '100%', height: 184 }}>
                                 <Stack
                                   direction="row"
                                   justifyContent="space-between"
@@ -2012,13 +2058,30 @@ const Monitoring: React.FC = () => {
                                   sx={{ mb: 1 }}
                                 >
                                   <Typography variant="subtitle2">{chartTitle}</Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    {formatUseCaseLabel(item.useCase)}
-                                  </Typography>
+                                  <Stack direction="row" spacing={1} alignItems="center">
+                                    <Typography variant="caption" color="text.secondary">
+                                      {formatUseCaseLabel(item.useCase)}
+                                    </Typography>
+                                    <Button
+                                      size="small"
+                                      variant="text"
+                                      startIcon={<Fullscreen />}
+                                      onClick={() => {
+                                        setExpandedChartSensorId(item.sensor.id);
+                                        setExpandedChartData({ controller, sensorCard: item });
+                                      }}
+                                      sx={{
+                                        minWidth: 'unset',
+                                        p: 0.5,
+                                        color: 'text.secondary',
+                                        '&:hover': { color: 'primary.main' },
+                                      }}
+                                    />
+                                  </Stack>
                                 </Stack>
                                 <ResponsiveContainer>
                                   {visualizationMode === 'area' ? (
-                                    <AreaChart data={item.trend}>
+                                    <AreaChart data={item.trend} margin={compactChartMargin}>
                                       <defs>
                                         <linearGradient
                                           id={`humidity-fill-${item.sensor.id}`}
@@ -2033,6 +2096,7 @@ const Monitoring: React.FC = () => {
                                       </defs>
                                       <XAxis
                                         dataKey="shortLabel"
+                                        height={compactChartXAxisHeight}
                                         tickLine={false}
                                         axisLine={false}
                                         interval={0}
@@ -2060,10 +2124,11 @@ const Monitoring: React.FC = () => {
                                       />
                                     </AreaChart>
                                   ) : visualizationMode === 'bar' ? (
-                                    <BarChart data={item.trend}>
+                                    <BarChart data={item.trend} margin={compactChartMargin}>
                                       <CartesianGrid vertical={false} strokeDasharray="3 3" stroke={alpha(styles.accent, 0.12)} />
                                       <XAxis
                                         dataKey="shortLabel"
+                                        height={compactChartXAxisHeight}
                                         tickLine={false}
                                         axisLine={false}
                                         interval={0}
@@ -2089,10 +2154,11 @@ const Monitoring: React.FC = () => {
                                       />
                                     </BarChart>
                                   ) : visualizationMode === 'timeline' ? (
-                                    <LineChart data={item.trend}>
+                                    <LineChart data={item.trend} margin={compactChartMargin}>
                                       <CartesianGrid vertical={false} strokeDasharray="4 4" stroke={alpha(styles.accent, 0.16)} />
                                       <XAxis
                                         dataKey="shortLabel"
+                                        height={compactChartXAxisHeight}
                                         tickLine={false}
                                         axisLine={false}
                                         interval={0}
@@ -2121,9 +2187,10 @@ const Monitoring: React.FC = () => {
                                       />
                                     </LineChart>
                                   ) : (
-                                    <LineChart data={item.trend}>
+                                    <LineChart data={item.trend} margin={compactChartMargin}>
                                       <XAxis
                                         dataKey="shortLabel"
+                                        height={compactChartXAxisHeight}
                                         tickLine={false}
                                         axisLine={false}
                                         interval={0}
@@ -2161,7 +2228,7 @@ const Monitoring: React.FC = () => {
                               spacing={1}
                               justifyContent="space-between"
                               alignItems={{ xs: 'stretch', sm: 'center' }}
-                              sx={{ mt: 'auto', pt: 2 }}
+                              sx={{ mt: 2.5, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}
                             >
                               <Typography variant="caption" color="text.secondary" sx={{ pr: 1 }}>
                                 {item.isSampleData
@@ -2282,7 +2349,7 @@ const Monitoring: React.FC = () => {
               value={reportDays}
               onChange={(event) => setReportDays(event.target.value)}
               inputProps={{ min: 1, max: REPORT_MAX_DAYS }}
-              helperText={`Readings are preserved for ${REPORT_MAX_DAYS} days, so reports are limited to ${REPORT_MAX_DAYS} days.`}
+              helperText={`Max ${REPORT_MAX_DAYS} days available.`}
               disabled={Boolean(exportingReport)}
               fullWidth
             />
@@ -2315,6 +2382,244 @@ const Monitoring: React.FC = () => {
             </Button>
           </Stack>
         </DialogActions>
+      </Dialog>
+
+      {/* Full-screen Chart Modal */}
+      <Dialog
+        open={Boolean(expandedChartSensorId && expandedChartData)}
+        onClose={() => {
+          setExpandedChartSensorId(null);
+          setExpandedChartData(null);
+        }}
+        fullScreen
+        PaperProps={{
+          sx: {
+            bgcolor: '#fffdf8',
+          },
+        }}
+      >
+        <Box
+          sx={{
+            p: 2,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          <Box>
+            <Typography variant="h6">
+              {expandedChartData?.sensorCard.sensor.name || `${expandedChartData?.sensorCard.sensor.type} Sensor`}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+              {expandedChartData?.controller.name} • {expandedChartData?.sensorCard.sensor.hw_id}
+            </Typography>
+          </Box>
+          <Button
+            startIcon={<FullscreenExit />}
+            onClick={() => {
+              setExpandedChartSensorId(null);
+              setExpandedChartData(null);
+            }}
+          >
+            Close
+          </Button>
+        </Box>
+
+        <Box sx={{ p: 3, flex: 1, display: 'flex', flexDirection: 'column' }}>
+          {expandedChartData && (
+            <>
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                  {getChartTitle(
+                    expandedChartData.sensorCard.presentationProfile,
+                    expandedChartData.sensorCard.presentationState.detailMode,
+                    expandedChartData.sensorCard.displayValue !== null
+                  )}
+                </Typography>
+                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                  <Chip
+                    label={`Metric: ${getMetricLabel(expandedChartData.sensorCard.presentationState.headlineMetric)}`}
+                    size="small"
+                    variant="outlined"
+                  />
+                  <Chip label={`${expandedChartData.sensorCard.trend.length} readings`} size="small" variant="outlined" />
+                  {expandedChartData.sensorCard.threshold && (
+                    <>
+                      {expandedChartData.sensorCard.threshold.min !== undefined && (
+                        <Chip label={`Min: ${expandedChartData.sensorCard.threshold.min}`} size="small" variant="outlined" />
+                      )}
+                      {expandedChartData.sensorCard.threshold.max !== undefined && (
+                        <Chip label={`Max: ${expandedChartData.sensorCard.threshold.max}`} size="small" variant="outlined" />
+                      )}
+                    </>
+                  )}
+                </Stack>
+              </Box>
+
+              <Box sx={{ flex: 1, minHeight: 400 }}>
+                {getVisualizationMode(
+                  expandedChartData.sensorCard.useCase,
+                  expandedChartData.sensorCard.presentationProfile,
+                  expandedChartData.sensorCard.sensor.type
+                ) === 'gauge' ? (
+                  <Box>
+                    <Typography variant="body2" sx={{ mb: 2 }}>
+                      Gauge View - {Math.round(
+                        getGaugeValue(
+                          expandedChartData.sensorCard.displayValue,
+                          expandedChartData.sensorCard.threshold,
+                          expandedChartData.sensorCard.trend,
+                          expandedChartData.sensorCard.presentationState
+                        )
+                      )}
+                      %
+                    </Typography>
+                    <LinearProgress
+                      variant="determinate"
+                      value={getGaugeValue(
+                        expandedChartData.sensorCard.displayValue,
+                        expandedChartData.sensorCard.threshold,
+                        expandedChartData.sensorCard.trend,
+                        expandedChartData.sensorCard.presentationState
+                      )}
+                      sx={{
+                        height: 24,
+                        borderRadius: 999,
+                        bgcolor: alpha(theme.palette.primary.main, 0.12),
+                        '& .MuiLinearProgress-bar': {
+                          borderRadius: 999,
+                          bgcolor: theme.palette.primary.main,
+                        },
+                      }}
+                    />
+                  </Box>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    {getVisualizationMode(
+                      expandedChartData.sensorCard.useCase,
+                      expandedChartData.sensorCard.presentationProfile,
+                      expandedChartData.sensorCard.sensor.type
+                    ) === 'area' ? (
+                      <AreaChart data={expandedChartData.sensorCard.trend}>
+                        <defs>
+                          <linearGradient
+                            id={`fullscreen-fill-${expandedChartData.sensorCard.sensor.id}`}
+                            x1="0"
+                            y1="0"
+                            x2="0"
+                            y2="1"
+                          >
+                            <stop offset="0%" stopColor="#337a85" stopOpacity={0.32} />
+                            <stop offset="100%" stopColor="#337a85" stopOpacity={0.02} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke={alpha(theme.palette.primary.main, 0.08)} />
+                        <XAxis
+                          dataKey="shortLabel"
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 12, fill: '#6a624f' }}
+                        />
+                        <YAxis
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 12, fill: '#8a806d' }}
+                          tickFormatter={formatYAxisTick}
+                        />
+                        <Tooltip />
+                        <Area
+                          type="monotone"
+                          dataKey="value"
+                          stroke="#337a85"
+                          strokeWidth={2}
+                          fill={`url(#fullscreen-fill-${expandedChartData.sensorCard.sensor.id})`}
+                        />
+                      </AreaChart>
+                    ) : getVisualizationMode(
+                      expandedChartData.sensorCard.useCase,
+                      expandedChartData.sensorCard.presentationProfile,
+                      expandedChartData.sensorCard.sensor.type
+                    ) === 'bar' ? (
+                      <BarChart data={expandedChartData.sensorCard.trend}>
+                        <CartesianGrid vertical={false} strokeDasharray="3 3" stroke={alpha(theme.palette.primary.main, 0.08)} />
+                        <XAxis
+                          dataKey="shortLabel"
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 12, fill: '#6a624f' }}
+                        />
+                        <YAxis
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 12, fill: '#8a806d' }}
+                          tickFormatter={formatYAxisTick}
+                        />
+                        <Tooltip />
+                        <Bar dataKey="value" fill={alpha(theme.palette.primary.main, 0.78)} radius={[6, 6, 0, 0]} />
+                      </BarChart>
+                    ) : getVisualizationMode(
+                      expandedChartData.sensorCard.useCase,
+                      expandedChartData.sensorCard.presentationProfile,
+                      expandedChartData.sensorCard.sensor.type
+                    ) === 'timeline' ? (
+                      <LineChart data={expandedChartData.sensorCard.trend}>
+                        <CartesianGrid vertical={false} strokeDasharray="4 4" stroke={alpha(theme.palette.primary.main, 0.12)} />
+                        <XAxis
+                          dataKey="shortLabel"
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 12, fill: '#6a624f' }}
+                        />
+                        <YAxis
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 12, fill: '#8a806d' }}
+                          tickFormatter={formatYAxisTick}
+                        />
+                        <Tooltip />
+                        <Line
+                          type="stepAfter"
+                          dataKey="value"
+                          stroke={theme.palette.primary.main}
+                          strokeWidth={3}
+                          dot={{ r: 4, fill: theme.palette.primary.main }}
+                          activeDot={{ r: 6 }}
+                        />
+                      </LineChart>
+                    ) : (
+                      <LineChart data={expandedChartData.sensorCard.trend}>
+                        <CartesianGrid vertical={false} strokeDasharray="3 3" stroke={alpha(theme.palette.primary.main, 0.08)} />
+                        <XAxis
+                          dataKey="shortLabel"
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 12, fill: '#6a624f' }}
+                        />
+                        <YAxis
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 12, fill: '#8a806d' }}
+                          tickFormatter={formatYAxisTick}
+                        />
+                        <Tooltip />
+                        <Line
+                          type="monotone"
+                          dataKey="value"
+                          stroke={theme.palette.primary.main}
+                          strokeWidth={3}
+                          dot={false}
+                          activeDot={{ r: 6 }}
+                        />
+                      </LineChart>
+                    )}
+                  </ResponsiveContainer>
+                )}
+              </Box>
+            </>
+          )}
+        </Box>
       </Dialog>
     </Container>
   );

@@ -53,11 +53,11 @@ type SensorConfig struct {
 }
 
 type SensorHardwareLayer struct {
-	SystemName          string                   `json:"system_name,omitempty"`
-	SensorType          string                   `json:"sensor_type,omitempty"`
-	SensorName          string                   `json:"sensor_name,omitempty"`
-	Config              map[string]interface{}   `json:"config,omitempty"`
-	SupportedRawMetrics []SensorHardwareMetric   `json:"supported_raw_metrics,omitempty"`
+	SystemName          string                 `json:"system_name,omitempty"`
+	SensorType          string                 `json:"sensor_type,omitempty"`
+	SensorName          string                 `json:"sensor_name,omitempty"`
+	Config              map[string]interface{} `json:"config,omitempty"`
+	SupportedRawMetrics []SensorHardwareMetric `json:"supported_raw_metrics,omitempty"`
 }
 
 type SensorInterpretationLayer struct {
@@ -164,17 +164,26 @@ type AISuggestRequest struct {
 	Context                *SensorContext       `json:"context,omitempty"`
 	DesiredBatteryLifeDays *int                 `json:"desired_battery_life_days,omitempty"`
 	SamplingPreferences    *SamplingPreferences `json:"sampling_preferences,omitempty"`
+	FollowUpAnswers        map[string]string    `json:"follow_up_answers,omitempty"`
+}
+
+type AIFollowUpQuestion struct {
+	ID          string `json:"id"`
+	Question    string `json:"question"`
+	Placeholder string `json:"placeholder,omitempty"`
 }
 
 type AISuggestResponse struct {
-	SuggestedConfig          SensorConfig `json:"suggested_config"`
-	ValidatedConfig          SensorConfig `json:"validated_config"`
-	Explanation              string       `json:"explanation"`
-	ValidationStatus         string       `json:"validation_status"`
-	Warnings                 []string     `json:"warnings,omitempty"`
-	AppliedRules             []string     `json:"applied_rules,omitempty"`
-	ConfidenceScore          float64      `json:"confidence_score"`
-	RequiresUserConfirmation bool         `json:"requires_user_confirmation"`
+	SuggestedConfig          SensorConfig         `json:"suggested_config"`
+	ValidatedConfig          SensorConfig         `json:"validated_config"`
+	Explanation              string               `json:"explanation"`
+	ValidationStatus         string               `json:"validation_status"`
+	Warnings                 []string             `json:"warnings,omitempty"`
+	AppliedRules             []string             `json:"applied_rules,omitempty"`
+	ConfidenceScore          float64              `json:"confidence_score"`
+	RequiresUserConfirmation bool                 `json:"requires_user_confirmation"`
+	NeedsFollowUp            bool                 `json:"needs_follow_up,omitempty"`
+	FollowUpQuestions        []AIFollowUpQuestion `json:"follow_up_questions,omitempty"`
 }
 
 type SaveSensorConfigRequest struct {
@@ -206,4 +215,48 @@ type SaveSensorConfigResponse struct {
 	RequiresUserConfirmation bool               `json:"requires_user_confirmation"`
 	ConfigActive             bool               `json:"config_active"`
 	Observation              *SensorObservation `json:"observation,omitempty"`
+}
+
+type LearningPhaseSummary struct {
+	WindowDays           int             `json:"windowDays"`
+	PrimaryMetric        string          `json:"primaryMetric"`
+	ReadingsCollected    int             `json:"readingsCollected"`
+	ReportIntervalPerDay int             `json:"reportIntervalPerDay,omitempty"`
+	CurrentThresholds    ThresholdConfig `json:"currentThresholds"`
+	AlertCount           int             `json:"alertCount"`
+	WarningAlertCount    int             `json:"warningAlertCount"`
+	CriticalAlertCount   int             `json:"criticalAlertCount"`
+	MinimumValue         *float64        `json:"minimumValue,omitempty"`
+	MaximumValue         *float64        `json:"maximumValue,omitempty"`
+	AverageValue         *float64        `json:"averageValue,omitempty"`
+	LatestValue          *float64        `json:"latestValue,omitempty"`
+	FirstValue           *float64        `json:"firstValue,omitempty"`
+	TrendDelta           *float64        `json:"trendDelta,omitempty"`
+}
+
+type LearningPhaseFeedback struct {
+	Source                        string           `json:"source"`
+	Model                         string           `json:"model,omitempty"`
+	GeneratedAt                   *time.Time       `json:"generatedAt,omitempty"`
+	Summary                       string           `json:"summary"`
+	Observations                  []string         `json:"observations,omitempty"`
+	Recommendations               []string         `json:"recommendations,omitempty"`
+	SuggestedThresholds           *ThresholdConfig `json:"suggestedThresholds,omitempty"`
+	SuggestedReportIntervalPerDay *int             `json:"suggestedReportIntervalPerDay,omitempty"`
+	ConfidenceScore               float64          `json:"confidenceScore"`
+}
+
+type LearningPhaseStatusResponse struct {
+	Phase             string                 `json:"phase"`
+	DayNumber         int                    `json:"dayNumber"`
+	RequiredDays      int                    `json:"requiredDays"`
+	StartedAt         *time.Time             `json:"startedAt,omitempty"`
+	CompletedAt       *time.Time             `json:"completedAt,omitempty"`
+	LastReadingAt     *time.Time             `json:"lastReadingAt,omitempty"`
+	ReadingsCollected int                    `json:"readingsCollected"`
+	AlertCount        int                    `json:"alertCount"`
+	FeedbackReady     bool                   `json:"feedbackReady"`
+	Message           string                 `json:"message,omitempty"`
+	Summary           *LearningPhaseSummary  `json:"summary,omitempty"`
+	Feedback          *LearningPhaseFeedback `json:"feedback,omitempty"`
 }

@@ -90,6 +90,53 @@ func TestValidateAndFinalizeConfigIncludesHardwareRangesAndDerivedMetrics(t *tes
 	}
 }
 
+func TestValidateAndFinalizeConfigSupportsVl53l0xFillLevelUseCase(t *testing.T) {
+	result := validateAndFinalizeConfig(
+		"vl53l0x",
+		"Track frying oil level in a vat",
+		&models.SensorContext{
+			Domain:          "food_service",
+			EnvironmentType: "kitchen",
+			IndoorOutdoor:   "indoor",
+			AssetType:       "frying oil vat",
+		},
+		models.SensorConfig{
+			FriendlyName:         "Frying Oil Monitor",
+			UseCase:              "fill_level_monitoring",
+			PresentationProfile:  "level_monitoring",
+			PrimaryMetric:        "fill_level",
+			ReportIntervalPerDay: 24,
+			HardwareConfig: map[string]any{
+				"fullScaleDistanceCm": 40,
+			},
+		},
+		defaultControllerCapability(),
+		"",
+	)
+
+	if result.FinalConfig.PrimaryMetric != "fill_level" {
+		t.Fatalf("expected fill_level primary metric, got %q", result.FinalConfig.PrimaryMetric)
+	}
+	if result.FinalConfig.UseCase != "fill_level_monitoring" {
+		t.Fatalf("expected fill_level_monitoring use case, got %q", result.FinalConfig.UseCase)
+	}
+	if result.FinalConfig.Presentation == nil || result.FinalConfig.Presentation.Profile != "level_monitoring" {
+		t.Fatalf("expected level_monitoring profile, got %+v", result.FinalConfig.Presentation)
+	}
+	if result.FinalConfig.Interpretation == nil {
+		t.Fatalf("expected interpretation layer to be populated")
+	}
+	if len(result.FinalConfig.Interpretation.DerivedMetrics) == 0 || result.FinalConfig.Interpretation.DerivedMetrics[0].Key != "fill_level_percent" {
+		t.Fatalf("expected fill-level derived metrics, got %+v", result.FinalConfig.Interpretation.DerivedMetrics)
+	}
+	if result.FinalConfig.Settings == nil || len(result.FinalConfig.Settings.Alerts) == 0 {
+		t.Fatalf("expected fill-level alerts to be generated")
+	}
+	if result.FinalConfig.Settings.Alerts[0].MetricKey != "fill_level" {
+		t.Fatalf("expected fill-level alert metric key, got %q", result.FinalConfig.Settings.Alerts[0].MetricKey)
+	}
+}
+
 func TestValidateAndFinalizeConfigKeepsOverloadRiskForLoadMonitoring(t *testing.T) {
 	result := validateAndFinalizeConfig(
 		"load",

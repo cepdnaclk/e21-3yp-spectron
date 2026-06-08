@@ -87,10 +87,21 @@ const AdminLayout: React.FC = () => {
   return (
     <Box
       sx={{
+        position: 'relative',
+        isolation: 'isolate',
         display: 'flex',
         minHeight: '100vh',
-        background:
-          'radial-gradient(circle at 5% 0%, rgba(235, 79, 18, 0.1), transparent 30rem), linear-gradient(135deg, #f7f2ea 0%, #fffdf8 52%, #eef4e5 100%)',
+        '&::before': {
+          content: '""',
+          position: 'fixed',
+          inset: 0,
+          zIndex: -1,
+          pointerEvents: 'none',
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+          background:
+            'radial-gradient(circle at 5% 0%, rgba(235, 79, 18, 0.1), transparent 30rem), linear-gradient(135deg, #f7f2ea 0%, #fffdf8 52%, #eef4e5 100%)',
+        },
       }}
     >
       {isDesktop && (

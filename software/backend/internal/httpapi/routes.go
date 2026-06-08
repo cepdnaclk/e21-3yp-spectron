@@ -95,6 +95,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Delete("/{controllerId}/claim", controllerHandler.ReleaseControllerAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Patch("/{controllerId}/sensors/{sensorId}", controllerHandler.UpdateHardwareSensorAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Put("/{controllerId}/sensors/{sensorId}", controllerHandler.UpdateHardwareSensorAPI)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{controllerId}/sensors/{sensorId}/ai-suggest-config", controllerHandler.AISuggestHardwareSensorConfigAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{controllerId}/sensors/{sensorId}/config", controllerHandler.SaveSensorConfigAPI)
 			r.Get("/{controllerId}/sensors/{sensorId}/config", controllerHandler.GetSensorConfigAPI)
 		})
@@ -122,8 +123,12 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		})
 		r.Route("/sensors", func(r chi.Router) {
 			r.Get("/{id}", sensorHandler.Get)
+			r.Get("/{id}/learning-phase", sensorHandler.GetLearningPhaseStatus)
+			r.Post("/{id}/learning-phase/suggestions", sensorHandler.GetLearningPhaseSuggestions)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/learning-phase/apply", sensorHandler.ApplyLearningPhaseSuggestions)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Patch("/{id}", sensorHandler.Update)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Put("/{id}", sensorHandler.Update)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/ai-suggest-config", sensorHandler.AISuggestConfig)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/config", sensorHandler.SaveConfig)
 		})
 
@@ -136,6 +141,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		r.Route("/alerts", func(r chi.Router) {
 			r.Get("/", alertHandler.List)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/ack", alertHandler.Acknowledge)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/apply-recommendation", alertHandler.ApplyRecommendation)
 		})
 	})
 }

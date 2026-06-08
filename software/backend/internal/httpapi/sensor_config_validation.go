@@ -293,7 +293,7 @@ func inferUseCaseAndProfile(
 			appliedRules = append(appliedRules, "presentation_profile_default_single_trend")
 		}
 		return suggestedUseCase, suggestedProfile, defaultPrimaryMetric, appliedRules
-	case "ultrasonic":
+	case "ultrasonic", "vl53l0x", "distance":
 		if suggestedUseCase == "" {
 			if containsAnyKeyword(text, "attendance", "class attendance", "classroom", "class", "student", "students", "lesson", "lecture") {
 				suggestedUseCase = useCaseAttendance
@@ -309,7 +309,7 @@ func inferUseCaseAndProfile(
 				appliedRules = append(appliedRules, "use_case_default_fill_level")
 			}
 		}
-	case "vl53l0x", "distance", "pressure":
+	case "pressure":
 		if suggestedUseCase == "" {
 			suggestedUseCase = useCaseGeneric
 			appliedRules = append(appliedRules, "use_case_default_generic")
@@ -360,15 +360,28 @@ func inferUseCaseAndProfile(
 			appliedRules = append(appliedRules, "presentation_profile_compatibility_adjustment")
 		}
 		return suggestedUseCase, suggestedProfile, "temperature", appliedRules
-	case "vl53l0x", "distance", "pressure":
-		if suggestedProfile == profileDualClimate || suggestedProfile == profileCounter {
-			suggestedProfile = profileSingleTrend
-			appliedRules = append(appliedRules, "presentation_profile_compatibility_adjustment")
+	case "ultrasonic", "vl53l0x", "distance":
+		switch suggestedUseCase {
+		case useCaseOccupancy, useCaseAttendance:
+			if suggestedProfile == profileLevel {
+				suggestedProfile = profileCounter
+				appliedRules = append(appliedRules, "presentation_profile_compatibility_adjustment")
+			}
+		case useCaseFillLevel:
+			if suggestedProfile == profileCounter {
+				suggestedProfile = profileLevel
+				appliedRules = append(appliedRules, "presentation_profile_compatibility_adjustment")
+			}
+		default:
+			if suggestedProfile == profileCounter || suggestedProfile == profileDualClimate {
+				suggestedProfile = profileSingleTrend
+				appliedRules = append(appliedRules, "presentation_profile_compatibility_adjustment")
+			}
 		}
 		return suggestedUseCase, suggestedProfile, defaultPrimaryMetric, appliedRules
-	case "ultrasonic":
-		if (suggestedUseCase == useCaseOccupancy || suggestedUseCase == useCaseAttendance) && suggestedProfile == profileLevel {
-			suggestedProfile = profileCounter
+	case "pressure":
+		if suggestedProfile == profileDualClimate || suggestedProfile == profileCounter || suggestedProfile == profileLevel {
+			suggestedProfile = profileSingleTrend
 			appliedRules = append(appliedRules, "presentation_profile_compatibility_adjustment")
 		}
 		return suggestedUseCase, suggestedProfile, defaultPrimaryMetric, appliedRules
@@ -636,7 +649,7 @@ func metricSpecsForSensor(sensorType string, ctx *models.SensorContext) (string,
 func metricSpecsForUseCase(sensorType string, useCase string, ctx *models.SensorContext) (string, map[string]metricSpec, []string) {
 	primaryMetric, specs, appliedRules := metricSpecsForSensor(sensorType, ctx)
 	switch normalizeSuggestionValue(sensorType) {
-	case "ultrasonic":
+	case "ultrasonic", "vl53l0x", "distance":
 		switch normalizeSuggestionValue(useCase) {
 		case useCaseGeneric:
 			return "distance", map[string]metricSpec{
@@ -651,6 +664,19 @@ func metricSpecsForUseCase(sensorType string, useCase string, ctx *models.Sensor
 					},
 				},
 			}, appliedRules
+		case useCaseFillLevel:
+			return "fill_level", map[string]metricSpec{
+				"fill_level": {
+					Key:        "fill_level",
+					Label:      "fill level",
+					MinAllowed: 0,
+					MaxAllowed: 100,
+					Default: models.ThresholdConfig{
+						Max:        floatPtr(80.0),
+						WarningMax: floatPtr(90.0),
+					},
+				},
+			}, append(appliedRules, "primary_metric_use_case_fill_level")
 		case useCaseOccupancy:
 			return "occupancy_count", map[string]metricSpec{
 				"occupancy_count": {
@@ -732,7 +758,7 @@ func derivedMetricsForUseCase(sensorType string, useCase string) []models.Sensor
 	normalizedType := normalizeSuggestionValue(sensorType)
 	normalizedUseCase := normalizeSuggestionValue(useCase)
 
-	if normalizedType == "ultrasonic" {
+	if normalizedType == "ultrasonic" || normalizedType == "vl53l0x" || normalizedType == "distance" {
 		switch normalizedUseCase {
 		case useCaseGeneric:
 			return []models.SensorDerivedMetric{
@@ -1542,6 +1568,7 @@ func validateAndFinalizeConfig(sensorType string, purpose string, ctx *models.Se
 		"use_case_default_load",
 		"use_case_default_safety",
 		"use_case_default_generic",
+		"primary_metric_use_case_fill_level",
 		"primary_metric_use_case_occupancy",
 		"primary_metric_use_case_attendance",
 		"primary_metric_compatibility_adjustment",
