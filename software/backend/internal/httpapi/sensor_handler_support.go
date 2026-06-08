@@ -184,13 +184,16 @@ func (h *SensorHandler) loadSensorHistorySummary(ctx context.Context, sensorID u
 		days = 90
 	}
 
+	queryCtx, cancel := context.WithTimeout(ctx, aiHistoryQueryTimeout())
+	defer cancel()
+
 	var count int
 	var minValue *float64
 	var maxValue *float64
 	var avgValue *float64
 	var lastValue *float64
 
-	err := h.db.QueryRow(ctx, `
+	err := h.db.QueryRow(queryCtx, `
 		SELECT
 			COUNT(*),
 			MIN(value),

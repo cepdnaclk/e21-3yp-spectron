@@ -81,10 +81,21 @@ const Layout: React.FC = () => {
   return (
     <Box
       sx={{
+        position: 'relative',
+        isolation: 'isolate',
         display: 'flex',
         minHeight: '100vh',
-        background:
-          'radial-gradient(circle at 5% 0%, rgba(235, 79, 18, 0.12), transparent 30rem), linear-gradient(135deg, #faf0ea 0%, #fff8ed 48%, #edf4df 100%)',
+        '&::before': {
+          content: '""',
+          position: 'fixed',
+          inset: 0,
+          zIndex: -1,
+          pointerEvents: 'none',
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+          background:
+            'radial-gradient(circle at 5% 0%, rgba(235, 79, 18, 0.12), transparent 30rem), linear-gradient(135deg, #faf0ea 0%, #fff8ed 48%, #edf4df 100%)',
+        },
       }}
     >
       {isDesktop && (

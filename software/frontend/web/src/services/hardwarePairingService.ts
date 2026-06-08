@@ -109,7 +109,8 @@ const isMockMode = () => {
 const readStore = (): StoredHardwareState => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    const parsed = raw ? JSON.parse(raw) : {};
+    return isMockMode() ? normalizeMockStoredState(parsed) : parsed;
   } catch {
     return {};
   }
@@ -515,87 +516,136 @@ const mockPairingResponse = (controllerId: string): HardwarePairingResponse => (
       },
     },
     {
-      id: `${controllerId.toLowerCase()}-sensor-load-01`,
-      sensorUid: `${controllerId.toLowerCase()}-sensor-load-01`,
-      name: 'Stock Bay Load Sensor',
-      type: 'load',
+      id: `${controllerId.toLowerCase()}-sensor-bme280-01`,
+      sensorUid: `${controllerId.toLowerCase()}-sensor-bme280-01`,
+      name: 'Weather & Pressure Sensor',
+      type: 'bme280',
       status: 'live',
       configured: true,
       config: {
-        weightMax: 250,
-        weightWarningMax: 300,
-        maximumWeight: 500,
-        minimumWeight: 0,
-        overloadAlert: 300,
-        unit: 'kg',
-        reportsPerDay: 12,
-        estimatedBatteryLifeDays: 145,
+        temperatureMin: 22,
+        temperatureMax: 34,
+        temperatureWarningMin: 20,
+        temperatureWarningMax: 36,
+        pressureMin: 98,
+        pressureMax: 104,
+        pressureWarningMin: 97,
+        pressureWarningMax: 105,
+        unit: 'kPa',
+        reportsPerDay: 24,
+        estimatedBatteryLifeDays: 96,
         readingFlowType: 'CONSTANT_PER_DAY',
         appConfig: buildMockAppConfig(
-          'load',
-          'Stock Bay Load Sensor',
+          'bme280',
+          'Weather & Pressure Sensor',
           {
-            weightMax: 250,
-            weightWarningMax: 300,
-            maximumWeight: 500,
-            minimumWeight: 0,
-            overloadAlert: 300,
-            unit: 'kg',
-            reportsPerDay: 12,
-            estimatedBatteryLifeDays: 145,
+            temperatureMin: 22,
+            temperatureMax: 34,
+            temperatureWarningMin: 20,
+            temperatureWarningMax: 36,
+            pressureMin: 98,
+            pressureMax: 104,
+            pressureWarningMin: 97,
+            pressureWarningMax: 105,
+            unit: 'kPa',
+            reportsPerDay: 24,
+            estimatedBatteryLifeDays: 96,
             readingFlowType: 'CONSTANT_PER_DAY',
           },
           {
-            use_case: 'load_monitoring',
-            presentation_profile: 'gauge_status',
-            primary_metric: 'weight',
-            thresholds: { max: 250, warning_max: 300 },
+            use_case: 'generic_monitoring',
+            presentation_profile: 'single_trend',
+            primary_metric: 'pressure',
+            thresholds: { min: 98, max: 104, warning_min: 97, warning_max: 105 },
             metric_thresholds: {
-              weight: { max: 250, warning_max: 300 },
+              pressure: { min: 98, max: 104, warning_min: 97, warning_max: 105 },
+              temperature: { min: 22, max: 34, warning_min: 20, warning_max: 36 },
             },
-            report_interval_per_day: 12,
+            report_interval_per_day: 24,
           }
         ),
       },
     },
     {
-      id: `${controllerId.toLowerCase()}-sensor-ultra-01`,
-      sensorUid: `${controllerId.toLowerCase()}-sensor-ultra-01`,
-      name: 'Hall Occupancy Sensor',
-      type: 'ultrasonic',
+      id: `${controllerId.toLowerCase()}-sensor-tof-01`,
+      sensorUid: `${controllerId.toLowerCase()}-sensor-tof-01`,
+      name: 'Tank Level ToF Sensor',
+      type: 'vl53l0x',
       status: 'live',
       configured: true,
       config: {
-        maxDistance: 400,
+        maxDistance: 200,
         unit: 'cm',
-        reportsPerDay: 8,
-        estimatedBatteryLifeDays: 210,
-        readingFlowType: 'TRIGGER',
+        reportsPerDay: 24,
+        estimatedBatteryLifeDays: 146,
+        readingFlowType: 'CONSTANT_PER_DAY',
         appConfig: buildMockAppConfig(
-          'ultrasonic',
-          'Hall Occupancy Sensor',
+          'vl53l0x',
+          'Tank Level ToF Sensor',
           {
-            maxDistance: 400,
+            maxDistance: 200,
             unit: 'cm',
-            reportsPerDay: 8,
-            estimatedBatteryLifeDays: 210,
-            readingFlowType: 'TRIGGER',
+            reportsPerDay: 24,
+            estimatedBatteryLifeDays: 146,
+            readingFlowType: 'CONSTANT_PER_DAY',
           },
           {
-            use_case: 'occupancy_monitoring',
-            presentation_profile: 'counter_status',
-            primary_metric: 'occupancy_count',
-            thresholds: { max: 25, warning_max: 35 },
+            use_case: 'fill_level_monitoring',
+            presentation_profile: 'level_monitoring',
+            primary_metric: 'fill_level',
+            thresholds: { max: 90, warning_max: 80 },
             metric_thresholds: {
-              occupancy_count: { max: 25, warning_max: 35 },
+              fill_level: { max: 90, warning_max: 80 },
             },
-            report_interval_per_day: 8,
+            report_interval_per_day: 24,
           }
         ),
       },
     },
   ],
 });
+
+function normalizeMockStoredController(controller: StoredHardwareController): StoredHardwareController {
+  if (controller.systemId !== 'mock-yard-system') {
+    return controller;
+  }
+
+  const sensors = Array.isArray(controller.sensors) ? controller.sensors : [];
+  const usesLegacyMockSensors = sensors.some(
+    (sensor) =>
+      sensor.type === 'load' ||
+      sensor.type === 'ultrasonic' ||
+      sensor.id.endsWith('sensor-load-01') ||
+      sensor.id.endsWith('sensor-ultra-01')
+  );
+
+  if (!usesLegacyMockSensors) {
+    return controller;
+  }
+
+  const refreshed = mockPairingResponse(controller.controllerId);
+  return {
+    ...controller,
+    routeId: controller.routeId || refreshed.routeId,
+    status: controller.status || refreshed.status,
+    systemId: controller.systemId || refreshed.systemId,
+    systemName: controller.systemName || refreshed.systemName,
+    sensors: refreshed.sensors,
+  };
+}
+
+function normalizeMockStoredState(state: StoredHardwareState): StoredHardwareState {
+  let changed = false;
+  const normalizedEntries = Object.entries(state).map(([controllerId, controller]) => {
+    const normalized = normalizeMockStoredController(controller);
+    if (normalized !== controller) {
+      changed = true;
+    }
+    return [controllerId, normalized] as const;
+  });
+
+  return changed ? Object.fromEntries(normalizedEntries) : state;
+}
 
 export const extractControllerId = (value: string): string => {
   const raw = (value || '').trim();

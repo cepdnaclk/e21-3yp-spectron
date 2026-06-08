@@ -10,13 +10,22 @@ import {
   Stack,
 } from '@mui/material';
 import { NotificationsActive, DoneAll } from '@mui/icons-material';
-import { getAlerts, acknowledgeAlert, Alert as AlertItem } from '../../services/alertService';
+import {
+  getAlerts,
+  acknowledgeAlert,
+  applyAlertRecommendation,
+  Alert as AlertItem,
+} from '../../services/alertService';
 import { format } from 'date-fns';
 import { AlertsSkeleton } from '../../components/LoadingSkeletons';
+import AutoDismissAlert from '../../components/AutoDismissAlert';
 
 const Alerts: React.FC = () => {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+  const [busyAlertId, setBusyAlertId] = useState<string | null>(null);
 
   useEffect(() => {
     loadAlerts();
@@ -40,6 +49,21 @@ const Alerts: React.FC = () => {
       loadAlerts();
     } catch (error) {
       console.error('Error acknowledging alert:', error);
+      setError('Failed to acknowledge alert.');
+    }
+  };
+
+  const handleApplyRecommendation = async (alertId: string) => {
+    try {
+      setBusyAlertId(alertId);
+      await applyAlertRecommendation(alertId);
+      setNotice('AI recommendation applied successfully.');
+      loadAlerts();
+    } catch (error) {
+      console.error('Error applying recommendation:', error);
+      setError('Failed to apply AI recommendation.');
+    } finally {
+      setBusyAlertId((current) => (current === alertId ? null : current));
     }
   };
 
@@ -60,8 +84,22 @@ const Alerts: React.FC = () => {
     return <AlertsSkeleton />;
   }
 
+  const formatAlertType = (type: AlertItem['type']) => {
+    if (type === 'LEARNING_PHASE_RECOMMENDATION') {
+      return 'AI RECOMMENDATION';
+    }
+    return type.replace(/_/g, ' ');
+  };
+
   return (
     <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 } }}>
+      <AutoDismissAlert open={Boolean(notice)} severity="success" sx={{ mb: 2 }} onCloseAlert={() => setNotice('')}>
+        {notice}
+      </AutoDismissAlert>
+      <AutoDismissAlert open={Boolean(error)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setError('')}>
+        {error}
+      </AutoDismissAlert>
+
       <Box sx={{ mb: 3 }}>
         <Typography variant="overline" color="secondary" fontWeight={800}>
           Attention center
@@ -100,7 +138,7 @@ const Alerts: React.FC = () => {
                   </Box>
                   <Box>
                     <Typography variant="h6">
-                      {alert.type.replace(/_/g, ' ')}
+                      {formatAlertType(alert.type)}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                       {format(new Date(alert.created_at), 'MMM dd, yyyy HH:mm')}
@@ -116,16 +154,29 @@ const Alerts: React.FC = () => {
               <Typography variant="body1" sx={{ mt: 1, pt: 2, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
                 {alert.message}
               </Typography>
-              {!alert.acknowledged_at && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => handleAcknowledge(alert.id)}
-                  sx={{ mt: 2 }}
-                >
-                  Acknowledge
-                </Button>
-              )}
+              <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap">
+                {!alert.acknowledged_at && alert.type === 'LEARNING_PHASE_RECOMMENDATION' && (
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="secondary"
+                    onClick={() => handleApplyRecommendation(alert.id)}
+                    disabled={busyAlertId === alert.id}
+                  >
+                    {busyAlertId === alert.id ? 'Applying...' : 'Apply recommendation'}
+                  </Button>
+                )}
+                {!alert.acknowledged_at && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => handleAcknowledge(alert.id)}
+                    disabled={busyAlertId === alert.id}
+                  >
+                    Acknowledge
+                  </Button>
+                )}
+              </Stack>
               {alert.acknowledged_at && (
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                   Acknowledged at {format(new Date(alert.acknowledged_at), 'MMM dd, yyyy HH:mm')}
