@@ -621,16 +621,21 @@ func (h *AuthHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		Role      string    `json:"role"`
 	}
 
-	var users []UserResponse
+	users := make([]UserResponse, 0)
 	for rows.Next() {
 		var u UserResponse
-		var createdAt string
+		var createdAt time.Time
 		err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Phone, &u.Status, &createdAt, &u.Role)
 		if err != nil {
-			continue
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
 		}
-		u.CreatedAt = createdAt
+		u.CreatedAt = createdAt.UTC().Format(time.RFC3339)
 		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{

@@ -1,0 +1,56 @@
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import Team from '../main/Team';
+import { createViewer, getAccountUsers } from '../../services/authService';
+
+vi.mock('../../services/authService', () => ({
+  createViewer: vi.fn(),
+  getAccountUsers: vi.fn(),
+}));
+
+describe('Viewer accounts', () => {
+  it('reloads the table after a viewer is created', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getAccountUsers)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'viewer-1',
+          email: 'test@spectron.com',
+          name: 'Test Viewer',
+          phone: '+94770000000',
+          role: 'VIEWER',
+          status: 'ACTIVE',
+          created_at: '2026-06-11T12:00:00Z',
+        },
+      ]);
+    vi.mocked(createViewer).mockResolvedValue({
+      id: 'viewer-1',
+      email: 'test@spectron.com',
+      name: 'Test Viewer',
+      phone: '+94770000000',
+      status: 'ACTIVE',
+      accounts: [],
+    });
+
+    render(<Team />);
+
+    await user.type(screen.getByRole('textbox', { name: /viewer email/i }), 'test@spectron.com');
+    await user.type(screen.getByLabelText(/temporary password/i), 'password');
+    await user.type(screen.getByRole('textbox', { name: /viewer name/i }), 'Test Viewer');
+    await user.click(screen.getByRole('button', { name: /create viewer/i }));
+
+    expect(createViewer).toHaveBeenCalledWith({
+      email: 'test@spectron.com',
+      password: 'password',
+      name: 'Test Viewer',
+      phone: undefined,
+    });
+    expect(await screen.findByText('Test Viewer')).toBeInTheDocument();
+    expect(screen.getByText('test@spectron.com')).toBeInTheDocument();
+    expect(screen.getByText(/^viewer$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^active$/i)).toBeInTheDocument();
+    expect(screen.getByText(/viewer account created/i)).toBeInTheDocument();
+    expect(getAccountUsers).toHaveBeenCalledTimes(2);
+  });
+});
