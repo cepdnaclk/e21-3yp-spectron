@@ -5,6 +5,7 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -43,27 +44,47 @@ func TestControllerPairAPIIntegration(t *testing.T) {
 		if response.ControllerID != controller.uid {
 			t.Fatalf("expected controller %s, got %s", controller.uid, response.ControllerID)
 		}
-		if response.Status != "paired" {
-			t.Fatalf("expected paired status, got %s", response.Status)
+		if response.ClaimStatus != "CLAIMED" {
+			t.Fatalf("expected CLAIMED status, got %s", response.ClaimStatus)
+		}
+		if response.OperationalStatus != "OFFLINE" {
+			t.Fatalf("expected OFFLINE operational status, got %s", response.OperationalStatus)
 		}
 		if len(response.Sensors) == 0 {
 			t.Fatal("expected paired system sensors in response")
 		}
 
 		var ownerUserID uuid.UUID
-		var status string
+		var ownerAccountID uuid.UUID
+		var accountID uuid.UUID
+		var claimStatus string
+		var operationalStatus string
 		if err := app.pool.QueryRow(t.Context(), `
-			SELECT owner_user_id, status
+			SELECT owner_user_id, owner_account_id, account_id, claim_status, operational_status
 			FROM controllers
 			WHERE id = $1
-		`, controller.id).Scan(&ownerUserID, &status); err != nil {
+		`, controller.id).Scan(&ownerUserID, &ownerAccountID, &accountID, &claimStatus, &operationalStatus); err != nil {
 			t.Fatalf("read paired controller: %v", err)
 		}
 		if ownerUserID != owner.id {
 			t.Fatalf("expected owner %s, got %s", owner.id, ownerUserID)
 		}
-		if status != "paired" {
-			t.Fatalf("expected db status paired, got %s", status)
+		if ownerAccountID != owner.accountID || accountID != owner.accountID {
+			t.Fatalf("expected owner account %s, got owner=%s legacy=%s", owner.accountID, ownerAccountID, accountID)
+		}
+		if claimStatus != "CLAIMED" || operationalStatus != "OFFLINE" {
+			t.Fatalf("unexpected statuses claim=%s operational=%s", claimStatus, operationalStatus)
+		}
+	})
+
+	t.Run("QR payload claims unclaimed controller", func(t *testing.T) {
+		controller := app.createController(t, owner.accountID, nil, "CTRL-QR-OK", "unclaimed")
+
+		rec := executeRequest(app.rr, jsonRequest(t, http.MethodPost, "/api/controllers/pair", owner.token, map[string]string{
+			"qr_token": controller.uid,
+		}))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 		}
 	})
 
@@ -88,6 +109,217 @@ func TestControllerPairAPIIntegration(t *testing.T) {
 			t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
 		}
 	})
+
+	t.Run("unknown controller cannot be claimed", func(t *testing.T) {
+		rec := executeRequest(app.rr, jsonRequest(t, http.MethodPost, "/api/controllers/pair", owner.token, map[string]string{
+			"controllerId": "CTRL-DOES-NOT-EXIST",
+		}))
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("viewer cannot claim", func(t *testing.T) {
+		viewer := app.createTestUser(t, "VIEWER")
+		controller := app.createController(t, owner.accountID, nil, "CTRL-VIEWER-DENIED", "unclaimed")
+
+		rec := executeRequest(app.rr, jsonRequest(t, http.MethodPost, "/api/controllers/pair", viewer.token, map[string]string{
+			"controllerId": controller.uid,
+		}))
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("legacy pairing endpoint cannot bypass ownership", func(t *testing.T) {
+		rec := executeRequest(app.rr, jsonRequest(t, http.MethodPost, "/controllers/pair", owner.token, map[string]string{
+			"qr_token": "CTRL-LEGACY-BYPASS",
+		}))
+		if rec.Code != http.StatusMethodNotAllowed && rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404 or 405, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+func TestControllerConcurrentClaimIntegration(t *testing.T) {
+	app := newIntegrationApp(t)
+	firstOwner := app.createTestUser(t, "OWNER")
+	secondOwner := app.createTestUser(t, "OWNER")
+	controller := app.createController(t, firstOwner.accountID, nil, "CTRL-RACE", "unclaimed")
+
+	requests := []*http.Request{
+		jsonRequest(t, http.MethodPost, "/api/controllers/pair", firstOwner.token, map[string]string{"controllerId": controller.uid}),
+		jsonRequest(t, http.MethodPost, "/api/controllers/pair", secondOwner.token, map[string]string{"controllerId": controller.uid}),
+	}
+
+	codes := make(chan int, len(requests))
+	var wg sync.WaitGroup
+	for _, request := range requests {
+		wg.Add(1)
+		go func(req *http.Request) {
+			defer wg.Done()
+			codes <- executeRequest(app.rr, req).Code
+		}(request)
+	}
+	wg.Wait()
+	close(codes)
+
+	successes := 0
+	conflicts := 0
+	for code := range codes {
+		switch code {
+		case http.StatusOK:
+			successes++
+		case http.StatusConflict:
+			conflicts++
+		default:
+			t.Fatalf("unexpected concurrent claim status %d", code)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("expected one success and one conflict, got success=%d conflict=%d", successes, conflicts)
+	}
+
+	var claimStatus string
+	var ownerAccountID uuid.UUID
+	if err := app.pool.QueryRow(t.Context(), `
+		SELECT claim_status, owner_account_id
+		FROM controllers
+		WHERE id = $1
+	`, controller.id).Scan(&claimStatus, &ownerAccountID); err != nil {
+		t.Fatalf("read claimed controller: %v", err)
+	}
+	if claimStatus != "CLAIMED" {
+		t.Fatalf("expected CLAIMED, got %s", claimStatus)
+	}
+	if ownerAccountID != firstOwner.accountID && ownerAccountID != secondOwner.accountID {
+		t.Fatalf("unexpected winning owner account %s", ownerAccountID)
+	}
+}
+
+func TestControllerAdminRegistrationIntegration(t *testing.T) {
+	app := newIntegrationApp(t)
+	admin := app.createTestUser(t, "OWNER")
+	if _, err := app.pool.Exec(t.Context(), `
+		UPDATE users SET account_type = 'ADMIN', status = 'ACTIVE' WHERE id = $1
+	`, admin.id); err != nil {
+		t.Fatalf("promote system admin: %v", err)
+	}
+
+	rec := executeRequest(app.rr, jsonRequest(t, http.MethodPost, "/api/admin/devices", admin.token, map[string]interface{}{
+		"controllerId":         "CTRL-ADMIN-REGISTERED",
+		"name":                 "Registered Controller",
+		"createDefaultSensors": false,
+	}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var response models.AdminCreateDeviceResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Device.ClaimStatus != "UNCLAIMED" || response.Device.OperationalStatus != "OFFLINE" {
+		t.Fatalf("unexpected admin device statuses claim=%s operational=%s", response.Device.ClaimStatus, response.Device.OperationalStatus)
+	}
+
+	var accountID *uuid.UUID
+	var ownerAccountID *uuid.UUID
+	var ownerUserID *uuid.UUID
+	var registeredBy uuid.UUID
+	var claimStatus string
+	if err := app.pool.QueryRow(t.Context(), `
+		SELECT account_id, owner_account_id, owner_user_id, registered_by_account_id, claim_status
+		FROM controllers
+		WHERE controller_uid = 'CTRL-ADMIN-REGISTERED'
+	`).Scan(&accountID, &ownerAccountID, &ownerUserID, &registeredBy, &claimStatus); err != nil {
+		t.Fatalf("read registered controller: %v", err)
+	}
+	if accountID != nil || ownerAccountID != nil || ownerUserID != nil {
+		t.Fatalf("expected no owner relationships, got account=%v ownerAccount=%v ownerUser=%v", accountID, ownerAccountID, ownerUserID)
+	}
+	if registeredBy != admin.accountID || claimStatus != "UNCLAIMED" {
+		t.Fatalf("unexpected registration state registeredBy=%s claim=%s", registeredBy, claimStatus)
+	}
+}
+
+func TestControllerReleaseAndUnclaimedIoTIntegration(t *testing.T) {
+	app := newIntegrationApp(t)
+	owner := app.createTestUser(t, "OWNER")
+	controller := app.createController(t, owner.accountID, &owner.id, "CTRL-RELEASE", "paired")
+	app.createSystemWithSensors(t, owner.accountID, &controller.id)
+
+	rec := executeRequest(app.rr, jsonRequest(t, http.MethodDelete, "/api/controllers/"+controller.uid+"/claim", owner.token, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var accountID *uuid.UUID
+	var ownerAccountID *uuid.UUID
+	var ownerUserID *uuid.UUID
+	var claimStatus string
+	var operationalStatus string
+	if err := app.pool.QueryRow(t.Context(), `
+		SELECT account_id, owner_account_id, owner_user_id, claim_status, operational_status
+		FROM controllers
+		WHERE id = $1
+	`, controller.id).Scan(&accountID, &ownerAccountID, &ownerUserID, &claimStatus, &operationalStatus); err != nil {
+		t.Fatalf("read released controller: %v", err)
+	}
+	if accountID != nil || ownerAccountID != nil || ownerUserID != nil {
+		t.Fatalf("release retained ownership account=%v ownerAccount=%v ownerUser=%v", accountID, ownerAccountID, ownerUserID)
+	}
+	if claimStatus != "UNCLAIMED" {
+		t.Fatalf("expected UNCLAIMED, got %s", claimStatus)
+	}
+
+	discover := executeRequest(app.rr, jsonRequest(t, http.MethodPost, "/api/iot/discover", "", map[string]interface{}{
+		"deviceId": controller.uid,
+		"sensors": []map[string]string{
+			{"id": "SEN-RELEASED-1", "type": "temperature"},
+		},
+	}))
+	if discover.Code != http.StatusOK {
+		t.Fatalf("expected discovery 200, got %d: %s", discover.Code, discover.Body.String())
+	}
+
+	upload := executeRequest(app.rr, jsonRequest(t, http.MethodPost, "/api/iot/upload", "", map[string]interface{}{
+		"deviceId": controller.uid,
+		"ts":       0,
+		"sensors": []map[string]interface{}{
+			{"id": "SEN-RELEASED-1", "type": "temperature", "v": 22.5},
+		},
+	}))
+	if upload.Code != http.StatusOK {
+		t.Fatalf("expected upload 200, got %d: %s", upload.Code, upload.Body.String())
+	}
+
+	var readingCount int
+	if err := app.pool.QueryRow(t.Context(), `
+		SELECT COUNT(*)
+		FROM sensor_readings sr
+		JOIN sensors s ON s.id = sr.sensor_id
+		WHERE s.controller_id = $1
+	`, controller.id).Scan(&readingCount); err != nil {
+		t.Fatalf("count released readings: %v", err)
+	}
+	if readingCount != 0 {
+		t.Fatalf("expected no account-bound readings after release, got %d", readingCount)
+	}
+
+	if err := app.pool.QueryRow(t.Context(), `
+		SELECT account_id, owner_account_id, owner_user_id, claim_status, operational_status
+		FROM controllers
+		WHERE id = $1
+	`, controller.id).Scan(&accountID, &ownerAccountID, &ownerUserID, &claimStatus, &operationalStatus); err != nil {
+		t.Fatalf("read controller after IoT traffic: %v", err)
+	}
+	if accountID != nil || ownerAccountID != nil || ownerUserID != nil || claimStatus != "UNCLAIMED" {
+		t.Fatalf("IoT traffic changed ownership account=%v ownerAccount=%v ownerUser=%v claim=%s", accountID, ownerAccountID, ownerUserID, claimStatus)
+	}
+	if operationalStatus != "ONLINE" {
+		t.Fatalf("expected ONLINE operational state, got %s", operationalStatus)
+	}
 }
 
 func TestControllerOwnershipAndSensorConfigAPIIntegration(t *testing.T) {

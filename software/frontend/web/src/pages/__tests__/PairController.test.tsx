@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import PairController from '../main/PairController';
 import {
   pairHardwareController,
@@ -44,6 +44,12 @@ const enableCameraSupport = () => {
   });
 };
 
+const PairingDestination = () => {
+  const location = useLocation();
+  const state = location.state as { observationMessage?: string } | null;
+  return <div>{state?.observationMessage}</div>;
+};
+
 describe('PairController', () => {
   beforeEach(() => {
     enableCameraSupport();
@@ -54,6 +60,8 @@ describe('PairController', () => {
     vi.mocked(pairHardwareController).mockResolvedValue({
       controllerId: 'CTRL-TEST123',
       status: 'paired',
+      claimStatus: 'CLAIMED',
+      operationalStatus: 'OFFLINE',
       sensors: [],
     });
   });
@@ -62,8 +70,11 @@ describe('PairController', () => {
     const user = userEvent.setup();
 
     render(
-      <MemoryRouter>
-        <PairController />
+      <MemoryRouter initialEntries={['/controllers/pair']}>
+        <Routes>
+          <Route path="/controllers/pair" element={<PairController />} />
+          <Route path="/hardware/:controllerId/sensors" element={<PairingDestination />} />
+        </Routes>
       </MemoryRouter>
     );
 
@@ -81,8 +92,11 @@ describe('PairController', () => {
     const user = userEvent.setup();
 
     render(
-      <MemoryRouter>
-        <PairController />
+      <MemoryRouter initialEntries={['/controllers/pair']}>
+        <Routes>
+          <Route path="/controllers/pair" element={<PairController />} />
+          <Route path="/hardware/:controllerId/sensors" element={<PairingDestination />} />
+        </Routes>
       </MemoryRouter>
     );
 
@@ -97,8 +111,11 @@ describe('PairController', () => {
     const user = userEvent.setup();
 
     render(
-      <MemoryRouter>
-        <PairController />
+      <MemoryRouter initialEntries={['/controllers/pair']}>
+        <Routes>
+          <Route path="/controllers/pair" element={<PairController />} />
+          <Route path="/hardware/:controllerId/sensors" element={<PairingDestination />} />
+        </Routes>
       </MemoryRouter>
     );
 
@@ -108,6 +125,28 @@ describe('PairController', () => {
     await waitFor(() => {
       expect(pairHardwareController).toHaveBeenCalledWith('CTRL-TEST123');
     });
+    expect(await screen.findByText(/controller ctrl-test123 claimed successfully/i)).toBeInTheDocument();
+  });
+
+  it('shows a clear error when the controller is already claimed', async () => {
+    const user = userEvent.setup();
+    vi.mocked(pairHardwareController).mockRejectedValue({
+      response: {
+        status: 409,
+        data: 'This controller is already claimed by another account.',
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <PairController />
+      </MemoryRouter>
+    );
+
+    await user.type(await screen.findByRole('textbox', { name: /controller id/i }), 'CTRL-TEST123');
+    await user.click(screen.getByRole('button', { name: /add controller/i }));
+
+    expect(await screen.findByText(/already claimed by another account/i)).toBeInTheDocument();
   });
 
   it('fills the controller ID after a valid QR scan result', async () => {

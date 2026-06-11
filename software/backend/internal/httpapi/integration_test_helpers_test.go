@@ -180,22 +180,36 @@ func (app *integrationApp) createController(t *testing.T, accountID uuid.UUID, o
 	if status == "" {
 		status = "unclaimed"
 	}
+	claimStatus := "UNCLAIMED"
+	operationalStatus := "OFFLINE"
+	var ownerAccountID *uuid.UUID
+	var legacyAccountID *uuid.UUID
+	if ownerUserID != nil {
+		claimStatus = "CLAIMED"
+		operationalStatus = "PENDING_CONFIG"
+		ownerAccountID = &accountID
+		legacyAccountID = &accountID
+	}
 
 	if _, err := app.pool.Exec(context.Background(), `
 		INSERT INTO controllers (
 			id,
 			account_id,
+			owner_account_id,
+			registered_by_account_id,
 			hw_id,
 			controller_uid,
 			name,
 			status,
+			claim_status,
+			operational_status,
 			owner_user_id,
 			created_at,
 			updated_at,
 			min_reporting_interval_sec
 		)
-		VALUES ($1, $2, $3, $3, 'Main Controller', $4, $5, NOW(), NOW(), 300)
-	`, controllerID, accountID, uid, status, ownerUserID); err != nil {
+		VALUES ($1, $2, $3, $4, $5, $5, 'Main Controller', $6, $7, $8, $9, NOW(), NOW(), 300)
+	`, controllerID, legacyAccountID, ownerAccountID, accountID, uid, operationalStatus, claimStatus, operationalStatus, ownerUserID); err != nil {
 		t.Fatalf("insert controller: %v", err)
 	}
 

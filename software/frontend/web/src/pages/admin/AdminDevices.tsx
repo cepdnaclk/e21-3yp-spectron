@@ -5,6 +5,8 @@ import {
   Card,
   CardContent,
   Chip,
+  GlobalStyles,
+  IconButton,
   Stack,
   Table,
   TableBody,
@@ -12,10 +14,12 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Tooltip,
   Typography,
 } from '@mui/material';
-import { Add, Refresh } from '@mui/icons-material';
+import { Add, ContentCopy, Print, Refresh } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { QRCodeSVG } from 'qrcode.react';
 import { AdminDevice, getAdminDevices } from '../../services/adminService';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 
@@ -39,6 +43,8 @@ const AdminDevices: React.FC = () => {
   const navigate = useNavigate();
   const [devices, setDevices] = useState<AdminDevice[]>([]);
   const [error, setError] = useState('');
+  const [helperMessage, setHelperMessage] = useState('');
+  const [printDevice, setPrintDevice] = useState<AdminDevice | null>(null);
 
   const loadDevices = () => {
     setError('');
@@ -49,8 +55,67 @@ const AdminDevices: React.FC = () => {
     loadDevices();
   }, []);
 
+  const handleCopy = async (controllerId: string) => {
+    try {
+      await navigator.clipboard.writeText(controllerId);
+      setHelperMessage('QR payload copied.');
+    } catch {
+      setError('Failed to copy QR payload.');
+    }
+  };
+
+  const handlePrint = (device: AdminDevice) => {
+    setPrintDevice(device);
+    window.setTimeout(() => window.print(), 0);
+  };
+
   return (
     <Box>
+      <GlobalStyles
+        styles={{
+          '@media print': {
+            'body *': {
+              visibility: 'hidden !important',
+            },
+            '.spectron-existing-device-print, .spectron-existing-device-print *': {
+              visibility: 'visible !important',
+            },
+            '.spectron-existing-device-print': {
+              display: 'flex !important',
+              position: 'fixed',
+              left: 0,
+              top: 0,
+            },
+          },
+        }}
+      />
+      {printDevice && (
+        <Box
+          className="spectron-existing-device-print"
+          sx={{
+            display: 'none',
+            width: '86mm',
+            minHeight: '54mm',
+            p: '6mm',
+            boxSizing: 'border-box',
+            bgcolor: '#ffffff',
+            color: '#262411',
+            border: '1px solid #262411',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '3mm',
+            textAlign: 'center',
+          }}
+        >
+          <Typography sx={{ fontSize: '18pt', fontWeight: 900, lineHeight: 1 }}>Spectron</Typography>
+          <QRCodeSVG value={printDevice.controllerId} size={132} bgColor="#ffffff" fgColor="#262411" includeMargin />
+          <Typography sx={{ fontSize: '13pt', fontWeight: 900, letterSpacing: 0.5 }}>
+            {printDevice.controllerId}
+          </Typography>
+          <Typography sx={{ fontSize: '8pt', color: '#4f4a39' }}>{printDevice.name}</Typography>
+        </Box>
+      )}
       <Stack
         direction={{ xs: 'column', md: 'row' }}
         justifyContent="space-between"
@@ -80,6 +145,14 @@ const AdminDevices: React.FC = () => {
       <AutoDismissAlert open={Boolean(error)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setError('')}>
         {error}
       </AutoDismissAlert>
+      <AutoDismissAlert
+        open={Boolean(helperMessage)}
+        severity="success"
+        sx={{ mb: 2 }}
+        onCloseAlert={() => setHelperMessage('')}
+      >
+        {helperMessage}
+      </AutoDismissAlert>
 
       <Card>
         <CardContent>
@@ -89,10 +162,12 @@ const AdminDevices: React.FC = () => {
                 <TableRow>
                   <TableCell>Controller ID</TableCell>
                   <TableCell>Name</TableCell>
-                  <TableCell>Status</TableCell>
+                  <TableCell>Claim Status</TableCell>
+                  <TableCell>Operational</TableCell>
                   <TableCell>Owner</TableCell>
                   <TableCell>Sensors</TableCell>
                   <TableCell>Updated</TableCell>
+                  <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -103,15 +178,42 @@ const AdminDevices: React.FC = () => {
                       <Typography variant="caption" color="text.secondary">{device.location || 'No location'}</Typography>
                     </TableCell>
                     <TableCell>{device.name}</TableCell>
-                    <TableCell><Chip size="small" label={device.status} /></TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        label={device.claimStatus}
+                        color={device.claimStatus === 'CLAIMED' ? 'primary' : 'default'}
+                      />
+                    </TableCell>
+                    <TableCell><Chip size="small" label={device.operationalStatus || device.status} /></TableCell>
                     <TableCell>{device.ownerEmail || 'Unclaimed'}</TableCell>
                     <TableCell>{device.configuredSensors}/{device.sensorCount} configured</TableCell>
                     <TableCell>{formatDate(device.updatedAt)}</TableCell>
+                    <TableCell align="right">
+                      <Tooltip title="Copy QR payload">
+                        <IconButton
+                          size="small"
+                          aria-label={`Copy QR for ${device.controllerId}`}
+                          onClick={() => handleCopy(device.controllerId)}
+                        >
+                          <ContentCopy fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Print QR">
+                        <IconButton
+                          size="small"
+                          aria-label={`Print QR for ${device.controllerId}`}
+                          onClick={() => handlePrint(device)}
+                        >
+                          <Print fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
                   </TableRow>
                 ))}
                 {devices.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6}>
+                    <TableCell colSpan={8}>
                       <Typography align="center" color="text.secondary" sx={{ py: 3 }}>
                         No devices registered yet.
                       </Typography>

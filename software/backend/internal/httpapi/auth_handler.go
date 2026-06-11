@@ -528,27 +528,27 @@ func (h *AuthHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		     SELECT sg.id
 		     FROM sensor_groups sg
 		     JOIN controllers c ON sg.controller_id = c.id
-		     WHERE c.account_id = $1
+		     WHERE c.owner_account_id = $1
 		 )
 		    OR sensor_id IN (
 		     SELECT s.id
 		     FROM sensors s
 		     JOIN controllers c ON s.controller_id = c.id
-		     WHERE c.account_id = $1
+		     WHERE c.owner_account_id = $1
 		 )`,
 		`DELETE FROM sensor_readings
 		 WHERE sensor_id IN (
 		     SELECT s.id
 		     FROM sensors s
 		     JOIN controllers c ON s.controller_id = c.id
-		     WHERE c.account_id = $1
+		     WHERE c.owner_account_id = $1
 		 )`,
 		`DELETE FROM sensor_configs
 		 WHERE sensor_id IN (
 		     SELECT s.id
 		     FROM sensors s
 		     JOIN controllers c ON s.controller_id = c.id
-		     WHERE c.account_id = $1
+		     WHERE c.owner_account_id = $1
 		 )`,
 		`DELETE FROM alerts WHERE account_id = $1`,
 		`DELETE FROM sensor_groups
@@ -721,7 +721,7 @@ func (h *AuthHandler) AdminListOwners(w http.ResponseWriter, r *http.Request) {
 		FROM account_memberships owner_membership
 		JOIN users u ON u.id = owner_membership.user_id
 		JOIN accounts a ON a.id = owner_membership.account_id
-		LEFT JOIN controllers c ON c.account_id = a.id AND c.owner_user_id IS NOT NULL
+		LEFT JOIN controllers c ON c.owner_account_id = a.id AND c.claim_status = 'CLAIMED'
 		LEFT JOIN account_memberships viewer ON viewer.account_id = a.id AND viewer.role = 'VIEWER'
 		WHERE u.account_type = 'USER' AND owner_membership.role = 'OWNER'
 		GROUP BY u.id, u.email, u.name, u.phone, u.status, a.id, a.name, u.created_at

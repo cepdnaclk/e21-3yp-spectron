@@ -16,6 +16,8 @@ export interface AdminDevice {
   name: string;
   location?: string;
   status: string;
+  claimStatus: 'CLAIMED' | 'UNCLAIMED';
+  operationalStatus: 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' | 'ERROR';
   ownerEmail?: string;
   sensorCount: number;
   configuredSensors: number;

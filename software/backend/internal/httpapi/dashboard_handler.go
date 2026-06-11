@@ -30,8 +30,8 @@ func (h *DashboardHandler) Overview(w http.ResponseWriter, r *http.Request) {
 	_ = h.db.QueryRow(r.Context(), `
 		SELECT COUNT(*)
 		FROM controllers
-		WHERE account_id = $1
-		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
+		WHERE owner_account_id = $1
+		  AND claim_status = 'CLAIMED'
 	`, accountID).Scan(&controllerCount)
 
 	// Get sensor count
@@ -39,8 +39,8 @@ func (h *DashboardHandler) Overview(w http.ResponseWriter, r *http.Request) {
 	_ = h.db.QueryRow(r.Context(), `
 		SELECT COUNT(*) FROM sensors s
 		JOIN controllers c ON s.controller_id = c.id
-		WHERE c.account_id = $1
-		  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
+		WHERE c.owner_account_id = $1
+		  AND c.claim_status = 'CLAIMED'
 	`, accountID).Scan(&sensorCount)
 
 	// Get active alerts count
@@ -71,10 +71,10 @@ func (h *DashboardHandler) ControllerDashboard(w http.ResponseWriter, r *http.Re
 	// Verify controller belongs to account
 	var controllerAccountID uuid.UUID
 	err = h.db.QueryRow(r.Context(), `
-		SELECT account_id
+		SELECT owner_account_id
 		FROM controllers
 		WHERE id = $1
-		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
+		  AND claim_status = 'CLAIMED'
 	`, controllerID).Scan(&controllerAccountID)
 	if err != nil {
 		http.Error(w, "controller not found", http.StatusNotFound)
@@ -129,11 +129,11 @@ func (h *DashboardHandler) GetReadings(w http.ResponseWriter, r *http.Request) {
 		useSystemSensorID = true
 	} else {
 		err = h.db.QueryRow(r.Context(), `
-			SELECT c.account_id
+			SELECT c.owner_account_id
 			FROM sensors s
 			JOIN controllers c ON s.controller_id = c.id
 			WHERE s.id = $1
-			  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
+			  AND c.claim_status = 'CLAIMED'
 		`, sensorID).Scan(&sensorAccountID)
 		if err != nil {
 			http.Error(w, "sensor not found", http.StatusNotFound)

@@ -15,7 +15,6 @@ exports.API_ENDPOINTS = {
     CONTROLLERS: {
         LIST: '/controllers',
         GET: function (id) { return "/controllers/".concat(id); },
-        PAIR: '/controllers/pair',
         UPDATE: function (id) { return "/controllers/".concat(id); }
     },
     SENSORS: {

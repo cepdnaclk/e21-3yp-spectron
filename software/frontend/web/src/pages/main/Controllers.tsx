@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Container,
   Grid,
@@ -16,15 +16,25 @@ import { Add, Hub as ChipIcon, Place, Sensors, ArrowForward } from '@mui/icons-m
 import { Controller } from '../../services/controllerService';
 import { getMyHardwareControllers } from '../../services/hardwarePairingService';
 import { ControllersSkeleton } from '../../components/LoadingSkeletons';
+import AutoDismissAlert from '../../components/AutoDismissAlert';
 
 const Controllers: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const navigationMessage = (location.state as { message?: string } | null)?.message || '';
   const [controllers, setControllers] = useState<Controller[]>([]);
   const [loading, setLoading] = useState(true);
+  const [successMessage, setSuccessMessage] = useState(navigationMessage);
 
   useEffect(() => {
     loadControllers();
   }, []);
+
+  useEffect(() => {
+    if (navigationMessage) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.pathname, navigate, navigationMessage]);
 
   const loadControllers = async () => {
     try {
@@ -103,6 +113,15 @@ const Controllers: React.FC = () => {
         </Stack>
       </Box>
 
+      <AutoDismissAlert
+        open={Boolean(successMessage)}
+        severity="success"
+        sx={{ mb: 2 }}
+        onCloseAlert={() => setSuccessMessage('')}
+      >
+        {successMessage}
+      </AutoDismissAlert>
+
       <Grid container spacing={2}>
         {controllers.length === 0 ? (
           <Grid item xs={12}>
@@ -143,11 +162,18 @@ const Controllers: React.FC = () => {
                         {controller.name || 'Unnamed Controller'}
                       </Typography>
                     </Box>
-                    <Chip
-                      label={controller.status}
-                      color={getStatusColor(controller.status) as any}
-                      size="small"
-                    />
+                    <Stack direction="row" spacing={0.75}>
+                      <Chip
+                        label={controller.claim_status || 'CLAIMED'}
+                        color="primary"
+                        size="small"
+                      />
+                      <Chip
+                        label={controller.operational_status || controller.status}
+                        color={getStatusColor(controller.operational_status || controller.status) as any}
+                        size="small"
+                      />
+                    </Stack>
                   </Box>
                   {controller.purpose && (
                     <Typography variant="body2" color="text.secondary" gutterBottom>

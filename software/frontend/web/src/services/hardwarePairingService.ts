@@ -39,6 +39,8 @@ export interface HardwarePairingResponse {
   systemName?: string;
   routeId?: string;
   status: string;
+  claimStatus?: 'CLAIMED' | 'UNCLAIMED';
+  operationalStatus?: 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' | 'ERROR';
   sensors: HardwarePairingSensor[];
 }
 
@@ -60,6 +62,8 @@ interface UserHardwareController {
   systemName?: string;
   name: string;
   status: string;
+  claimStatus?: 'CLAIMED' | 'UNCLAIMED';
+  operationalStatus?: 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' | 'ERROR';
   sensors: HardwarePairingSensor[];
 }
 
@@ -166,13 +170,15 @@ export const findHardwareControllerIdForSensor = async (sensorId: string): Promi
   return null;
 };
 
-const normalizeControllerStatus = (status: string | undefined): 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' => {
+const normalizeControllerStatus = (
+  status: string | undefined
+): 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' | 'ERROR' => {
   const normalized = (status || '').toUpperCase().trim();
   switch (normalized) {
     case 'ONLINE':
-    case 'PAIRED':
-    case 'LIVE':
       return 'ONLINE';
+    case 'ERROR':
+      return 'ERROR';
     case 'PENDING_CONFIG':
       return 'PENDING_CONFIG';
     default:
@@ -404,7 +410,10 @@ const normalizePairingResponse = (data: any, fallbackControllerId: string): Hard
     systemId: data?.systemId || data?.system_id,
     systemName: data?.systemName || data?.system_name,
     routeId: data?.id || controllerId,
-    status: data?.status || 'paired',
+    status: data?.operationalStatus || data?.operational_status || data?.status || 'OFFLINE',
+    claimStatus: data?.claimStatus || data?.claim_status || 'CLAIMED',
+    operationalStatus:
+      data?.operationalStatus || data?.operational_status || data?.status || 'OFFLINE',
     sensors,
   };
 };
@@ -700,6 +709,8 @@ export const getMyHardwareControllers = async (): Promise<Controller[]> => {
       hw_id: stored.controllerId,
       name: 'Paired Controller',
       status: normalizeControllerStatus(stored.status),
+      claim_status: stored.claimStatus || 'CLAIMED',
+      operational_status: normalizeControllerStatus(stored.operationalStatus || stored.status),
       created_at: stored.updatedAt,
     }));
   }
@@ -711,6 +722,8 @@ export const getMyHardwareControllers = async (): Promise<Controller[]> => {
       systemName?: string;
       name?: string;
       status?: string;
+      claimStatus?: 'CLAIMED' | 'UNCLAIMED';
+      operationalStatus?: 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' | 'ERROR';
     }>;
   }>('/api/controllers/my');
 
@@ -723,7 +736,9 @@ export const getMyHardwareControllers = async (): Promise<Controller[]> => {
     account_id: '',
     hw_id: controller.controllerId,
     name: controller.systemName || controller.name,
-    status: normalizeControllerStatus(controller.status),
+    status: normalizeControllerStatus(controller.operationalStatus || controller.status),
+    claim_status: controller.claimStatus || 'CLAIMED',
+    operational_status: normalizeControllerStatus(controller.operationalStatus || controller.status),
     created_at: '',
   }));
 };
@@ -770,6 +785,8 @@ export const getHardwareController = async (controllerId: string): Promise<Contr
       hw_id: stored.controllerId,
       name: 'Paired Controller',
       status: normalizeControllerStatus(stored.status),
+      claim_status: stored.claimStatus || 'CLAIMED',
+      operational_status: normalizeControllerStatus(stored.operationalStatus || stored.status),
       created_at: stored.updatedAt,
     };
   }
@@ -781,6 +798,8 @@ export const getHardwareController = async (controllerId: string): Promise<Contr
       systemName?: string;
       name?: string;
       status?: string;
+      claimStatus?: 'CLAIMED' | 'UNCLAIMED';
+      operationalStatus?: 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' | 'ERROR';
     }> }>('/api/controllers/my');
     const controller = (response.data.controllers || []).find((item) =>
       item.controllerId.toUpperCase() === controllerId.toUpperCase()
@@ -792,7 +811,9 @@ export const getHardwareController = async (controllerId: string): Promise<Contr
         account_id: '',
         hw_id: controller.controllerId,
         name: controller.systemName || controller.name,
-        status: normalizeControllerStatus(controller.status),
+        status: normalizeControllerStatus(controller.operationalStatus || controller.status),
+        claim_status: controller.claimStatus || 'CLAIMED',
+        operational_status: normalizeControllerStatus(controller.operationalStatus || controller.status),
         created_at: '',
       };
     }

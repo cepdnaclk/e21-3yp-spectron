@@ -13,7 +13,6 @@ export const API_ENDPOINTS = {
   CONTROLLERS: {
     LIST: '/controllers',
     GET: (id: string) => `/controllers/${id}`,
-    PAIR: '/controllers/pair',
     UPDATE: (id: string) => `/controllers/${id}`,
   },
   SENSORS: {

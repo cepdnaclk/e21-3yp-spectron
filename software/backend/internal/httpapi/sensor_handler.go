@@ -42,10 +42,10 @@ func (h *SensorHandler) List(w http.ResponseWriter, r *http.Request) {
 	// Verify controller belongs to account
 	var controllerAccountID uuid.UUID
 	err = h.db.QueryRow(r.Context(), `
-		SELECT account_id
+		SELECT owner_account_id
 		FROM controllers
 		WHERE id = $1
-		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
+		  AND claim_status = 'CLAIMED'
 	`, controllerID).Scan(&controllerAccountID)
 	if err != nil {
 		http.Error(w, "controller not found", http.StatusNotFound)
@@ -171,8 +171,8 @@ func (h *SensorHandler) Get(w http.ResponseWriter, r *http.Request) {
 			  AND active_config.created_at IS NOT NULL
 			  AND sr.time >= active_config.created_at
 		) observation ON true
-		WHERE s.id = $1 AND c.account_id = $2
-		  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
+		WHERE s.id = $1 AND c.owner_account_id = $2
+		  AND c.claim_status = 'CLAIMED'
 	`, sensorID, accountID))
 	if err != nil {
 		http.Error(w, "sensor not found", http.StatusNotFound)
@@ -214,8 +214,8 @@ func (h *SensorHandler) Update(w http.ResponseWriter, r *http.Request) {
 		FROM controllers c
 		WHERE s.controller_id = c.id
 		  AND s.id = $2
-		  AND c.account_id = $3
-		  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
+		  AND c.owner_account_id = $3
+		  AND c.claim_status = 'CLAIMED'
 	`, name, sensorID, accountID)
 	if err != nil {
 		http.Error(w, "failed to update sensor", http.StatusInternalServerError)

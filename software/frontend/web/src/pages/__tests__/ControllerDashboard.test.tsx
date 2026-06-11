@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import ControllerDashboard from '../main/ControllerDashboard';
 import {
   getHardwareController,
@@ -23,6 +24,12 @@ vi.mock('../../services/hardwarePairingService', () => ({
   releaseHardwareController: vi.fn(),
 }));
 
+const ControllersDestination = () => {
+  const location = useLocation();
+  const state = location.state as { message?: string } | null;
+  return <div>{state?.message}</div>;
+};
+
 describe('Paired hardware sensors dashboard', () => {
   beforeEach(() => {
     vi.mocked(getHardwareController).mockResolvedValue({
@@ -31,6 +38,8 @@ describe('Paired hardware sensors dashboard', () => {
       hw_id: 'CTRL-100',
       name: 'Greenhouse System',
       status: 'ONLINE',
+      claim_status: 'CLAIMED',
+      operational_status: 'ONLINE',
       purpose: 'Greenhouse monitoring',
       location: 'Greenhouse A',
       created_at: '2026-04-28',
@@ -72,16 +81,37 @@ describe('Paired hardware sensors dashboard', () => {
       <MemoryRouter initialEntries={['/hardware/CTRL-100/sensors']}>
         <Routes>
           <Route path="/hardware/:controllerId/sensors" element={<ControllerDashboard />} />
+          <Route path="/controllers" element={<ControllersDestination />} />
         </Routes>
       </MemoryRouter>
     );
 
     expect(await screen.findByRole('heading', { name: /greenhouse system/i })).toBeInTheDocument();
     expect(screen.getByText(/connected hardware/i)).toBeInTheDocument();
+    expect(screen.getByText(/^claimed$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^online$/i)).toBeInTheDocument();
     expect(screen.getByText(/load sensor/i)).toBeInTheDocument();
     expect(screen.getByText(/temperature & humidity sensor/i)).toBeInTheDocument();
     expect(screen.getByText(/ultrasonic sensor/i)).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^configure$/i })).toHaveLength(2);
     expect(screen.getByRole('button', { name: /review configuration/i })).toBeInTheDocument();
+  });
+
+  it('releases the controller and reports success on the controller list', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={['/hardware/CTRL-100/sensors']}>
+        <Routes>
+          <Route path="/hardware/:controllerId/sensors" element={<ControllerDashboard />} />
+          <Route path="/controllers" element={<ControllersDestination />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole('button', { name: /remove from my account/i }));
+
+    expect(releaseHardwareController).toHaveBeenCalledWith('CTRL-100');
+    expect(await screen.findByText(/controller removed from your account/i)).toBeInTheDocument();
   });
 });

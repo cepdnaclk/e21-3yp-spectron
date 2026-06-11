@@ -58,7 +58,7 @@ const ControllerDashboard: React.FC = () => {
   const [sensorNameDraft, setSensorNameDraft] = useState('');
   const navigationState = (location.state || null) as DashboardNavigationState | null;
   const [saveNotice, setSaveNotice] = useState<DashboardNavigationState | null>(navigationState);
-  const [toastOpen, setToastOpen] = useState(Boolean(navigationState?.configurationSaved));
+  const [toastOpen, setToastOpen] = useState(Boolean(navigationState?.configurationSaved || navigationState?.paired));
   const [toastSeverity, setToastSeverity] = useState<'success' | 'error'>('success');
   const activeControllerId = controllerId || id || navigationState?.controllerId || '';
   const releasableControllerId =
@@ -124,7 +124,7 @@ const ControllerDashboard: React.FC = () => {
   }, [activeControllerId, loadData, sensors.length]);
 
   useEffect(() => {
-    if (!navigationState?.configurationSaved) {
+    if (!navigationState?.configurationSaved && !navigationState?.paired) {
       return;
     }
 
@@ -407,12 +407,19 @@ const ControllerDashboard: React.FC = () => {
                 </Stack>
               )}
             </Box>
-            <Chip
-              icon={controller.status === 'ONLINE' ? <Wifi /> : <WifiOff />}
-              label={controller.status}
-              color={getStatusColor(controller.status) as any}
-              sx={{ bgcolor: controller.status === 'ONLINE' ? '#6c8930' : undefined, color: '#fffdf8' }}
-            />
+            <Stack direction="row" spacing={1}>
+              <Chip
+                label={controller.claim_status || 'CLAIMED'}
+                color="primary"
+                sx={{ color: '#fffdf8' }}
+              />
+              <Chip
+                icon={controller.status === 'ONLINE' ? <Wifi /> : <WifiOff />}
+                label={controller.operational_status || controller.status}
+                color={getStatusColor(controller.operational_status || controller.status) as any}
+                sx={{ bgcolor: controller.status === 'ONLINE' ? '#6c8930' : undefined, color: '#fffdf8' }}
+              />
+            </Stack>
           </Box>
           {controller.purpose && (
             <Typography variant="body1" sx={{ color: 'rgba(255, 253, 248, 0.76)' }} gutterBottom>

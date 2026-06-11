@@ -8,13 +8,11 @@ export interface Controller {
   name?: string;
   purpose?: string;
   location?: string;
-  status: 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG';
+  status: 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' | 'ERROR';
+  claim_status?: 'CLAIMED' | 'UNCLAIMED';
+  operational_status?: 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' | 'ERROR';
   last_seen?: string;
   created_at: string;
-}
-
-export interface PairControllerRequest {
-  qr_token: string;
 }
 
 export interface UpdateControllerRequest {
@@ -39,11 +37,6 @@ export const getControllers = async (): Promise<Controller[]> => {
 
 export const getController = async (id: string): Promise<Controller> => {
   const response = await api.get<Controller>(API_ENDPOINTS.CONTROLLERS.GET(id));
-  return response.data;
-};
-
-export const pairController = async (data: PairControllerRequest): Promise<Controller> => {
-  const response = await api.post<Controller>(API_ENDPOINTS.CONTROLLERS.PAIR, data);
   return response.data;
 };
 

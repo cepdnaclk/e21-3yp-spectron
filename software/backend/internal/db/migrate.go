@@ -48,6 +48,9 @@ var migration011SensorReadingsRetention string
 //go:embed migrations/012_sensor_type_compatibility.sql
 var migration012SensorTypeCompatibility string
 
+//go:embed migrations/013_controller_claim_ownership.sql
+var migration013ControllerClaimOwnership string
+
 type migration struct {
 	name string
 	sql  string
@@ -66,6 +69,7 @@ var startupMigrations = []migration{
 	{name: "010_activate_verified_email_users", sql: migration010ActivateVerifiedEmailUsers},
 	{name: "011_sensor_readings_retention", sql: migration011SensorReadingsRetention},
 	{name: "012_sensor_type_compatibility", sql: migration012SensorTypeCompatibility},
+	{name: "013_controller_claim_ownership", sql: migration013ControllerClaimOwnership},
 }
 
 func ApplyStartupMigrations(ctx context.Context, pool *pgxpool.Pool) error {

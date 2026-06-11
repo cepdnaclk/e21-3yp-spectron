@@ -33,12 +33,14 @@ func (e apiError) Error() string {
 }
 
 type hardwareControllerRecord struct {
-	id          uuid.UUID
-	uid         string
-	name        string
-	status      string
-	ownerUserID string
-	updatedAt   time.Time
+	id                uuid.UUID
+	uid               string
+	name              string
+	claimStatus       string
+	operationalStatus string
+	ownerAccountID    string
+	ownerUserID       string
+	updatedAt         time.Time
 }
 
 type hardwareSensorRecord struct {
@@ -104,10 +106,10 @@ func (h *ControllerHandler) AdminOverviewAPI(w http.ResponseWriter, r *http.Requ
 	err := h.db.QueryRow(r.Context(), `
 		SELECT
 			COUNT(*)::int,
-			COUNT(*) FILTER (WHERE owner_user_id IS NULL)::int,
-			COUNT(*) FILTER (WHERE owner_user_id IS NOT NULL)::int,
-			COUNT(*) FILTER (WHERE UPPER(status) IN ('ONLINE', 'PAIRED'))::int,
-			COUNT(*) FILTER (WHERE UPPER(status) IN ('OFFLINE', 'ERROR'))::int
+			COUNT(*) FILTER (WHERE claim_status = 'UNCLAIMED')::int,
+			COUNT(*) FILTER (WHERE claim_status = 'CLAIMED')::int,
+			COUNT(*) FILTER (WHERE operational_status = 'ONLINE')::int,
+			COUNT(*) FILTER (WHERE operational_status IN ('OFFLINE', 'ERROR'))::int
 		FROM controllers
 	`).Scan(
 		&response.TotalDevices,
@@ -215,15 +217,18 @@ func (h *ControllerHandler) AdminCreateDeviceAPI(w http.ResponseWriter, r *http.
 		INSERT INTO controllers (
 			id,
 			account_id,
+			registered_by_account_id,
 			hw_id,
 			controller_uid,
 			name,
 			location,
 			status,
+			claim_status,
+			operational_status,
 			created_at,
 			updated_at
 		)
-		VALUES ($1, $2, $3, $3, $4, $5, 'unclaimed', NOW(), NOW())
+		VALUES ($1, NULL, $2, $3, $3, $4, $5, 'OFFLINE', 'UNCLAIMED', 'OFFLINE', NOW(), NOW())
 		RETURNING id
 	`, uuid.New(), accountID, controllerUID, name, nullableString(location)).Scan(&controllerID)
 	if err != nil {
@@ -383,7 +388,7 @@ func (h *ControllerHandler) AdminUsersAPI(w http.ResponseWriter, r *http.Request
 			COUNT(c.id)::int
 		FROM account_memberships am
 		JOIN users u ON u.id = am.user_id
-		LEFT JOIN controllers c ON c.owner_user_id = u.id AND c.account_id = am.account_id
+		LEFT JOIN controllers c ON c.owner_user_id = u.id AND c.owner_account_id = am.account_id
 		WHERE am.account_id = $1
 		GROUP BY u.id, u.email, u.name, am.role, u.created_at
 		ORDER BY u.created_at DESC
@@ -465,24 +470,25 @@ func (h *ControllerHandler) PairAPI(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.syncHardwareSensorsForActiveSystem(r.Context(), controller.id); err != nil {
 		log.Printf("sync paired sensors: %v", err)
-		http.Error(w, "failed to prepare sensors", http.StatusInternalServerError)
-		return
 	}
 
-	sensors, err := h.loadHardwareSensors(r.Context(), controller.id, system.assignedAt)
+	sensors := []models.HardwareSensorResponse{}
+	loadedSensors, err := h.loadHardwareSensors(r.Context(), controller.id, system.assignedAt)
 	if err != nil {
 		log.Printf("load paired sensors: %v", err)
-		http.Error(w, "failed to load sensors", http.StatusInternalServerError)
-		return
+	} else {
+		sensors = loadedSensors
 	}
 
 	json.NewEncoder(w).Encode(models.HardwarePairResponse{
-		ID:           controller.id.String(),
-		ControllerID: controller.uid,
-		SystemID:     system.id.String(),
-		SystemName:   system.name,
-		Status:       "paired",
-		Sensors:      sensors,
+		ID:                controller.id.String(),
+		ControllerID:      controller.uid,
+		SystemID:          system.id.String(),
+		SystemName:        system.name,
+		Status:            controller.operationalStatus,
+		ClaimStatus:       controller.claimStatus,
+		OperationalStatus: controller.operationalStatus,
+		Sensors:           sensors,
 	})
 }
 
@@ -494,7 +500,8 @@ func (h *ControllerHandler) MyControllersAPI(w http.ResponseWriter, r *http.Requ
 			c.id,
 			COALESCE(c.controller_uid, c.hw_id),
 			COALESCE(s.name, c.name, 'Main Controller'),
-			c.status,
+			c.claim_status,
+			c.operational_status,
 			sca.assigned_at,
 			s.id,
 			COALESCE(s.name, c.name, 'Main Controller')
@@ -503,9 +510,8 @@ func (h *ControllerHandler) MyControllersAPI(w http.ResponseWriter, r *http.Requ
 		  ON sca.controller_id = c.id
 		 AND sca.unassigned_at IS NULL
 		JOIN systems s ON s.id = sca.system_id
-		WHERE c.account_id = $1
-		  AND c.owner_user_id IS NOT NULL
-		  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
+		WHERE c.owner_account_id = $1
+		  AND c.claim_status = 'CLAIMED'
 		ORDER BY sca.assigned_at DESC, c.created_at DESC
 	`, accountID)
 	if err != nil {
@@ -519,11 +525,12 @@ func (h *ControllerHandler) MyControllersAPI(w http.ResponseWriter, r *http.Requ
 		var controllerID uuid.UUID
 		var controllerUID string
 		var name string
-		var status string
+		var claimStatus string
+		var operationalStatus string
 		var sessionStart time.Time
 		var systemID uuid.UUID
 		var systemName string
-		if err := rows.Scan(&controllerID, &controllerUID, &name, &status, &sessionStart, &systemID, &systemName); err != nil {
+		if err := rows.Scan(&controllerID, &controllerUID, &name, &claimStatus, &operationalStatus, &sessionStart, &systemID, &systemName); err != nil {
 			continue
 		}
 
@@ -534,12 +541,14 @@ func (h *ControllerHandler) MyControllersAPI(w http.ResponseWriter, r *http.Requ
 		}
 
 		controllers = append(controllers, models.UserHardwareControllerResponse{
-			ControllerID: controllerUID,
-			SystemID:     systemID.String(),
-			SystemName:   systemName,
-			Name:         name,
-			Status:       status,
-			Sensors:      sensors,
+			ControllerID:      controllerUID,
+			SystemID:          systemID.String(),
+			SystemName:        systemName,
+			Name:              name,
+			Status:            operationalStatus,
+			ClaimStatus:       claimStatus,
+			OperationalStatus: operationalStatus,
+			Sensors:           sensors,
 		})
 	}
 
@@ -636,7 +645,7 @@ func (h *ControllerHandler) ControllerSensorsAPI(w http.ResponseWriter, r *http.
 
 	sensors := []models.HardwareSensorResponse{}
 	if liveOnly {
-		if strings.EqualFold(strings.TrimSpace(controller.status), "ONLINE") {
+		if strings.EqualFold(strings.TrimSpace(controller.operationalStatus), "ONLINE") {
 			sensors, err = h.loadLiveHardwareSensors(r.Context(), controller.id, controller.updatedAt)
 			if err != nil {
 				http.Error(w, "failed to load sensors", http.StatusInternalServerError)
@@ -696,7 +705,8 @@ func (h *ControllerHandler) UpdateHardwareControllerAPI(w http.ResponseWriter, r
 		SET name = $1,
 		    updated_at = NOW()
 		WHERE id = $2
-		  AND account_id = $3
+		  AND owner_account_id = $3
+		  AND claim_status = 'CLAIMED'
 	`, name, controller.id, accountID)
 	if err != nil {
 		http.Error(w, "failed to update controller", http.StatusInternalServerError)
@@ -728,10 +738,12 @@ func (h *ControllerHandler) UpdateHardwareControllerAPI(w http.ResponseWriter, r
 	}
 
 	json.NewEncoder(w).Encode(models.UserHardwareControllerResponse{
-		ControllerID: controller.uid,
-		Name:         name,
-		SystemName:   name,
-		Status:       controller.status,
+		ControllerID:      controller.uid,
+		Name:              name,
+		SystemName:        name,
+		Status:            controller.operationalStatus,
+		ClaimStatus:       controller.claimStatus,
+		OperationalStatus: controller.operationalStatus,
 	})
 }
 
@@ -846,7 +858,7 @@ func (h *ControllerHandler) ReleaseControllerAPI(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if controller.ownerUserID == "" {
+	if controller.claimStatus != "CLAIMED" || controller.ownerAccountID == "" || controller.ownerUserID == "" {
 		http.Error(w, "This controller is already unowned.", http.StatusConflict)
 		return
 	}
@@ -863,15 +875,23 @@ func (h *ControllerHandler) ReleaseControllerAPI(w http.ResponseWriter, r *http.
 		return
 	}
 
-	_, err = tx.Exec(r.Context(), `
+	tag, err := tx.Exec(r.Context(), `
 		UPDATE controllers
 		SET owner_user_id = NULL,
-		    status = 'unclaimed',
+		    owner_account_id = NULL,
+		    account_id = NULL,
+		    claim_status = 'UNCLAIMED',
 		    updated_at = NOW()
-		WHERE id = $1 AND account_id = $2
+		WHERE id = $1
+		  AND owner_account_id = $2
+		  AND claim_status = 'CLAIMED'
 	`, controller.id, accountID)
 	if err != nil {
 		http.Error(w, "failed to remove controller", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() != 1 {
+		http.Error(w, "Controller ownership changed before it could be released.", http.StatusConflict)
 		return
 	}
 
@@ -1415,25 +1435,21 @@ func (h *ControllerHandler) DemoCreateControllerAPI(w http.ResponseWriter, r *ht
 		INSERT INTO controllers (
 			id,
 			account_id,
+			registered_by_account_id,
 			hw_id,
 			controller_uid,
 			name,
 			status,
+			claim_status,
+			operational_status,
 			created_at,
 			updated_at
 		)
-		VALUES ($1, $2, $3, $3, 'Main Controller', 'unclaimed', NOW(), NOW())
+		VALUES ($1, NULL, $2, $3, $3, 'Main Controller', 'OFFLINE', 'UNCLAIMED', 'OFFLINE', NOW(), NOW())
 		ON CONFLICT (hw_id) DO UPDATE
 		SET controller_uid = EXCLUDED.controller_uid,
 		    name = COALESCE(controllers.name, EXCLUDED.name),
-		    account_id = CASE
-		        WHEN controllers.owner_user_id IS NULL THEN EXCLUDED.account_id
-		        ELSE controllers.account_id
-		    END,
-		    status = CASE
-		        WHEN controllers.owner_user_id IS NULL THEN 'unclaimed'
-		        ELSE controllers.status
-		    END,
+		    registered_by_account_id = COALESCE(controllers.registered_by_account_id, EXCLUDED.registered_by_account_id),
 		    updated_at = NOW()
 		RETURNING id
 	`, uuid.New(), internaldb.MockAccountID, controllerUID).Scan(&controllerID)
@@ -1487,8 +1503,8 @@ func (h *ControllerHandler) claimController(ctx context.Context, userID uuid.UUI
 		return hardwareControllerRecord{}, systemRecord{}, err
 	}
 
-	if record.ownerUserID != "" {
-		if strings.EqualFold(record.ownerUserID, userID.String()) {
+	if record.claimStatus == "CLAIMED" || record.ownerAccountID != "" || record.ownerUserID != "" {
+		if strings.EqualFold(record.ownerAccountID, accountID.String()) {
 			return hardwareControllerRecord{}, systemRecord{}, apiError{status: http.StatusConflict, message: "This device is already added to your account."}
 		}
 		return hardwareControllerRecord{}, systemRecord{}, apiError{status: http.StatusConflict, message: "This controller is already owned by another account."}
@@ -1497,14 +1513,21 @@ func (h *ControllerHandler) claimController(ctx context.Context, userID uuid.UUI
 	err = tx.QueryRow(ctx, `
 		UPDATE controllers
 		SET owner_user_id = $1,
+		    owner_account_id = $2,
 		    account_id = $2,
-		    status = 'paired',
+		    claim_status = 'CLAIMED',
 		    controller_uid = COALESCE(NULLIF(controller_uid, ''), hw_id),
 		    updated_at = NOW()
 		WHERE id = $3
-		RETURNING updated_at
-	`, userID, accountID, record.id).Scan(&record.updatedAt)
+		  AND owner_user_id IS NULL
+		  AND owner_account_id IS NULL
+		  AND claim_status = 'UNCLAIMED'
+		RETURNING updated_at, operational_status
+	`, userID, accountID, record.id).Scan(&record.updatedAt, &record.operationalStatus)
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			return hardwareControllerRecord{}, systemRecord{}, apiError{status: http.StatusConflict, message: "This controller is already owned by another account."}
+		}
 		return hardwareControllerRecord{}, systemRecord{}, err
 	}
 
@@ -1517,7 +1540,8 @@ func (h *ControllerHandler) claimController(ctx context.Context, userID uuid.UUI
 		return hardwareControllerRecord{}, systemRecord{}, err
 	}
 
-	record.status = "paired"
+	record.claimStatus = "CLAIMED"
+	record.ownerAccountID = accountID.String()
 	record.ownerUserID = userID.String()
 	return record, system, nil
 }
@@ -1531,12 +1555,15 @@ func (h *ControllerHandler) findControllerForClaim(ctx context.Context, tx pgx.T
 		SELECT id,
 		       COALESCE(controller_uid, hw_id),
 		       COALESCE(name, 'Main Controller'),
-		       status,
+		       claim_status,
+		       operational_status,
+		       COALESCE(owner_account_id::text, ''),
 		       COALESCE(owner_user_id::text, ''),
 		       updated_at
 		FROM controllers
 		WHERE UPPER(COALESCE(controller_uid, hw_id)) = UPPER($1)
 		   OR id::text = $1
+		FOR UPDATE
 	`, normalized))
 	if err == nil {
 		return record, nil
@@ -1550,7 +1577,16 @@ func (h *ControllerHandler) findControllerForClaim(ctx context.Context, tx pgx.T
 
 func scanHardwareController(row pgx.Row) (hardwareControllerRecord, error) {
 	var record hardwareControllerRecord
-	err := row.Scan(&record.id, &record.uid, &record.name, &record.status, &record.ownerUserID, &record.updatedAt)
+	err := row.Scan(
+		&record.id,
+		&record.uid,
+		&record.name,
+		&record.claimStatus,
+		&record.operationalStatus,
+		&record.ownerAccountID,
+		&record.ownerUserID,
+		&record.updatedAt,
+	)
 	return record, err
 }
 
@@ -1563,7 +1599,9 @@ func (h *ControllerHandler) lookupOwnedHardwareController(ctx context.Context, u
 		SELECT id,
 		       COALESCE(controller_uid, hw_id),
 		       COALESCE(name, 'Main Controller'),
-		       status,
+		       claim_status,
+		       operational_status,
+		       COALESCE(owner_account_id::text, ''),
 		       COALESCE(owner_user_id::text, ''),
 		       updated_at
 		FROM controllers
@@ -1593,13 +1631,15 @@ func (h *ControllerHandler) lookupAccountHardwareController(ctx context.Context,
 		SELECT id,
 		       COALESCE(controller_uid, hw_id),
 		       COALESCE(name, 'Main Controller'),
-		       status,
+		       claim_status,
+		       operational_status,
+		       COALESCE(owner_account_id::text, ''),
 		       COALESCE(owner_user_id::text, ''),
 		       updated_at
 		FROM controllers
-		WHERE account_id = $1
+		WHERE owner_account_id = $1
 		  AND owner_user_id IS NOT NULL
-		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
+		  AND claim_status = 'CLAIMED'
 		  AND (UPPER(COALESCE(controller_uid, hw_id)) = UPPER($2) OR id::text = $2)
 	`, accountID, strings.TrimSpace(identifier)))
 	if err != nil {
@@ -2478,7 +2518,9 @@ func (h *ControllerHandler) lookupAdminController(ctx context.Context, identifie
 		SELECT id,
 		       COALESCE(controller_uid, hw_id),
 		       COALESCE(name, 'Main Controller'),
-		       status,
+		       claim_status,
+		       operational_status,
+		       COALESCE(owner_account_id::text, ''),
 		       COALESCE(owner_user_id::text, ''),
 		       updated_at
 		FROM controllers
@@ -2502,7 +2544,9 @@ func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.Admi
 			COALESCE(c.controller_uid, c.hw_id),
 			COALESCE(c.name, 'Main Controller'),
 			COALESCE(c.location, ''),
-			c.status,
+			c.operational_status,
+			c.claim_status,
+			c.operational_status,
 			COALESCE(u.email, ''),
 			COUNT(cs.id)::int,
 			COUNT(cs.id) FILTER (WHERE cs.configured = true)::int,
@@ -2511,7 +2555,7 @@ func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.Admi
 		FROM controllers c
 		LEFT JOIN users u ON u.id = c.owner_user_id
 		LEFT JOIN controller_sensors cs ON cs.controller_id = c.id
-		GROUP BY c.id, c.controller_uid, c.hw_id, c.name, c.location, c.status, u.email, c.last_seen, c.updated_at
+		GROUP BY c.id, c.controller_uid, c.hw_id, c.name, c.location, c.operational_status, c.claim_status, u.email, c.last_seen, c.updated_at
 		ORDER BY c.updated_at DESC, c.created_at DESC
 	`)
 	if err != nil {
@@ -2531,6 +2575,8 @@ func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.Admi
 			&device.Name,
 			&device.Location,
 			&device.Status,
+			&device.ClaimStatus,
+			&device.OperationalStatus,
 			&device.OwnerEmail,
 			&device.SensorCount,
 			&device.ConfiguredSensors,

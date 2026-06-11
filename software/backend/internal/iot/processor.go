@@ -33,22 +33,24 @@ func (p *RawReadingsProcessor) ProcessEvent(ctx context.Context, event RawReadin
 	defer tx.Rollback(ctx)
 
 	var controllerID uuid.UUID
-	var accountID uuid.UUID
+	var accountID *uuid.UUID
+	var claimStatus string
 	err = tx.QueryRow(ctx, `
-		SELECT id, account_id
+		SELECT id, owner_account_id, claim_status
 		FROM controllers
 		WHERE hw_id = $1
-	`, event.DeviceID).Scan(&controllerID, &accountID)
+	`, event.DeviceID).Scan(&controllerID, &accountID, &claimStatus)
 	if err != nil {
 		return fmt.Errorf("find controller %s: %w", event.DeviceID, err)
 	}
 
 	_, err = tx.Exec(ctx, `
 		UPDATE controllers
-		SET status = 'ONLINE',
+		SET operational_status = 'ONLINE',
+		    status = 'ONLINE',
 		    last_seen = $2,
 		    updated_at = CASE
-		        WHEN UPPER(COALESCE(status, '')) = 'ONLINE' THEN updated_at
+		        WHEN operational_status = 'ONLINE' THEN updated_at
 		        ELSE $2
 		    END
 		WHERE id = $1
@@ -57,8 +59,15 @@ func (p *RawReadingsProcessor) ProcessEvent(ctx context.Context, event RawReadin
 		return fmt.Errorf("update controller status: %w", err)
 	}
 
+	if claimStatus != "CLAIMED" || accountID == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit unclaimed controller status: %w", err)
+		}
+		return nil
+	}
+
 	for _, sensor := range event.Sensors {
-		if err := p.upsertSensorReading(ctx, tx, accountID, controllerID, event, sensor); err != nil {
+		if err := p.upsertSensorReading(ctx, tx, *accountID, controllerID, event, sensor); err != nil {
 			return err
 		}
 	}

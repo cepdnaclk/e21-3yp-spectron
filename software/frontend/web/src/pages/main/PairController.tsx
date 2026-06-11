@@ -129,12 +129,17 @@ const PairController: React.FC = () => {
           controllerId: pairing.controllerId,
           sensors: pairing.sensors,
           paired: true,
+          observationMessage: `Controller ${pairing.controllerId} claimed successfully.`,
         },
       });
     } catch (err: any) {
       const responseData = err?.response?.data;
       const message =
-        typeof responseData === 'string'
+        err?.response?.status === 409
+          ? typeof responseData === 'string'
+            ? responseData
+            : 'This controller is already claimed by another account.'
+          : typeof responseData === 'string'
           ? responseData
           : responseData?.message || err?.message || 'Pairing failed';
       setError(message);

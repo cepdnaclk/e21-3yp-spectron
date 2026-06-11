@@ -150,10 +150,11 @@ func (h *IngestHandler) Discover(w http.ResponseWriter, r *http.Request) {
 
 	_, err = tx.Exec(r.Context(), `
 		UPDATE controllers
-		SET status = 'ONLINE',
+		SET operational_status = 'ONLINE',
+		    status = 'ONLINE',
 		    last_seen = $2,
 		    updated_at = CASE
-		        WHEN UPPER(COALESCE(status, '')) = 'ONLINE' THEN updated_at
+		        WHEN operational_status = 'ONLINE' THEN updated_at
 		        ELSE $2
 		    END,
 		    min_reporting_interval_sec = LEAST(min_reporting_interval_sec, $3)
@@ -326,10 +327,11 @@ func (h *IngestHandler) Config(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	_, _ = h.db.Exec(r.Context(), `
 		UPDATE controllers
-		SET status = 'ONLINE',
+		SET operational_status = 'ONLINE',
+		    status = 'ONLINE',
 		    last_seen = $2,
 		    updated_at = CASE
-		        WHEN UPPER(COALESCE(status, '')) = 'ONLINE' THEN updated_at
+		        WHEN operational_status = 'ONLINE' THEN updated_at
 		        ELSE $2
 		    END,
 		    min_reporting_interval_sec = LEAST(min_reporting_interval_sec, $3)

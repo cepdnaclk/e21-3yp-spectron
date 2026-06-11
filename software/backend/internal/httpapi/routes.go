@@ -82,7 +82,6 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		// Controllers
 		r.Route("/controllers", func(r chi.Router) {
 			r.Get("/", controllerHandler.List)
-			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/pair", controllerHandler.Pair)
 			r.Get("/{id}", controllerHandler.Get)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Patch("/{id}", controllerHandler.Update)
 		})
