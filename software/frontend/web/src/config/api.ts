@@ -1,4 +1,4 @@
-const DEPLOYED_API_BASE_URL = 'http://spectron-backend-env.eba-niaes6bi.ap-south-1.elasticbeanstalk.com';
+const DEPLOYED_API_BASE_URL = 'https://spectroniot.xyz';
 
 const configuredApiBaseUrl = process.env.REACT_APP_API_URL;
 

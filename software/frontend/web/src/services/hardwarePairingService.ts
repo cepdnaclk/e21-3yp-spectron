@@ -1092,6 +1092,38 @@ export const renameHardwareSensor = async (
   return updateSensor(sensorId, { name: trimmedName });
 };
 
+export const deleteHardwareSensor = async (
+  controllerId: string,
+  sensorId: string
+): Promise<void> => {
+  if (isMockMode()) {
+    const state = readStore();
+    const current = state[controllerId];
+    if (!current) {
+      return;
+    }
+
+    state[controllerId] = {
+      ...current,
+      sensors: (Array.isArray(current.sensors) ? current.sensors : []).filter(
+        (sensor) => sensor.id !== sensorId && sensor.sensorUid !== sensorId
+      ),
+      updatedAt: new Date().toISOString(),
+    };
+    writeStore(state);
+    return;
+  }
+
+  if (/^CTRL-/i.test(controllerId)) {
+    await api.delete(
+      `/api/controllers/${encodeURIComponent(controllerId)}/sensors/${encodeURIComponent(sensorId)}`
+    );
+    return;
+  }
+
+  await api.delete(`/sensors/${encodeURIComponent(sensorId)}`);
+};
+
 export const saveHardwareSensorConfiguration = async (
   request: SaveHardwareSensorConfigRequest
 ): Promise<void> => {

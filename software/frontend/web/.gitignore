@@ -26,7 +26,6 @@ yarn-error.log*
 
 # Capacitor
 ios/
-android/
 .capacitor/
 
 package-lock.json

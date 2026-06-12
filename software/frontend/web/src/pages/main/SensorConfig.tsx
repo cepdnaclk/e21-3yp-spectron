@@ -30,6 +30,7 @@ import { alpha } from '@mui/material/styles';
 import {
   ArrowBack,
   BatteryChargingFull,
+  Close,
   Tune,
   ShowChart as ShowChartIcon,
   BarChart as BarChartIcon,
@@ -1368,6 +1369,7 @@ const SensorConfig: React.FC = () => {
   const [aiFollowUpQuestions, setAiFollowUpQuestions] = useState<AIFollowUpQuestion[]>([]);
   const [aiFollowUpAnswers, setAiFollowUpAnswers] = useState<AIFollowUpAnswers>({});
   const [requestingAi, setRequestingAi] = useState(false);
+  const [showAiAssistance, setShowAiAssistance] = useState(false);
   const [resolvedHardwareControllerId, setResolvedHardwareControllerId] = useState('');
   const initializedSensorIdRef = useRef<string | null>(null);
   const activeSensorId = sensorId || id || navigationState?.sensorId || '';
@@ -2469,7 +2471,32 @@ const SensorConfig: React.FC = () => {
 
   // ===== NEW SIMPLIFIED 2-PAGE FLOW =====
   const renderSetupStep = () => (
-    <Box sx={sectionSx}>
+    <Box sx={{ ...sectionSx, position: 'relative' }}>
+      {/* AI ASSISTANCE BUTTON - TOP RIGHT */}
+      {!showAiAssistance && (
+        <Box sx={{ position: 'absolute', top: -50, right: 0 }}>
+          <Button
+            variant="outlined"
+            onClick={() => setShowAiAssistance(true)}
+            sx={{
+              textTransform: 'none',
+              fontSize: '0.95rem',
+              fontWeight: 600,
+              py: 1,
+              px: 2,
+              borderColor: 'rgba(108, 137, 48, 0.3)',
+              color: '#6c8930',
+              '&:hover': {
+                borderColor: '#6c8930',
+                bgcolor: 'rgba(108, 137, 48, 0.06)',
+              },
+            }}
+          >
+            Need Help? Use AI Assistance
+          </Button>
+        </Box>
+      )}
+
       <Stack spacing={3}>
         {/* LEARNING PHASE INDICATOR */}
         {learningPhaseStatus?.phase === 'learning' && learningPhaseDay > 0 && learningPhaseDay <= 7 && (
@@ -2534,62 +2561,74 @@ const SensorConfig: React.FC = () => {
         )}
 
         {/* AI PROMPT INPUT */}
-        <Box sx={{ p: 2.5, borderRadius: 2, bgcolor: '#f0f7f0', border: '2px solid rgba(108, 137, 48, 0.2)' }}>
-          <Stack
-            direction={{ xs: 'column', sm: 'row' }}
-            spacing={1}
-            justifyContent="space-between"
-            alignItems={{ xs: 'flex-start', sm: 'center' }}
-            sx={{ mb: 1 }}
-          >
-            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-              Describe Your Setup
-            </Typography>
-            <InfoButton tooltip="What should I include?">
-              <Stack spacing={1}>
-                <Typography variant="body2">
-                  Tell the AI what you are monitoring, where it is installed, which risks matter, and any ideal ranges you already know.
-                </Typography>
-                <Box component="ul" sx={{ pl: 2.25, my: 0, fontSize: '0.875rem' }}>
-                  <li>What you are monitoring, for example tomatoes, a storage room, or a tank</li>
-                  <li>The environment, for example greenhouse, warehouse, or outdoor</li>
-                  <li>The main risks, for example extreme heat, high humidity, or overflow</li>
-                  <li>Ideal conditions if you already know them</li>
-                </Box>
-                <Typography variant="body2" sx={{ fontStyle: 'italic' }}>
-                  Example: "I grow basil indoors on a windowsill. Temperature should stay between 18 and 25 C. Below 15 C the plants suffer, and above 30 C they wilt. Humidity below 40 percent is too dry."
-                </Typography>
-              </Stack>
-            </InfoButton>
-          </Stack>
-          <TextField
-            fullWidth
-            multiline
-            rows={4}
-            label="Describe your monitoring setup..."
-            value={aiPrompt}
-            onChange={(e) => {
-              setAiPrompt(e.target.value);
-              if (aiFollowUpQuestions.length > 0) {
-                resetAiFollowUpState();
-              }
-            }}
-            placeholder="Example: I am monitoring a greenhouse with tomatoes. Temperature should stay 20 to 28 C and humidity 60 to 80 percent."
-            variant="outlined"
-            helperText={`${aiPrompt.length}/300 characters`}
-            error={aiPrompt.length > 300}
-          />
-          <Button
-            variant="contained"
-            color="secondary"
-            fullWidth
-            disabled={!aiPrompt.trim() || requestingAi}
-            sx={{ mt: 1.5, fontWeight: 700 }}
-            onClick={() => requestAiConfiguration()}
-              
-          >
-            Use AI to Fill Configuration
-          </Button>
+        {showAiAssistance && (
+          <Box sx={{ p: 2.5, borderRadius: 2, bgcolor: '#f0f7f0', border: '2px solid rgba(108, 137, 48, 0.2)', position: 'relative' }}>
+            <IconButton
+              size="small"
+              onClick={() => setShowAiAssistance(false)}
+              sx={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                color: '#6c8930',
+              }}
+            >
+              <Close />
+            </IconButton>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              justifyContent="space-between"
+              alignItems={{ xs: 'flex-start', sm: 'center' }}
+              sx={{ mb: 1 }}
+            >
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                Describe Your Setup
+              </Typography>
+              <InfoButton tooltip="What should I include?">
+                <Stack spacing={1}>
+                  <Typography variant="body2">
+                    Tell the AI what you are monitoring, where it is installed, which risks matter, and any ideal ranges you already know.
+                  </Typography>
+                  <Box component="ul" sx={{ pl: 2.25, my: 0, fontSize: '0.875rem' }}>
+                    <li>What you are monitoring, for example tomatoes, a storage room, or a tank</li>
+                    <li>The environment, for example greenhouse, warehouse, or outdoor</li>
+                    <li>The main risks, for example extreme heat, high humidity, or overflow</li>
+                    <li>Ideal conditions if you already know them</li>
+                  </Box>
+                  <Typography variant="body2" sx={{ fontStyle: 'italic' }}>
+                    Example: "I grow basil indoors on a windowsill. Temperature should stay between 18 and 25 C. Below 15 C the plants suffer, and above 30 C they wilt. Humidity below 40 percent is too dry."
+                  </Typography>
+                </Stack>
+              </InfoButton>
+            </Stack>
+            <TextField
+              fullWidth
+              multiline
+              rows={4}
+              label="Describe your monitoring setup..."
+              value={aiPrompt}
+              onChange={(e) => {
+                setAiPrompt(e.target.value);
+                if (aiFollowUpQuestions.length > 0) {
+                  resetAiFollowUpState();
+                }
+              }}
+              placeholder="Example: I am monitoring a greenhouse with tomatoes. Temperature should stay 20 to 28 C and humidity 60 to 80 percent."
+              variant="outlined"
+              helperText={`${aiPrompt.length}/300 characters`}
+              error={aiPrompt.length > 300}
+            />
+            <Button
+              variant="contained"
+              color="secondary"
+              fullWidth
+              disabled={!aiPrompt.trim() || requestingAi}
+              sx={{ mt: 1.5, fontWeight: 700 }}
+              onClick={() => requestAiConfiguration()}
+            >
+              Use AI to Fill Configuration
+            </Button>
 
           {aiFollowUpQuestions.length > 0 && (
             <Box sx={{ mt: 2, p: 2, borderRadius: 2, bgcolor: '#fffdf8', border: '1px solid rgba(60, 57, 17, 0.12)' }}>
@@ -2671,7 +2710,18 @@ const SensorConfig: React.FC = () => {
               </Stack>
             </Alert>
           )}
+          <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => setShowAiAssistance(false)}
+              fullWidth
+            >
+              Close AI Assistance
+            </Button>
+          </Stack>
         </Box>
+        )}
 
         {/* SENSOR NAME */}
         <Box>
@@ -2767,41 +2817,6 @@ const SensorConfig: React.FC = () => {
           </Grid>
         </Box>
 
-        {/* WHY - PURPOSE */}
-        {selectedDerivedMetric && (
-          <Box>
-            <Stack
-              direction="row"
-              spacing={1}
-              alignItems="center"
-              justifyContent="space-between"
-              sx={{ mb: 1.5 }}
-            >
-              <Typography variant="subtitle2" sx={{ ...fieldGroupTitleSx, mb: 0 }}>
-                Why (What's it for?)
-              </Typography>
-              <InfoButton tooltip="Purpose guidance">
-                Choose the real-world use case for this sensor. The purpose helps Spectron interpret the readings correctly and suggest better alerts and visualizations.
-              </InfoButton>
-            </Stack>
-            <FormControl fullWidth>
-              <InputLabel id="purpose-label">Choose a purpose</InputLabel>
-              <Select
-                labelId="purpose-label"
-                value={purpose}
-                label="Choose a purpose"
-                onChange={(e) => setPurpose(e.target.value)}
-              >
-                {purposeOptions.map((option) => (
-                  <MenuItem key={option.key} value={option.label}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Box>
-        )}
-
         {clarificationPrompts.length > 0 && (
           <Box>
             <Stack
@@ -2878,6 +2893,82 @@ const SensorConfig: React.FC = () => {
                 .filter((profile) => allowedPresentationProfiles.includes(profile.value))
                 .map((profile) => {
                   const active = presentationProfile === profile.value;
+                  
+                  // Render preview visualization for each dashboard view
+                  const renderProfilePreview = () => {
+                    switch (profile.visualization_method) {
+                      case 'line_trend':
+                        return (
+                          <Box sx={{ mt: 1.5 }}>
+                            <svg width="100%" height="60" viewBox="0 0 200 60" role="img" aria-label={`${profile.visualization_label} preview`}>
+                              <path d="M10,50 Q50,35 90,25 T170,15" fill="none" stroke="#337a85" strokeWidth="2.5" strokeLinejoin="round" />
+                              {[10, 50, 90, 130, 170].map((x, i) => (
+                                <circle key={i} cx={x} cy={[50, 35, 25, 20, 15][i]} r="2.5" fill={i === 4 ? '#337a85' : '#c9c2b3'} />
+                              ))}
+                            </svg>
+                          </Box>
+                        );
+                      case 'area_trend':
+                        return (
+                          <Box sx={{ mt: 1.5 }}>
+                            <svg width="100%" height="60" viewBox="0 0 200 60" role="img" aria-label={`${profile.visualization_label} preview`}>
+                              <defs>
+                                <linearGradient id="areaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                                  <stop offset="0%" stopColor="rgba(51, 122, 133, 0.3)" />
+                                  <stop offset="100%" stopColor="rgba(51, 122, 133, 0.05)" />
+                                </linearGradient>
+                              </defs>
+                              <path d="M10,45 Q50,28 90,18 T170,12 L170,58 Q130,50 90,55 Q50,60 10,58 Z" fill="url(#areaGrad)" stroke="none" />
+                              <path d="M10,45 Q50,28 90,18 T170,12" fill="none" stroke="#337a85" strokeWidth="2.5" strokeLinejoin="round" />
+                            </svg>
+                          </Box>
+                        );
+                      case 'gauge_band':
+                        return (
+                          <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <svg width="80" height="60" viewBox="0 0 100 80" role="img" aria-label={`${profile.visualization_label} preview`}>
+                              <path d="M20,60 A40,40 0 0,1 80,60" fill="none" stroke="#e0e0e0" strokeWidth="6" />
+                              <path d="M20,60 A40,40 0 0,1 70,20" fill="none" stroke="#6c8930" strokeWidth="6" strokeLinecap="round" />
+                              <circle cx="50" cy="60" r="3" fill="#333" />
+                              <text x="50" y="75" textAnchor="middle" fontSize="10" fill="#666">68%</text>
+                            </svg>
+                          </Box>
+                        );
+                      case 'counter_bars':
+                        return (
+                          <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', height: 60, gap: 0.5 }}>
+                            <svg width="100%" height="60" viewBox="0 0 200 60" role="img" aria-label={`${profile.visualization_label} preview`}>
+                              {[14, 28, 42, 56, 70].map((height, i) => (
+                                <rect key={i} x={i * 35 + 10} y={60 - height} width="28" height={height} fill="#6c8930" rx="3" />
+                              ))}
+                            </svg>
+                          </Box>
+                        );
+                      case 'event_timeline':
+                        return (
+                          <Box sx={{ mt: 1.5 }}>
+                            <svg width="100%" height="50" viewBox="0 0 200 50" role="img" aria-label={`${profile.visualization_label} preview`}>
+                              <line x1="10" y1="30" x2="190" y2="30" stroke="#e0e0e0" strokeWidth="1" />
+                              {[30, 60, 90, 120, 150].map((x, i) => {
+                                const y = [35, 20, 35, 15, 35][i];
+                                return (
+                                  <g key={i}>
+                                    <circle cx={x} cy={y} r="3.5" fill={i === 4 ? '#c37b2a' : '#999'} />
+                                  </g>
+                                );
+                              })}
+                            </svg>
+                          </Box>
+                        );
+                      default:
+                        return (
+                          <Box sx={{ mt: 1.5, p: 1, textAlign: 'center', color: 'text.secondary' }}>
+                            <Typography variant="caption">Preview</Typography>
+                          </Box>
+                        );
+                    }
+                  };
+                  
                   return (
                     <Grid item xs={12} md={6} key={profile.value}>
                       <Box
@@ -2890,6 +2981,7 @@ const SensorConfig: React.FC = () => {
                           bgcolor: active ? 'rgba(108, 137, 48, 0.08)' : '#fff',
                           cursor: 'pointer',
                           boxShadow: active ? '0 8px 16px rgba(108, 137, 48, 0.12)' : 'none',
+                          transition: 'all 200ms ease',
                         }}
                       >
                         <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
@@ -2898,6 +2990,7 @@ const SensorConfig: React.FC = () => {
                         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                           {profile.description}
                         </Typography>
+                        {renderProfilePreview()}
                         {active && (
                           <Chip size="small" color="primary" label="Selected" sx={{ mt: 1 }} />
                         )}
@@ -3703,40 +3796,7 @@ const SensorConfig: React.FC = () => {
           </Alert>
         )}
 
-        <Alert severity="info" sx={{ mt: 2 }}>
-          Only a few simple choices are needed to set this up.
-        </Alert>
 
-        {/* SIMPLE TAB NAVIGATION */}
-        <Box sx={{ mt: 3, display: 'flex', gap: 1, borderBottom: '1px solid rgba(60, 57, 17, 0.1)' }}>
-          {CONFIGURATION_STEPS.map((step, index) => (
-            <Button
-              key={step.key}
-              onClick={() => setActiveStep(index)}
-              sx={{
-                px: 3,
-                py: 1.5,
-                borderBottom: activeStep === index ? '3px solid' : '3px solid transparent',
-                borderColor: activeStep === index ? 'primary.main' : 'transparent',
-                fontWeight: activeStep === index ? 700 : 500,
-                textTransform: 'none',
-                fontSize: '1rem',
-                color: activeStep === index ? 'primary.main' : 'text.secondary',
-                '&:hover': { bgcolor: 'rgba(108, 137, 48, 0.04)' },
-              }}
-            >
-              {index + 1}. {step.title}
-            </Button>
-          ))}
-        </Box>
-
-        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2.5 }}>
-          <Chip size="small" variant="outlined" label={friendlyName || 'Name not set'} />
-          {selectedDerivedMetric && <Chip size="small" variant="outlined" label={selectedDerivedMetric.label} />}
-          {selectedPresentationDefinition && (
-            <Chip size="small" variant="outlined" label={selectedPresentationDefinition.visualization_label} />
-          )}
-        </Stack>
 
         <Box sx={{ mt: 2.5, mb: 0.5 }}>
           <Typography variant="overline" sx={pageKickerSx}>
@@ -3750,29 +3810,24 @@ const SensorConfig: React.FC = () => {
           </Typography>
         </Box>
 
-        <Grid container spacing={3} sx={{ mt: 0.5 }}>
-          <Grid item xs={12} lg={7}>
-            {renderActiveStep()}
+        <Box sx={{ mt: 0.5 }}>
+          {renderActiveStep()}
 
-            {activeStepMeta.key === 'alerts' && (
-              <Alert severity="info" sx={{ mt: 3 }}>
-                Once you save, this configuration activates immediately and your sensor will start reporting with these settings.
-              </Alert>
-            )}
+          {activeStepMeta.key === 'alerts' && (
+            <Alert severity="info" sx={{ mt: 3 }}>
+              Once you save, this configuration activates immediately and your sensor will start reporting with these settings.
+            </Alert>
+          )}
 
-            <AutoDismissAlert
-              open={Boolean(pageError)}
-              severity="error"
-              sx={{ mt: 2 }}
-              onCloseAlert={() => setPageError(null)}
-            >
-              {pageError}
-            </AutoDismissAlert>
-          </Grid>
-          <Grid item xs={12} lg={5}>
-            {renderLivePreviewPanel()}
-          </Grid>
-        </Grid>
+          <AutoDismissAlert
+            open={Boolean(pageError)}
+            severity="error"
+            sx={{ mt: 2 }}
+            onCloseAlert={() => setPageError(null)}
+          >
+            {pageError}
+          </AutoDismissAlert>
+        </Box>
 
         <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={1.5} sx={{ mt: 3 }}>
           <Button

@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import ControllerDashboard from '../main/ControllerDashboard';
 import {
+  deleteHardwareSensor,
   getHardwareController,
   getHardwareSensors,
   releaseHardwareController,
@@ -19,6 +20,7 @@ vi.mock('../../contexts/AuthContext', () => ({
 }));
 
 vi.mock('../../services/hardwarePairingService', () => ({
+  deleteHardwareSensor: vi.fn(),
   getHardwareController: vi.fn(),
   getHardwareSensors: vi.fn(),
   releaseHardwareController: vi.fn(),
@@ -73,6 +75,7 @@ describe('Paired hardware sensors dashboard', () => {
         config_active: false,
       },
     ]);
+    vi.mocked(deleteHardwareSensor).mockResolvedValue(undefined);
     vi.mocked(releaseHardwareController).mockResolvedValue(undefined);
   });
 
@@ -113,5 +116,25 @@ describe('Paired hardware sensors dashboard', () => {
 
     expect(releaseHardwareController).toHaveBeenCalledWith('CTRL-100');
     expect(await screen.findByText(/controller removed from your account/i)).toBeInTheDocument();
+  });
+
+  it('removes a connected sensor through the hardware API', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={['/hardware/CTRL-100/sensors']}>
+        <Routes>
+          <Route path="/hardware/:controllerId/sensors" element={<ControllerDashboard />} />
+          <Route path="/controllers" element={<ControllersDestination />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText(/sensors \(3\)/i)).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole('button', { name: /^remove$/i })[0]);
+
+    expect(deleteHardwareSensor).toHaveBeenCalledWith('CTRL-100', 'load-1');
+    expect(await screen.findByText(/sensors \(2\)/i)).toBeInTheDocument();
   });
 });

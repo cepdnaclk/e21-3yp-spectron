@@ -21,7 +21,7 @@ npm install
 2. Set environment variables:
 Create a `.env` file:
 ```
-REACT_APP_API_URL=http://spectron-backend-env.eba-niaes6bi.ap-south-1.elasticbeanstalk.com
+REACT_APP_API_URL=https://spectroniot.xyz
 REACT_APP_DEMO_MODE=false
 ```
 

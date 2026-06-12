@@ -101,7 +101,8 @@ type SensorCardData = {
   latestValue: number | null;
   displayValue: number | null;
   latestTime?: string;
-  isSampleData: boolean;
+  hasLiveReadings: boolean;
+  isSampleData: false;
   health: SensorHealth;
   healthLabel: string;
   insight: string;
@@ -192,89 +193,6 @@ const toReadingValue = (reading: SensorReading): number | null => {
 
 const sortReadingsAscending = (readings: SensorReading[]) =>
   [...readings].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-
-const sampleTrendValuesForMetric = (metricKey: string, useCase: string): number[] => {
-  switch (metricKey) {
-    case 'temperature':
-    case 'temperature_spike':
-    case 'heat_index':
-    case 'dew_point':
-      return [26.8, 27.2, 27.7, 28.1, 28.4, 28.2];
-    case 'humidity':
-    case 'humidity_spike':
-      return [63, 65, 66, 68, 67, 68];
-    case 'distance':
-      return [104, 101, 98, 96, 94, 92];
-    case 'fill_level':
-    case 'fill_rate':
-      return [54, 58, 63, 68, 72, 76];
-    case 'remaining_capacity_percent':
-      return [46, 42, 37, 32, 28, 24];
-    case 'occupancy_count':
-    case 'occupancy_spike':
-    case 'peak_occupancy':
-      return [8, 10, 13, 15, 18, 16];
-    case 'attendance_count':
-      return [34, 37, 40, 42, 41, 42];
-    case 'weight':
-      return [15.1, 14.9, 14.5, 14.1, 13.8, 13.6];
-    case 'utilization_percent':
-      return [52, 56, 60, 64, 68, 71];
-    case 'overload_risk':
-      return [48, 57, 66, 74, 88, 81];
-    case 'load_change_rate':
-    case 'depletion_rate':
-      return [-0.4, -0.6, -0.7, -0.9, -1.0, -1.1];
-    case 'gas_level':
-      return [240, 255, 275, 290, 320, 305];
-    case 'gas_spike':
-      return [12, 18, 24, 41, 85, 38];
-    case 'risk_score':
-      return [38, 44, 55, 61, 72, 68];
-    case 'unsafe_duration':
-      return [0, 2, 4, 7, 12, 9];
-    case 'aqi':
-      return [48, 52, 58, 63, 68, 64];
-    default:
-      if (useCase === 'occupancy_monitoring' || useCase === 'attendance_monitoring') {
-        return [8, 10, 13, 15, 18, 16];
-      }
-      if (useCase === 'fill_level_monitoring') {
-        return [54, 58, 63, 68, 72, 76];
-      }
-      if (useCase === 'load_monitoring') {
-        return [15.1, 14.9, 14.5, 14.1, 13.8, 13.6];
-      }
-      if (useCase === 'safety_monitoring') {
-        return [240, 255, 275, 290, 320, 305];
-      }
-      return [22, 24, 26, 28, 30, 29];
-  }
-};
-
-const buildSampleSensorTrend = (
-  metricKey: string,
-  useCase: string
-): SensorPoint[] => {
-  const values = sampleTrendValuesForMetric(metricKey, useCase);
-  const stepMinutes =
-    useCase === 'occupancy_monitoring' || useCase === 'attendance_monitoring' ? 60 : 180;
-  const now = Date.now();
-
-  return values.map((value, index) => {
-    const time = new Date(
-      now - (values.length - 1 - index) * stepMinutes * 60 * 1000
-    ).toISOString();
-    const label = formatTimeLabel(time);
-
-    return {
-      label,
-      shortLabel: label,
-      value,
-      time,
-    };
-  });
-};
 
 const getConfigUseCaseValue = (config?: SensorConfig) =>
   config?.interpretation?.use_case?.trim() || config?.use_case?.trim() || '';
@@ -1412,41 +1330,32 @@ const Monitoring: React.FC = () => {
               const presentationProfile = getPresentationProfile(sensor);
               const useCase = getUseCase(sensor);
               const presentationState = getPresentationState(sensor);
-              const isSampleData = trend.length === 0;
-              const effectiveTrend = isSampleData
-                ? buildSampleSensorTrend(presentationState.primaryMetric, useCase)
-                : trend;
-              const latestPoint = effectiveTrend[effectiveTrend.length - 1];
+              const latestPoint = trend[trend.length - 1];
               const threshold = getPrimaryThreshold(sensor);
               const displayValue = getDisplayValue(
                 latestPoint?.value ?? null,
-                effectiveTrend,
+                trend,
                 threshold,
                 presentationState
               );
-              const evaluated = isSampleData
-                ? {
-                    health: 'normal' as const,
-                    label: 'Sample view',
-                    insight: 'Showing sample data until live readings arrive for this sensor.',
-                  }
-                : evaluateHealth(
-                    sensor,
-                    latestPoint?.value ?? null,
-                    threshold,
-                    presentationState
-                  );
+              const evaluated = evaluateHealth(
+                sensor,
+                latestPoint?.value ?? null,
+                threshold,
+                presentationState
+              );
 
               return {
                 controllerName: controller.name || controller.hw_id || 'Controller',
                 controllerLocation: controller.location,
                 controllerStatus: controller.status,
                 sensor,
-                trend: effectiveTrend,
+                trend,
                 latestValue: latestPoint?.value ?? null,
                 displayValue,
-                latestTime: isSampleData ? undefined : latestPoint?.time,
-                isSampleData,
+                latestTime: latestPoint?.time,
+                hasLiveReadings: trend.length > 0,
+                isSampleData: false,
                 threshold,
                 health: evaluated.health,
                 healthLabel: evaluated.label,
@@ -1508,14 +1417,13 @@ const Monitoring: React.FC = () => {
 
   const summary = useMemo(() => {
     const allSensors = controllers.flatMap((controller) => controller.sensors);
-    const liveSensors = allSensors.filter((sensor) => !sensor.isSampleData);
+    const liveSensors = allSensors.filter((sensor) => sensor.hasLiveReadings);
     return {
       controllers: controllers.length,
       healthy: liveSensors.filter((sensor) => sensor.health === 'normal').length,
       needsAttention: liveSensors.filter(
         (sensor) => sensor.health === 'warning' || sensor.health === 'critical'
       ).length,
-      samplePreview: allSensors.filter((sensor) => sensor.isSampleData).length,
     };
   }, [controllers]);
 
@@ -1734,14 +1642,6 @@ const Monitoring: React.FC = () => {
           {errorMessage}
       </AutoDismissAlert>
 
-      {!errorMessage && summary.samplePreview > 0 && (
-        <AutoDismissAlert open severity="info" sx={{ mb: 2 }}>
-          {summary.samplePreview} sensor{summary.samplePreview === 1 ? '' : 's'} are showing sample
-          data because recent readings are not available yet. You can still review the configured
-          visualization and thresholds.
-        </AutoDismissAlert>
-      )}
-
       {!errorMessage && controllers.length === 0 && (
         <Card>
           <CardContent>
@@ -1757,13 +1657,12 @@ const Monitoring: React.FC = () => {
         {controllers.map((controller) => {
           const warningCount = controller.sensors.filter(
             (sensor) =>
-              !sensor.isSampleData &&
+              sensor.hasLiveReadings &&
               (sensor.health === 'warning' || sensor.health === 'critical')
           ).length;
           const activeCount = controller.sensors.filter(
-            (sensor) => sensor.latestValue !== null && !sensor.isSampleData
+            (sensor) => sensor.latestValue !== null && sensor.hasLiveReadings
           ).length;
-          const sampleCount = controller.sensors.filter((sensor) => sensor.isSampleData).length;
 
           return (
             <Card key={controller.id} sx={{ overflow: 'hidden' }}>
@@ -1814,23 +1713,12 @@ const Monitoring: React.FC = () => {
                         fontWeight: 800,
                       }}
                     />
-                    {sampleCount > 0 && (
-                      <Chip
-                        label={`${sampleCount} sample`}
-                        size="small"
-                        sx={{
-                          bgcolor: 'rgba(152, 208, 255, 0.18)',
-                          color: '#fffdf8',
-                          fontWeight: 800,
-                        }}
-                      />
-                    )}
                     <Chip
                       label={
                         warningCount > 0
                           ? `${warningCount} to review`
-                          : sampleCount > 0 && activeCount === 0
-                            ? 'Preview mode'
+                          : activeCount === 0
+                            ? 'Waiting for readings'
                             : 'All calm'
                       }
                       size="small"
@@ -1838,7 +1726,7 @@ const Monitoring: React.FC = () => {
                         bgcolor:
                           warningCount > 0
                             ? '#dba048'
-                            : sampleCount > 0 && activeCount === 0
+                            : activeCount === 0
                               ? 'rgba(152, 208, 255, 0.18)'
                               : 'rgba(255, 253, 248, 0.12)',
                         color:
@@ -1959,8 +1847,8 @@ const Monitoring: React.FC = () => {
                                 </Box>
                               </Stack>
                               <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" justifyContent="flex-end">
-                                {item.isSampleData && (
-                                  <Chip size="small" variant="outlined" color="info" label="Sample Data" />
+                                {!item.hasLiveReadings && (
+                                  <Chip size="small" variant="outlined" color="info" label="No readings" />
                                 )}
                                 <Chip size="small" label={item.healthLabel} color={styles.chipColor} />
                               </Stack>
@@ -1986,11 +1874,9 @@ const Monitoring: React.FC = () => {
                                   {formatSensorValue(item.displayValue, displayUnit)}
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                                  {item.isSampleData
-                                    ? 'Showing sample history until live data arrives'
-                                    : item.latestTime
-                                      ? `Seen at ${formatDateTime(item.latestTime)}`
-                                      : 'No timestamp available'}
+                                  {item.latestTime
+                                    ? `Seen at ${formatDateTime(item.latestTime)}`
+                                    : 'Waiting for live readings'}
                                 </Typography>
                               </Box>
                               <Stack spacing={0.75} sx={{ minWidth: { sm: 220 } }}>
@@ -2005,7 +1891,7 @@ const Monitoring: React.FC = () => {
                                 />
                                 <Typography variant="caption" color="text.secondary">
                                   {item.isSampleData
-                                    ? 'Sample history'
+                                    ? 'Waiting for readings'
                                     : trendDelta || 'Needs more readings to show direction'} •{' '}
                                   {thresholdSummary}
                                 </Typography>
@@ -2231,11 +2117,11 @@ const Monitoring: React.FC = () => {
                               sx={{ mt: 2.5, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}
                             >
                               <Typography variant="caption" color="text.secondary" sx={{ pr: 1 }}>
-                                {item.isSampleData
-                                  ? item.insight
-                                  : item.sensor.config_active
+                                {item.hasLiveReadings
+                                  ? item.sensor.config_active
                                     ? 'Configuration is active for this sensor.'
-                                    : 'No configuration saved yet.'}
+                                    : 'No configuration saved yet.'
+                                  : item.insight}
                               </Typography>
                               <Button
                                 variant="outlined"

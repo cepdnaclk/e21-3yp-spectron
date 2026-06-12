@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Container,
@@ -20,6 +20,7 @@ import { Controller } from '../../services/controllerService';
 import { Sensor } from '../../services/sensorService';
 import {
   HardwarePairingSensor,
+  deleteHardwareSensor,
   getHardwareController,
   getHardwareSensors,
   renameHardwareController,
@@ -41,19 +42,50 @@ type DashboardNavigationState = {
   observationMessage?: string;
 };
 
+const REMOVED_SENSOR_STORAGE_PREFIX = 'spectron_removed_sensors';
+
+const getSensorIdentity = (sensor: Sensor) => sensor.hw_id || sensor.id;
+
+const getRemovedSensorStorageKey = (controllerId: string) =>
+  `${REMOVED_SENSOR_STORAGE_PREFIX}:${controllerId}`;
+
+const readRemovedSensorIds = (controllerId: string) => {
+  if (!controllerId) {
+    return [];
+  }
+
+  try {
+    const raw = localStorage.getItem(getRemovedSensorStorageKey(controllerId));
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeRemovedSensorIds = (controllerId: string, sensorIds: string[]) => {
+  if (!controllerId) {
+    return;
+  }
+
+  localStorage.setItem(getRemovedSensorStorageKey(controllerId), JSON.stringify(sensorIds));
+};
+
 const ControllerDashboard: React.FC = () => {
   const { id, controllerId } = useParams<{ id?: string; controllerId?: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
   const [controller, setController] = useState<Controller | null>(null);
-  const [sensors, setSensors] = useState<Sensor[]>([]);
+  const [reportedSensors, setReportedSensors] = useState<Sensor[]>([]);
+  const [removedSensorIds, setRemovedSensorIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [removing, setRemoving] = useState(false);
   const [renamingController, setRenamingController] = useState(false);
   const [editingControllerName, setEditingControllerName] = useState(false);
   const [controllerNameDraft, setControllerNameDraft] = useState('');
   const [renamingSensorId, setRenamingSensorId] = useState<string | null>(null);
+  const [removingSensorId, setRemovingSensorId] = useState<string | null>(null);
   const [editingSensorId, setEditingSensorId] = useState<string | null>(null);
   const [sensorNameDraft, setSensorNameDraft] = useState('');
   const navigationState = (location.state || null) as DashboardNavigationState | null;
@@ -67,6 +99,18 @@ const ControllerDashboard: React.FC = () => {
     activeControllerId;
   const isHardwareContext = Boolean(activeControllerId && /^CTRL-/i.test(activeControllerId));
   const canManageControllers = user?.accounts?.some((account) => account.role === 'OWNER' || account.role === 'ADMIN');
+  const removedSensorSet = useMemo(() => new Set(removedSensorIds), [removedSensorIds]);
+  const sensors = useMemo(
+    () => reportedSensors.filter((sensor) => !removedSensorSet.has(getSensorIdentity(sensor))),
+    [removedSensorSet, reportedSensors]
+  );
+  const pendingSensors = useMemo(
+    () =>
+      reportedSensors.filter(
+        (sensor) => removedSensorSet.has(getSensorIdentity(sensor)) && sensor.status === 'OK'
+      ),
+    [removedSensorSet, reportedSensors]
+  );
 
   useEffect(() => {
     if (controller && !editingControllerName) {
@@ -96,7 +140,7 @@ const ControllerDashboard: React.FC = () => {
         getHardwareSensors(activeControllerId),
       ]);
       setController(controllerData);
-      setSensors(Array.isArray(sensorsData) ? sensorsData : []);
+      setReportedSensors(Array.isArray(sensorsData) ? sensorsData : []);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -107,6 +151,7 @@ const ControllerDashboard: React.FC = () => {
   useEffect(() => {
     if (activeControllerId) {
       loadData();
+      setRemovedSensorIds(readRemovedSensorIds(activeControllerId));
     }
   }, [activeControllerId, loadData]);
 
@@ -165,9 +210,20 @@ const ControllerDashboard: React.FC = () => {
       return { label: 'Configured', color: 'primary' as const };
     }
     if (sensor.status === 'OK') {
-      return { label: 'Live - config optional', color: 'success' as const };
+      return { label: 'Connected - config optional', color: 'success' as const };
     }
-    return { label: 'Discovered', color: 'default' as const };
+    return { label: 'Not connected', color: 'default' as const };
+  };
+
+  const getConnectionChip = (sensor: Sensor) => {
+    switch (sensor.status) {
+      case 'OK':
+        return { label: 'Connected', color: 'success' as const };
+      case 'ERROR':
+        return { label: 'Error', color: 'error' as const };
+      default:
+        return { label: 'Not connected', color: 'default' as const };
+    }
   };
 
   const handleRemoveController = async () => {
@@ -252,7 +308,7 @@ const ControllerDashboard: React.FC = () => {
     setRenamingSensorId(sensor.id);
     try {
       const updatedSensor = await renameHardwareSensor(activeControllerId, sensor.id, nextName);
-      setSensors((current) =>
+      setReportedSensors((current) =>
         current.map((item) =>
           item.id === sensor.id ? { ...item, ...updatedSensor, name: updatedSensor.name || nextName } : item
         )
@@ -265,6 +321,37 @@ const ControllerDashboard: React.FC = () => {
     } finally {
       setRenamingSensorId(null);
     }
+  };
+
+  const removeSensorFromWorkspace = async (sensor: Sensor) => {
+    const sensorKey = getSensorIdentity(sensor);
+    setRemovingSensorId(sensor.id);
+    try {
+      await deleteHardwareSensor(activeControllerId, sensor.id);
+      const nextRemovedSensorIds = Array.from(new Set([...removedSensorIds, sensorKey]));
+      setRemovedSensorIds(nextRemovedSensorIds);
+      writeRemovedSensorIds(activeControllerId, nextRemovedSensorIds);
+      setReportedSensors((current) => current.filter((item) => item.id !== sensor.id));
+      showToast(`${sensor.name || sensor.type} removed from the controller.`, 'success');
+    } catch (err: any) {
+      const responseData = err?.response?.data;
+      showToast(
+        err?.message ||
+          (typeof responseData === 'string' ? responseData : responseData?.message) ||
+          'Failed to remove sensor from the database.',
+        'error'
+      );
+    } finally {
+      setRemovingSensorId(null);
+    }
+  };
+
+  const allowSensorInWorkspace = (sensor: Sensor) => {
+    const sensorKey = getSensorIdentity(sensor);
+    const nextRemovedSensorIds = removedSensorIds.filter((id) => id !== sensorKey);
+    setRemovedSensorIds(nextRemovedSensorIds);
+    writeRemovedSensorIds(activeControllerId, nextRemovedSensorIds);
+    showToast(`${sensor.name || sensor.type} added to this workspace.`, 'success');
   };
 
   if (loading) {
@@ -464,8 +551,58 @@ const ControllerDashboard: React.FC = () => {
         </Box>
       </Box>
 
+      {pendingSensors.length > 0 && (
+        <Alert severity="info" sx={{ mt: 2 }}>
+          <Stack spacing={1.5}>
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                New sensor found
+              </Typography>
+              <Typography variant="body2">
+                A sensor that was removed from this workspace is reporting again. Allow it if this
+                sensor should be visible for this controller.
+              </Typography>
+            </Box>
+            <Stack spacing={1}>
+              {pendingSensors.map((sensor) => (
+                <Stack
+                  key={sensor.id}
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={1}
+                  justifyContent="space-between"
+                  alignItems={{ xs: 'flex-start', sm: 'center' }}
+                  sx={{
+                    p: 1,
+                    border: '1px solid rgba(2, 136, 209, 0.2)',
+                    borderRadius: 1,
+                    bgcolor: 'rgba(2, 136, 209, 0.04)',
+                  }}
+                >
+                  <Box>
+                    <Typography variant="subtitle2">
+                      {sensor.name || sensor.hw_id || sensor.type}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {sensor.type} - {sensor.hw_id || sensor.id}
+                    </Typography>
+                  </Box>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<Check />}
+                    onClick={() => allowSensorInWorkspace(sensor)}
+                  >
+                    Allow
+                  </Button>
+                </Stack>
+              ))}
+            </Stack>
+          </Stack>
+        </Alert>
+      )}
+
       <Grid container spacing={2} sx={{ mt: 1 }}>
-        {sensors.length === 0 ? (
+        {sensors.length === 0 && pendingSensors.length === 0 ? (
           <Grid item xs={12}>
             <Card
               sx={{
@@ -503,6 +640,7 @@ const ControllerDashboard: React.FC = () => {
           sensors.map((sensor) => {
             const observationChip = getObservationChip(sensor);
             const readinessChip = getReadinessChip(sensor);
+            const connectionChip = getConnectionChip(sensor);
             const readableRanges =
               sensor.active_config?.hardware?.supported_raw_metrics?.length
                 ? sensor.active_config.hardware.supported_raw_metrics
@@ -581,8 +719,8 @@ const ControllerDashboard: React.FC = () => {
                         )}
                       </Box>
                       <Chip
-                        label={sensor.status}
-                        color={getStatusColor(sensor.status) as any}
+                        label={connectionChip.label}
+                        color={connectionChip.color}
                         size="small"
                       />
                     </Box>
@@ -630,36 +768,49 @@ const ControllerDashboard: React.FC = () => {
                         </Typography>
                       ) : (
                         <Typography variant="body2" color="text.secondary" fontStyle="italic">
-                          Sensor discovered. Send a reading packet from the controller to confirm live data.
+                          Sensor was discovered before, but it is not connected right now.
                         </Typography>
                       )}
-                      <Button
-                        variant="outlined"
-                        startIcon={sensor.config_active ? <Tune /> : <Settings />}
-                        size="small"
-                        sx={{ mt: 2 }}
-                        onClick={() =>
-                          navigate(
-                            isHardwareContext
-                              ? `/hardware/${activeControllerId}/sensors/${sensor.id}/configure`
-                              : `/sensors/${sensor.id}/config`,
-                            {
-                              state: {
-                                controllerId: activeControllerId,
-                                sensorId: sensor.id,
-                                sensorType: sensor.type,
-                                sensorName: sensor.name || `${sensor.type} Sensor`,
-                                configured: Boolean(sensor.config_active),
-                                returnTo: isHardwareContext
-                                  ? `/hardware/${activeControllerId}/sensors`
-                                  : `/controllers/${activeControllerId}`,
-                              },
-                            }
-                          )
-                        }
-                      >
-                        {sensor.config_active ? 'Review Configuration' : 'Configure'}
-                      </Button>
+                      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2 }}>
+                        <Button
+                          variant="outlined"
+                          startIcon={sensor.config_active ? <Tune /> : <Settings />}
+                          size="small"
+                          onClick={() =>
+                            navigate(
+                              isHardwareContext
+                                ? `/hardware/${activeControllerId}/sensors/${sensor.id}/configure`
+                                : `/sensors/${sensor.id}/config`,
+                              {
+                                state: {
+                                  controllerId: activeControllerId,
+                                  sensorId: sensor.id,
+                                  sensorType: sensor.type,
+                                  sensorName: sensor.name || `${sensor.type} Sensor`,
+                                  configured: Boolean(sensor.config_active),
+                                  returnTo: isHardwareContext
+                                    ? `/hardware/${activeControllerId}/sensors`
+                                    : `/controllers/${activeControllerId}`,
+                                },
+                              }
+                            )
+                          }
+                        >
+                          {sensor.config_active ? 'Review Configuration' : 'Configure'}
+                        </Button>
+                        {canManageControllers && (
+                          <Button
+                            variant="outlined"
+                            color="error"
+                            startIcon={<DeleteOutline />}
+                            size="small"
+                            disabled={removingSensorId === sensor.id}
+                            onClick={() => removeSensorFromWorkspace(sensor)}
+                          >
+                            {removingSensorId === sensor.id ? 'Removing...' : 'Remove'}
+                          </Button>
+                        )}
+                      </Stack>
                     </Box>
                   </CardContent>
                 </Card>

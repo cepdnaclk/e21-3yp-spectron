@@ -332,6 +332,18 @@ type geminiGenerateResponse struct {
 	} `json:"candidates"`
 }
 
+type ollamaGenerateRequest struct {
+	Model   string                 `json:"model"`
+	Prompt  string                 `json:"prompt"`
+	Stream  bool                   `json:"stream"`
+	Format  string                 `json:"format,omitempty"`
+	Options map[string]interface{} `json:"options,omitempty"`
+}
+
+type ollamaGenerateResponse struct {
+	Response string `json:"response"`
+}
+
 type hostedAISuggestion struct {
 	FriendlyName         string                            `json:"friendly_name"`
 	UseCase              string                            `json:"use_case"`
@@ -623,7 +635,15 @@ func (h *SensorHandler) generateHostedAISuggestion(ctx context.Context, sensorTy
 	apiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
 	provider := strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER")))
 
-	if apiKey == "" || (provider != "" && provider != "gemini") {
+	if provider == "ollama" || (provider == "" && apiKey == "" && ollamaConfigured()) {
+		return h.generateOllamaAISuggestion(ctx, sensorType, req, historySummary)
+	}
+
+	if provider != "" && provider != "gemini" {
+		return models.SensorConfig{}, "", fmt.Errorf("unsupported AI provider %q", provider)
+	}
+
+	if apiKey == "" {
 		return models.SensorConfig{}, "", fmt.Errorf("hosted AI not configured")
 	}
 
@@ -641,30 +661,6 @@ func (h *SensorHandler) generateHostedAISuggestion(ctx context.Context, sensorTy
 	}
 	baseURL = normalizeGeminiBaseURL(baseURL)
 
-	prompt := fmt.Sprintf(`You are an IoT sensor configuration assistant.
-Generate JSON only for this sensor setup.
-
-Sensor type: %s
-User purpose: %s
-Structured context: %s
-Historical summary: %s
-
-Rules:
-- Return strict JSON object with keys:
-  friendly_name (string),
-  use_case (string, optional),
-  presentation_profile (string, optional),
-  primary_metric (string, optional),
-  report_interval_per_day (integer 1-288),
-  thresholds (object with optional min,max,warning_min,warning_max numbers),
-  metric_thresholds (object map where each key has same threshold shape),
-  explanation (string).
-- For temperature_humidity sensors, include metric_thresholds for both temperature and humidity.
-- Keep values practical for the environment and asset being monitored.
-- Use the structured context and historical summary when choosing thresholds.
-- Do not include markdown or code fences.
-`, sensorType, req.Purpose, contextSummary(req.Context), historySummary)
-
 	geminiReq := geminiGenerateRequest{}
 	geminiReq.Contents = []struct {
 		Parts []struct {
@@ -675,7 +671,7 @@ Rules:
 			Parts: []struct {
 				Text string `json:"text"`
 			}{
-				{Text: prompt},
+				{Text: buildHostedAIPrompt(sensorType, req, historySummary)},
 			},
 		},
 	}
@@ -746,6 +742,37 @@ Rules:
 		return models.SensorConfig{}, "", err
 	}
 
+	config, explanation := buildHostedAIConfig(sensorType, suggestion, fmt.Sprintf("hosted AI model (%s)", selectedModel))
+	return config, explanation, nil
+}
+
+func buildHostedAIPrompt(sensorType string, req models.AISuggestRequest, historySummary string) string {
+	return fmt.Sprintf(`You are an IoT sensor configuration assistant.
+Generate JSON only for this sensor setup.
+
+Sensor type: %s
+User purpose: %s
+Structured context: %s
+Historical summary: %s
+
+Rules:
+- Return strict JSON object with keys:
+  friendly_name (string),
+  use_case (string, optional),
+  presentation_profile (string, optional),
+  primary_metric (string, optional),
+  report_interval_per_day (integer 1-288),
+  thresholds (object with optional min,max,warning_min,warning_max numbers),
+  metric_thresholds (object map where each key has same threshold shape),
+  explanation (string).
+- For temperature_humidity sensors, include metric_thresholds for both temperature and humidity.
+- Keep values practical for the environment and asset being monitored.
+- Use the structured context and historical summary when choosing thresholds.
+- Do not include markdown or code fences.
+`, sensorType, req.Purpose, contextSummary(req.Context), historySummary)
+}
+
+func buildHostedAIConfig(sensorType string, suggestion hostedAISuggestion, fallbackSource string) (models.SensorConfig, string) {
 	if suggestion.ReportIntervalPerDay < 1 {
 		suggestion.ReportIntervalPerDay = 1
 	}
@@ -795,9 +822,64 @@ Rules:
 
 	explanation := suggestion.Explanation
 	if explanation == "" {
-		explanation = fmt.Sprintf("Configuration suggested by hosted AI model (%s).", selectedModel)
+		explanation = fmt.Sprintf("Configuration suggested by %s.", fallbackSource)
 	}
 
+	return config, explanation
+}
+
+func (h *SensorHandler) generateOllamaAISuggestion(ctx context.Context, sensorType string, req models.AISuggestRequest, historySummary string) (models.SensorConfig, string, error) {
+	model := strings.TrimSpace(os.Getenv("OLLAMA_MODEL"))
+	if model == "" {
+		model = "llama3.1:8b"
+	}
+
+	baseURL := strings.TrimSpace(os.Getenv("OLLAMA_BASE_URL"))
+	if baseURL == "" {
+		baseURL = "http://localhost:11434"
+	}
+	baseURL = normalizeOllamaBaseURL(baseURL)
+
+	hostedCtx, cancel := context.WithTimeout(ctx, ollamaTimeout())
+	defer cancel()
+
+	ollamaReq := ollamaGenerateRequest{
+		Model:  model,
+		Prompt: buildHostedAIPrompt(sensorType, req, historySummary),
+		Stream: false,
+		Format: "json",
+		Options: map[string]interface{}{
+			"temperature": 0.2,
+		},
+	}
+
+	body, err := json.Marshal(ollamaReq)
+	if err != nil {
+		return models.SensorConfig{}, "", err
+	}
+
+	respBody, err := callOllamaGenerate(hostedCtx, baseURL, model, body)
+	if err != nil {
+		return models.SensorConfig{}, "", err
+	}
+
+	var ollamaResp ollamaGenerateResponse
+	if err := json.Unmarshal(respBody, &ollamaResp); err != nil {
+		return models.SensorConfig{}, "", err
+	}
+
+	text := strings.TrimSpace(ollamaResp.Response)
+	jsonText := extractJSONObject(text)
+	if jsonText == "" {
+		return models.SensorConfig{}, "", fmt.Errorf("ollama response did not contain valid JSON")
+	}
+
+	var suggestion hostedAISuggestion
+	if err := json.Unmarshal([]byte(jsonText), &suggestion); err != nil {
+		return models.SensorConfig{}, "", err
+	}
+
+	config, explanation := buildHostedAIConfig(sensorType, suggestion, fmt.Sprintf("Ollama model (%s)", model))
 	return config, explanation, nil
 }
 
@@ -900,12 +982,98 @@ func callGeminiGenerate(ctx context.Context, baseURL string, apiKey string, mode
 	return nil, fmt.Errorf("gemini api error for model %s: exhausted retries", model)
 }
 
+func normalizeOllamaBaseURL(baseURL string) string {
+	trimmed := strings.TrimSpace(baseURL)
+	if trimmed == "" {
+		return "http://localhost:11434"
+	}
+
+	lower := strings.ToLower(trimmed)
+	if idx := strings.Index(lower, "/api/generate"); idx > 0 {
+		trimmed = trimmed[:idx]
+	}
+
+	return strings.TrimRight(trimmed, "/")
+}
+
+func callOllamaGenerate(ctx context.Context, baseURL string, model string, requestBody []byte) ([]byte, error) {
+	url := fmt.Sprintf("%s/api/generate", strings.TrimRight(baseURL, "/"))
+	httpClient := &http.Client{Timeout: ollamaHTTPTimeout()}
+
+	maxAttempts := ollamaMaxAttempts()
+	backoff := 1 * time.Second
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(requestBody))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+
+		httpResp, err := httpClient.Do(httpReq)
+		if err != nil {
+			if attempt == maxAttempts {
+				return nil, fmt.Errorf("ollama api error for model %s: %w", model, err)
+			}
+			time.Sleep(backoff + time.Duration(rand.Intn(500))*time.Millisecond)
+			backoff *= 2
+			continue
+		}
+
+		respBody, readErr := io.ReadAll(httpResp.Body)
+		httpResp.Body.Close()
+		if readErr != nil {
+			if attempt == maxAttempts {
+				return nil, fmt.Errorf("ollama api error for model %s: %w", model, readErr)
+			}
+			time.Sleep(backoff + time.Duration(rand.Intn(500))*time.Millisecond)
+			backoff *= 2
+			continue
+		}
+
+		if httpResp.StatusCode >= 200 && httpResp.StatusCode < 300 {
+			return respBody, nil
+		}
+
+		status := httpResp.StatusCode
+		bodySnippet := strings.TrimSpace(string(respBody))
+		if len(bodySnippet) > 300 {
+			bodySnippet = bodySnippet[:300]
+		}
+
+		if status >= 500 && attempt < maxAttempts {
+			time.Sleep(backoff + time.Duration(rand.Intn(500))*time.Millisecond)
+			backoff *= 2
+			continue
+		}
+
+		return nil, fmt.Errorf("ollama api error for model %s: %s | %s", model, httpResp.Status, bodySnippet)
+	}
+
+	return nil, fmt.Errorf("ollama api error for model %s: exhausted retries", model)
+}
+
 func hostedAITimeout() time.Duration {
+	if strings.TrimSpace(os.Getenv("HOSTED_AI_TIMEOUT_MS")) != "" {
+		return durationFromEnvMs("HOSTED_AI_TIMEOUT_MS", 12000, 3000, 60000)
+	}
 	return durationFromEnvMs("GEMINI_TIMEOUT_MS", 12000, 3000, 60000)
 }
 
 func geminiHTTPTimeout() time.Duration {
 	return durationFromEnvMs("GEMINI_HTTP_TIMEOUT_MS", 8000, 2000, 30000)
+}
+
+func ollamaConfigured() bool {
+	return strings.TrimSpace(os.Getenv("OLLAMA_BASE_URL")) != "" || strings.TrimSpace(os.Getenv("OLLAMA_MODEL")) != ""
+}
+
+func ollamaTimeout() time.Duration {
+	return durationFromEnvMs("OLLAMA_TIMEOUT_MS", 30000, 3000, 120000)
+}
+
+func ollamaHTTPTimeout() time.Duration {
+	return durationFromEnvMs("OLLAMA_HTTP_TIMEOUT_MS", 25000, 2000, 120000)
 }
 
 func aiHistoryQueryTimeout() time.Duration {
@@ -914,6 +1082,10 @@ func aiHistoryQueryTimeout() time.Duration {
 
 func geminiMaxAttempts() int {
 	return intFromEnv("GEMINI_MAX_ATTEMPTS", 2, 1, 4)
+}
+
+func ollamaMaxAttempts() int {
+	return intFromEnv("OLLAMA_MAX_ATTEMPTS", 1, 1, 3)
 }
 
 func shouldTryNextGeminiModel(errText string) bool {
@@ -940,16 +1112,22 @@ func sanitizeHostedAIError(err error) string {
 
 func hostedAIFallbackExplanation(err error) string {
 	errText := strings.ToLower(sanitizeHostedAIError(err))
+	providerLabel := "hosted AI"
+	if strings.Contains(errText, "ollama") || strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER"))) == "ollama" {
+		providerLabel = "Ollama AI"
+	} else if strings.Contains(errText, "gemini") || strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "" {
+		providerLabel = "Gemini AI"
+	}
 
 	switch {
 	case strings.Contains(errText, "429") || strings.Contains(errText, "quota"):
-		return "Configuration suggested by local fallback logic (hosted Gemini AI quota is currently exhausted)."
+		return fmt.Sprintf("Configuration suggested by local fallback logic (%s quota is currently exhausted).", providerLabel)
 	case strings.Contains(errText, "503") || strings.Contains(errText, "unavailable") || strings.Contains(errText, "high demand"):
-		return "Configuration suggested by local fallback logic (hosted Gemini AI is temporarily overloaded)."
+		return fmt.Sprintf("Configuration suggested by local fallback logic (%s is temporarily overloaded).", providerLabel)
 	case strings.Contains(errText, "deadline exceeded") || strings.Contains(errText, "timeout"):
-		return "Configuration suggested by local fallback logic (hosted Gemini AI timed out)."
+		return fmt.Sprintf("Configuration suggested by local fallback logic (%s timed out).", providerLabel)
 	default:
-		return "Configuration suggested by local fallback logic (hosted Gemini AI is temporarily unavailable)."
+		return fmt.Sprintf("Configuration suggested by local fallback logic (%s is temporarily unavailable).", providerLabel)
 	}
 }
 

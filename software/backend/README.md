@@ -90,6 +90,24 @@ $env:MQTT_TOPIC="spectron/controllers/+/raw"
 $env:MQTT_CLIENT_ID="spectron-mqtt-bridge"
 ```
 
+AI sensor suggestions can use Gemini or Ollama. Gemini is selected when `GEMINI_API_KEY` is set. To use Ollama instead:
+
+```powershell
+$env:AI_PROVIDER="ollama"
+$env:OLLAMA_BASE_URL="http://localhost:11434"
+$env:OLLAMA_MODEL="llama3.1:8b"
+```
+
+For the deployed AWS backend, `localhost` means the AWS host/container. If Ollama runs on your laptop, the cloud backend cannot reach it. Run Ollama on the same EC2/container or set `OLLAMA_BASE_URL` to a private/public URL that the backend can access.
+
+Optional Ollama tuning:
+
+```powershell
+$env:OLLAMA_TIMEOUT_MS="30000"
+$env:OLLAMA_HTTP_TIMEOUT_MS="25000"
+$env:OLLAMA_MAX_ATTEMPTS="1"
+```
+
 Email verification requires SMTP settings. Put real SMTP credentials in `software/backend/.env.local` so they stay out of the tracked `.env` file:
 
 ```powershell

@@ -3,6 +3,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"sync"
@@ -371,6 +372,35 @@ func TestControllerOwnershipAndSensorConfigAPIIntegration(t *testing.T) {
 		otherRec := executeRequest(app.rr, jsonRequest(t, http.MethodGet, path, other.token, nil))
 		if otherRec.Code != http.StatusNotFound {
 			t.Fatalf("expected 404 for non-owner account, got %d: %s", otherRec.Code, otherRec.Body.String())
+		}
+	})
+
+	t.Run("owner can remove hardware sensor", func(t *testing.T) {
+		system, removableSensors := app.createSystemWithSensors(t, owner.accountID, &controller.id)
+		sensorToRemove := removableSensors[0]
+		path := "/api/controllers/" + controller.uid + "/sensors/" + sensorToRemove.id.String()
+
+		otherRec := executeRequest(app.rr, jsonRequest(t, http.MethodDelete, path, other.token, nil))
+		if otherRec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404 for non-owner, got %d: %s", otherRec.Code, otherRec.Body.String())
+		}
+
+		ownerRec := executeRequest(app.rr, jsonRequest(t, http.MethodDelete, path, owner.token, nil))
+		if ownerRec.Code != http.StatusNoContent {
+			t.Fatalf("expected 204 for owner, got %d: %s", ownerRec.Code, ownerRec.Body.String())
+		}
+
+		var sensorCount int
+		if err := app.pool.QueryRow(context.Background(), `
+			SELECT COUNT(*)::int
+			FROM system_sensors
+			WHERE system_id = $1
+			  AND id = $2
+		`, system.id, sensorToRemove.id).Scan(&sensorCount); err != nil {
+			t.Fatalf("count removed system sensor: %v", err)
+		}
+		if sensorCount != 0 {
+			t.Fatalf("expected removed system sensor, found %d", sensorCount)
 		}
 	})
 

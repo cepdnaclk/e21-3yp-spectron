@@ -93,6 +93,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Put("/{controllerId}", controllerHandler.UpdateHardwareControllerAPI)
 			r.Get("/{controllerId}/sensors", controllerHandler.ControllerSensorsAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Delete("/{controllerId}/claim", controllerHandler.ReleaseControllerAPI)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Delete("/{controllerId}/sensors/{sensorId}", controllerHandler.DeleteHardwareSensorAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Patch("/{controllerId}/sensors/{sensorId}", controllerHandler.UpdateHardwareSensorAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Put("/{controllerId}/sensors/{sensorId}", controllerHandler.UpdateHardwareSensorAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{controllerId}/sensors/{sensorId}/ai-suggest-config", controllerHandler.AISuggestHardwareSensorConfigAPI)

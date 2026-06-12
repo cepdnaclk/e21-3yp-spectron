@@ -847,6 +847,138 @@ func (h *ControllerHandler) UpdateHardwareSensorAPI(w http.ResponseWriter, r *ht
 	})
 }
 
+func (h *ControllerHandler) DeleteHardwareSensorAPI(w http.ResponseWriter, r *http.Request) {
+	accountID := GetAccountID(r).(uuid.UUID)
+	controllerParam := strings.TrimSpace(chi.URLParam(r, "controllerId"))
+	sensorParam := strings.TrimSpace(chi.URLParam(r, "sensorId"))
+
+	controller, err := h.lookupAccountHardwareController(r.Context(), accountID, controllerParam)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	sensor, err := h.lookupHardwareSensor(r.Context(), controller.id, sensorParam)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	tx, err := h.db.BeginTx(r.Context(), pgx.TxOptions{})
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	if sensor.legacyID != nil {
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM sensor_group_members
+			WHERE sensor_id = $1
+		`, *sensor.legacyID); err != nil {
+			http.Error(w, "failed to remove sensor groups", http.StatusInternalServerError)
+			return
+		}
+
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM sensor_readings
+			WHERE sensor_id = $1
+		`, *sensor.legacyID); err != nil {
+			http.Error(w, "failed to remove sensor readings", http.StatusInternalServerError)
+			return
+		}
+
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM sensor_configs
+			WHERE sensor_id = $1
+		`, *sensor.legacyID); err != nil {
+			http.Error(w, "failed to remove sensor configs", http.StatusInternalServerError)
+			return
+		}
+
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM alerts
+			WHERE sensor_id = $1
+		`, *sensor.legacyID); err != nil {
+			http.Error(w, "failed to remove sensor alerts", http.StatusInternalServerError)
+			return
+		}
+
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM sensors
+			WHERE id = $1
+			  AND controller_id = $2
+		`, *sensor.legacyID, controller.id); err != nil {
+			http.Error(w, "failed to remove discovered sensor", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if _, err := tx.Exec(r.Context(), `
+		DELETE FROM sensor_readings
+		WHERE system_sensor_id = $1
+	`, sensor.id); err != nil {
+		http.Error(w, "failed to remove hardware readings", http.StatusInternalServerError)
+		return
+	}
+
+	if _, err := tx.Exec(r.Context(), `
+		DELETE FROM alerts
+		WHERE system_sensor_id = $1
+	`, sensor.id); err != nil {
+		http.Error(w, "failed to remove hardware alerts", http.StatusInternalServerError)
+		return
+	}
+
+	if sensor.controllerSensorID != nil {
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM sensor_configurations
+			WHERE sensor_id = $1
+			  AND controller_id = $2
+		`, *sensor.controllerSensorID, controller.id); err != nil {
+			http.Error(w, "failed to remove controller sensor config", http.StatusInternalServerError)
+			return
+		}
+
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM controller_sensors
+			WHERE id = $1
+			  AND controller_id = $2
+		`, *sensor.controllerSensorID, controller.id); err != nil {
+			http.Error(w, "failed to remove controller sensor", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	tag, err := tx.Exec(r.Context(), `
+		DELETE FROM system_sensors
+		WHERE id = $1
+		  AND system_id = (
+		      SELECT system_id
+		      FROM system_controller_assignments
+		      WHERE controller_id = $2
+		        AND unassigned_at IS NULL
+		      ORDER BY assigned_at DESC
+		      LIMIT 1
+		  )
+	`, sensor.id, controller.id)
+	if err != nil {
+		http.Error(w, "failed to remove system sensor", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "sensor not found", http.StatusNotFound)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to commit sensor removal", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *ControllerHandler) ReleaseControllerAPI(w http.ResponseWriter, r *http.Request) {
 	accountID := GetAccountID(r).(uuid.UUID)
 	userID := GetUserID(r).(uuid.UUID)
