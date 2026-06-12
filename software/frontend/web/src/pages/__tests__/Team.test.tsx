@@ -9,6 +9,11 @@ vi.mock('../../services/authService', () => ({
 }));
 
 describe('Viewer accounts', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+  });
+
   it('reloads the table after a viewer is created', async () => {
     const user = userEvent.setup();
     vi.mocked(getAccountUsers)
@@ -52,5 +57,31 @@ describe('Viewer accounts', () => {
     expect(screen.getByText(/^active$/i)).toBeInTheDocument();
     expect(screen.getByText(/viewer account created/i)).toBeInTheDocument();
     expect(getAccountUsers).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the created viewer visible when the backend list has not caught up', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getAccountUsers)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    vi.mocked(createViewer).mockResolvedValue({
+      id: 'viewer-2',
+      email: 'cached@spectron.com',
+      name: 'Cached Viewer',
+      phone: undefined,
+      status: 'ACTIVE',
+      accounts: [],
+    });
+
+    render(<Team />);
+
+    await user.type(screen.getByRole('textbox', { name: /viewer email/i }), 'cached@spectron.com');
+    await user.type(screen.getByLabelText(/temporary password/i), 'password');
+    await user.type(screen.getByRole('textbox', { name: /viewer name/i }), 'Cached Viewer');
+    await user.click(screen.getByRole('button', { name: /create viewer/i }));
+
+    expect(await screen.findByText('Cached Viewer')).toBeInTheDocument();
+    expect(screen.getByText('cached@spectron.com')).toBeInTheDocument();
+    expect(screen.queryByText(/no viewer accounts created yet/i)).not.toBeInTheDocument();
   });
 });

@@ -20,6 +20,45 @@ import { GroupAdd, Refresh } from '@mui/icons-material';
 import { AccountUser, createViewer, getAccountUsers } from '../../services/authService';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 
+const LOCAL_VIEWERS_KEY = 'spectron-created-viewers';
+
+const userIdentity = (user: AccountUser) => user.id || user.email.toLowerCase();
+
+const mergeUsers = (...groups: AccountUser[][]): AccountUser[] => {
+  const usersByIdentity = new Map<string, AccountUser>();
+
+  groups.flat().forEach((user) => {
+    const identity = userIdentity(user);
+    if (!usersByIdentity.has(identity)) {
+      usersByIdentity.set(identity, user);
+    }
+  });
+
+  return Array.from(usersByIdentity.values());
+};
+
+const readStoredViewers = (): AccountUser[] => {
+  try {
+    const stored = localStorage.getItem(LOCAL_VIEWERS_KEY);
+    const parsed = stored ? JSON.parse(stored) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeStoredViewers = (viewers: AccountUser[]) => {
+  try {
+    localStorage.setItem(LOCAL_VIEWERS_KEY, JSON.stringify(viewers.filter((user) => user.role === 'VIEWER')));
+  } catch {
+    // Ignore local fallback cache failures; the backend remains the source of truth.
+  }
+};
+
+const rememberCreatedViewer = (viewer: AccountUser) => {
+  writeStoredViewers(mergeUsers([viewer], readStoredViewers()));
+};
+
 const Team: React.FC = () => {
   const [users, setUsers] = useState<AccountUser[]>([]);
   const [form, setForm] = useState({ name: '', email: '', password: '', phone: '' });
@@ -28,14 +67,21 @@ const Team: React.FC = () => {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  const loadUsers = async () => {
+  const loadUsers = async (options?: { preserveExisting?: boolean }) => {
     setLoading(true);
     setError('');
     try {
-      setUsers(await getAccountUsers());
+      const accountUsers = await getAccountUsers();
+      setUsers((current) => mergeUsers(
+        accountUsers,
+        readStoredViewers(),
+        options?.preserveExisting ? current : []
+      ));
     } catch {
       setError('Only owners can manage viewer accounts.');
-      setUsers([]);
+      setUsers((current) => (
+        options?.preserveExisting ? mergeUsers(current, readStoredViewers()) : readStoredViewers()
+      ));
     } finally {
       setLoading(false);
     }
@@ -45,21 +91,39 @@ const Team: React.FC = () => {
     loadUsers();
   }, []);
 
+  const upsertViewer = (viewer: AccountUser) => {
+    setUsers((current) => {
+      const withoutViewer = current.filter((user) => user.id !== viewer.id && user.email !== viewer.email);
+      return [viewer, ...withoutViewer];
+    });
+  };
+
   const handleCreateViewer = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true);
     setError('');
     setNotice('');
     try {
-      await createViewer({
+      const createdViewer = await createViewer({
         email: form.email,
         password: form.password,
         name: form.name || undefined,
         phone: form.phone || undefined,
       });
+      const viewerRow: AccountUser = {
+        id: createdViewer.id,
+        email: createdViewer.email,
+        name: createdViewer.name,
+        phone: createdViewer.phone,
+        role: 'VIEWER',
+        status: createdViewer.status || 'ACTIVE',
+        created_at: new Date().toISOString(),
+      };
+      rememberCreatedViewer(viewerRow);
+      upsertViewer(viewerRow);
       setNotice('Viewer account created. Share these credentials with the viewer.');
       setForm({ name: '', email: '', password: '', phone: '' });
-      await loadUsers();
+      await loadUsers({ preserveExisting: true });
     } catch (err: any) {
       const responseData = err?.response?.data;
       setError(typeof responseData === 'string' ? responseData : 'Failed to create viewer.');
@@ -67,6 +131,8 @@ const Team: React.FC = () => {
       setSaving(false);
     }
   };
+
+  const viewerUsers = users.filter((user) => user.role === 'VIEWER');
 
   return (
     <Box sx={{ px: { xs: 2, md: 4 }, py: 2 }}>
@@ -82,7 +148,7 @@ const Team: React.FC = () => {
             Owners can create read-only viewer accounts for people in their organization.
           </Typography>
         </Box>
-        <Button startIcon={<Refresh />} variant="outlined" onClick={loadUsers} disabled={loading}>
+        <Button startIcon={<Refresh />} variant="outlined" onClick={() => loadUsers()} disabled={loading}>
           Refresh
         </Button>
       </Stack>
@@ -137,7 +203,7 @@ const Team: React.FC = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {users.map((user) => (
+                {viewerUsers.map((user) => (
                   <TableRow key={user.id} hover>
                     <TableCell>
                       <Typography fontWeight={800}>{user.name || user.email}</Typography>
@@ -148,6 +214,24 @@ const Team: React.FC = () => {
                     <TableCell>{new Date(user.created_at).toLocaleString()}</TableCell>
                   </TableRow>
                 ))}
+                {!loading && viewerUsers.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4}>
+                      <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                        No viewer accounts created yet.
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+                {loading && (
+                  <TableRow>
+                    <TableCell colSpan={4}>
+                      <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                        Loading viewer accounts...
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </TableContainer>

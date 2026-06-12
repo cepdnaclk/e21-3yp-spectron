@@ -1,4 +1,11 @@
-export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8081';
+const DEPLOYED_API_BASE_URL = 'http://spectron-backend-env.eba-niaes6bi.ap-south-1.elasticbeanstalk.com';
+
+const configuredApiBaseUrl = process.env.REACT_APP_API_URL;
+
+export const API_BASE_URL =
+  configuredApiBaseUrl && !configuredApiBaseUrl.includes('localhost')
+    ? configuredApiBaseUrl
+    : DEPLOYED_API_BASE_URL;
 
 export const API_ENDPOINTS = {
   AUTH: {
@@ -19,7 +26,11 @@ export const API_ENDPOINTS = {
     LIST: (controllerId: string) => `/controllers/${controllerId}/sensors`,
     GET: (id: string) => `/sensors/${id}`,
     UPDATE: (id: string) => `/sensors/${id}`,
+    AI_SUGGEST: (id: string) => `/sensors/${id}/ai-suggest-config`,
     CONFIG: (id: string) => `/sensors/${id}/config`,
+    LEARNING_PHASE: (id: string) => `/sensors/${id}/learning-phase`,
+    LEARNING_PHASE_SUGGESTIONS: (id: string) => `/sensors/${id}/learning-phase/suggestions`,
+    LEARNING_PHASE_APPLY: (id: string) => `/sensors/${id}/learning-phase/apply`,
   },
   DASHBOARD: {
     OVERVIEW: '/dashboard/overview',
