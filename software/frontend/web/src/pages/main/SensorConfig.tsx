@@ -1866,24 +1866,26 @@ const SensorConfig: React.FC = () => {
   }, [activeSensorId, loadSensor]);
 
   // Check learning phase status on load
-  useEffect(() => {
-    if (activeSensorId) {
-      getLearningPhaseStatus(activeSensorId)
-        .then((status) => {
-          setLearningPhaseStatus(status || null);
-          if (status && status.phase === 'learning') {
-            setLearningPhaseDay(status.dayNumber);
-          } else if (status && status.phase === 'completed') {
-            setLearningPhaseDay((status.requiredDays || 7) + 1);
-          } else {
-            setLearningPhaseDay(0);
-          }
-        })
-        .catch(() => {
-          // If learning phase check fails, just continue without learning phase info
-        });
-    }
-  }, [activeSensorId]);
+  // TODO: Learning phase feature is incomplete on backend - endpoint disabled
+  // Uncomment when backend learning phase handlers are implemented
+  // useEffect(() => {
+  //   if (activeSensorId) {
+  //     getLearningPhaseStatus(activeSensorId)
+  //       .then((status) => {
+  //         setLearningPhaseStatus(status || null);
+  //         if (status && status.phase === 'learning') {
+  //           setLearningPhaseDay(status.dayNumber);
+  //         } else if (status && status.phase === 'completed') {
+  //           setLearningPhaseDay((status.requiredDays || 7) + 1);
+  //         } else {
+  //           setLearningPhaseDay(0);
+  //         }
+  //       })
+  //       .catch(() => {
+  //         // If learning phase check fails, just continue without learning phase info
+  //       });
+  //   }
+  // }, [activeSensorId]);
 
   const buildContextPayload = useCallback((): SensorContext | undefined => {
     const historicalDays = toPositiveIntOrUndefined(historicalWindowDays);

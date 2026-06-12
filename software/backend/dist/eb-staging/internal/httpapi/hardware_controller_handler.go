@@ -864,6 +864,31 @@ func (h *ControllerHandler) DeleteHardwareSensorAPI(w http.ResponseWriter, r *ht
 		return
 	}
 
+	// Check if sensor has any readings before allowing deletion
+	var readingCount int64
+	err = h.db.QueryRow(r.Context(), `
+		SELECT COUNT(*)
+		FROM sensor_readings
+		WHERE system_sensor_id = $1
+		   OR (sensor_id = $2 AND system_sensor_id IS NULL)
+	`, sensor.id, sensor.legacyID).Scan(&readingCount)
+	if err != nil && err != pgx.ErrNoRows {
+		http.Error(w, "failed to check sensor readings", http.StatusInternalServerError)
+		return
+	}
+
+	// If sensor has readings, keep it in database but remove configuration
+	if readingCount > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict) // 409 Conflict
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Cannot delete sensor with existing readings",
+			"message": "This sensor has " + fmt.Sprintf("%d", readingCount) + " readings. It will be preserved in the database so readings are available when the device reconnects.",
+			"reading_count": readingCount,
+		})
+		return
+	}
+
 	tx, err := h.db.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
 		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
