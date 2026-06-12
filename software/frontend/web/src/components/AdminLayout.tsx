@@ -15,7 +15,6 @@ import {
   useTheme,
 } from '@mui/material';
 import {
-  AdminPanelSettings,
   Dashboard,
   DevicesOther,
   HealthAndSafety,
@@ -24,6 +23,7 @@ import {
   People,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
+import SpectronLogo from './SpectronLogo';
 
 const adminRoutes = [
   { label: 'Dashboard', mobileLabel: 'Home', path: '/admin', icon: <Dashboard /> },
@@ -127,9 +127,7 @@ const AdminLayout: React.FC = () => {
             }}
           >
             <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 4 }}>
-              <Avatar sx={{ bgcolor: 'primary.dark', color: 'primary.contrastText' }}>
-                <AdminPanelSettings />
-              </Avatar>
+              <SpectronLogo size={42} />
               <Box>
                 <Typography variant="h6" sx={{ lineHeight: 1 }}>
                   Spectron Admin
@@ -247,9 +245,7 @@ const AdminLayout: React.FC = () => {
           {!isDesktop && (
             <>
               <Stack direction="row" spacing={1.2} alignItems="center" sx={{ minWidth: 0 }}>
-                <Avatar sx={{ bgcolor: 'primary.dark', width: 38, height: 38 }}>
-                  <AdminPanelSettings />
-                </Avatar>
+                <SpectronLogo size={38} />
                 <Box sx={{ minWidth: 0 }}>
                   <Typography variant="h6" noWrap>
                     Spectron Admin

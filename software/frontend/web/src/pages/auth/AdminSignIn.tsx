@@ -15,13 +15,13 @@ import {
   CircularProgress,
 } from '@mui/material';
 import {
-  AdminPanelSettings,
   DevicesOther,
   Visibility,
   VisibilityOff,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { getApiErrorMessage } from '../../utils/apiError';
+import SpectronLogo from '../../components/SpectronLogo';
 
 const AdminSignIn: React.FC = () => {
   const navigate = useNavigate();
@@ -80,9 +80,7 @@ const AdminSignIn: React.FC = () => {
         >
           <Box sx={{ position: 'absolute', width: 260, height: 260, borderRadius: '50%', bgcolor: 'rgba(108, 137, 48, 0.28)', right: -70, top: -55 }} />
           <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative' }}>
-            <Box sx={{ p: 1, borderRadius: '50%', bgcolor: 'primary.main' }}>
-              <AdminPanelSettings />
-            </Box>
+            <SpectronLogo size={42} />
             <Typography variant="h5">Spectron Admin</Typography>
           </Stack>
           <Box sx={{ position: 'relative', maxWidth: 540 }}>

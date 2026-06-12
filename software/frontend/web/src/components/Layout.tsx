@@ -17,11 +17,11 @@ import {
   Dashboard,
   Notifications,
   AccountCircle,
-  Spa,
   Groups,
   Logout,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
+import SpectronLogo from './SpectronLogo';
 
 const baseRoutes = [
   { label: 'Controllers', path: '/controllers', icon: <ChipIcon /> },
@@ -121,9 +121,7 @@ const Layout: React.FC = () => {
             }}
           >
             <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 4 }}>
-              <Avatar sx={{ bgcolor: 'secondary.main', color: 'secondary.contrastText' }}>
-                <Spa />
-              </Avatar>
+              <SpectronLogo size={42} />
               <Box>
                 <Typography variant="h6" sx={{ lineHeight: 1 }}>
                   Spectron
@@ -248,9 +246,7 @@ const Layout: React.FC = () => {
         >
           {!isDesktop && (
             <Stack direction="row" spacing={1.2} alignItems="center">
-              <Avatar sx={{ bgcolor: 'secondary.main', width: 38, height: 38 }}>
-                <Spa />
-              </Avatar>
+              <SpectronLogo size={38} />
               <Typography variant="h6">Spectron</Typography>
             </Stack>
           )}

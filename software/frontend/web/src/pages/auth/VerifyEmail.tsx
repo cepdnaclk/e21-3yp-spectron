@@ -8,7 +8,8 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { Login, Spa } from '@mui/icons-material';
+import { Login } from '@mui/icons-material';
+import SpectronLogo from '../../components/SpectronLogo';
 
 const VerifyEmail: React.FC = () => {
   const navigate = useNavigate();
@@ -32,9 +33,7 @@ const VerifyEmail: React.FC = () => {
         >
           <Box sx={{ position: 'absolute', width: 260, height: 260, borderRadius: '50%', bgcolor: 'rgba(108, 137, 48, 0.28)', right: -40, bottom: -60 }} />
           <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative' }}>
-            <Box sx={{ p: 1, borderRadius: '50%', bgcolor: 'secondary.main' }}>
-              <Spa />
-            </Box>
+            <SpectronLogo size={42} />
             <Typography variant="h5">Spectron</Typography>
           </Stack>
           <Box sx={{ position: 'relative', maxWidth: 520 }}>

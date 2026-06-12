@@ -14,9 +14,10 @@ import {
   Fade,
   CircularProgress,
 } from '@mui/material';
-import { AdminPanelSettings, Spa, Sensors, Visibility, VisibilityOff } from '@mui/icons-material';
+import { AdminPanelSettings, Sensors, Visibility, VisibilityOff } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { getApiErrorMessage } from '../../utils/apiError';
+import SpectronLogo from '../../components/SpectronLogo';
 
 const SignIn: React.FC = () => {
   const navigate = useNavigate();
@@ -70,9 +71,7 @@ const SignIn: React.FC = () => {
         >
           <Box sx={{ position: 'absolute', width: 260, height: 260, borderRadius: '50%', bgcolor: 'rgba(235, 79, 18, 0.24)', right: -60, top: -50 }} />
           <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative' }}>
-            <Box sx={{ p: 1, borderRadius: '50%', bgcolor: 'secondary.main' }}>
-              <Spa />
-            </Box>
+            <SpectronLogo size={42} />
             <Typography variant="h5">Spectron</Typography>
           </Stack>
           <Box sx={{ position: 'relative', maxWidth: 520 }}>
