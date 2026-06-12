@@ -136,7 +136,13 @@ const Team: React.FC = () => {
 
   return (
     <Box sx={{ px: { xs: 2, md: 4 }, py: 2 }}>
-      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} sx={{ mb: 3 }}>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        justifyContent="space-between"
+        alignItems={{ xs: 'flex-start', sm: 'center' }}
+        spacing={2}
+        sx={{ mb: 3 }}
+      >
         <Box>
           <Typography variant="overline" color="secondary" fontWeight={800}>
             Team
@@ -148,7 +154,27 @@ const Team: React.FC = () => {
             Owners can create read-only viewer accounts for people in their organization.
           </Typography>
         </Box>
-        <Button startIcon={<Refresh />} variant="outlined" onClick={() => loadUsers()} disabled={loading}>
+        <Button
+          startIcon={<Refresh />}
+          variant="outlined"
+          onClick={() => loadUsers()}
+          disabled={loading}
+          sx={{
+            alignSelf: { xs: 'flex-start', sm: 'center' },
+            minHeight: 42,
+            px: 2,
+            borderRadius: 1.5,
+            fontWeight: 800,
+            textTransform: 'none',
+            bgcolor: 'rgba(255, 255, 255, 0.55)',
+            borderColor: 'rgba(104, 137, 47, 0.35)',
+            color: 'primary.main',
+            '&:hover': {
+              bgcolor: 'rgba(104, 137, 47, 0.08)',
+              borderColor: 'rgba(104, 137, 47, 0.55)',
+            },
+          }}
+        >
           Refresh
         </Button>
       </Stack>
