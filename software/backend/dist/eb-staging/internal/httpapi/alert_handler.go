@@ -134,3 +134,9 @@ func (h *AlertHandler) Acknowledge(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
+
+func (h *AlertHandler) ApplyRecommendation(w http.ResponseWriter, r *http.Request) {
+	// TODO: Learning phase feedback - implementation pending
+	http.Error(w, "this feature is not yet implemented", http.StatusNotImplemented)
+	return
+}

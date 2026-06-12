@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -32,12 +33,14 @@ func (e apiError) Error() string {
 }
 
 type hardwareControllerRecord struct {
-	id          uuid.UUID
-	uid         string
-	name        string
-	status      string
-	ownerUserID string
-	updatedAt   time.Time
+	id                uuid.UUID
+	uid               string
+	name              string
+	claimStatus       string
+	operationalStatus string
+	ownerAccountID    string
+	ownerUserID       string
+	updatedAt         time.Time
 }
 
 type hardwareSensorRecord struct {
@@ -59,6 +62,7 @@ type legacySensorRecord struct {
 	name       string
 	sensorType string
 	status     string
+	lastSeen   *time.Time
 }
 
 type queryRower interface {
@@ -102,10 +106,10 @@ func (h *ControllerHandler) AdminOverviewAPI(w http.ResponseWriter, r *http.Requ
 	err := h.db.QueryRow(r.Context(), `
 		SELECT
 			COUNT(*)::int,
-			COUNT(*) FILTER (WHERE owner_user_id IS NULL)::int,
-			COUNT(*) FILTER (WHERE owner_user_id IS NOT NULL)::int,
-			COUNT(*) FILTER (WHERE UPPER(status) IN ('ONLINE', 'PAIRED'))::int,
-			COUNT(*) FILTER (WHERE UPPER(status) IN ('OFFLINE', 'ERROR'))::int
+			COUNT(*) FILTER (WHERE claim_status = 'UNCLAIMED')::int,
+			COUNT(*) FILTER (WHERE claim_status = 'CLAIMED')::int,
+			COUNT(*) FILTER (WHERE operational_status = 'ONLINE')::int,
+			COUNT(*) FILTER (WHERE operational_status IN ('OFFLINE', 'ERROR'))::int
 		FROM controllers
 	`).Scan(
 		&response.TotalDevices,
@@ -213,15 +217,18 @@ func (h *ControllerHandler) AdminCreateDeviceAPI(w http.ResponseWriter, r *http.
 		INSERT INTO controllers (
 			id,
 			account_id,
+			registered_by_account_id,
 			hw_id,
 			controller_uid,
 			name,
 			location,
 			status,
+			claim_status,
+			operational_status,
 			created_at,
 			updated_at
 		)
-		VALUES ($1, $2, $3, $3, $4, $5, 'unclaimed', NOW(), NOW())
+		VALUES ($1, NULL, $2, $3, $3, $4, $5, 'OFFLINE', 'UNCLAIMED', 'OFFLINE', NOW(), NOW())
 		RETURNING id
 	`, uuid.New(), accountID, controllerUID, name, nullableString(location)).Scan(&controllerID)
 	if err != nil {
@@ -381,7 +388,7 @@ func (h *ControllerHandler) AdminUsersAPI(w http.ResponseWriter, r *http.Request
 			COUNT(c.id)::int
 		FROM account_memberships am
 		JOIN users u ON u.id = am.user_id
-		LEFT JOIN controllers c ON c.owner_user_id = u.id AND c.account_id = am.account_id
+		LEFT JOIN controllers c ON c.owner_user_id = u.id AND c.owner_account_id = am.account_id
 		WHERE am.account_id = $1
 		GROUP BY u.id, u.email, u.name, am.role, u.created_at
 		ORDER BY u.created_at DESC
@@ -449,7 +456,7 @@ func (h *ControllerHandler) PairAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	controller, system, err := h.claimController(r.Context(), userID, accountID, provided, strings.TrimSpace(req.SystemID))
+	controller, system, err := h.claimController(r.Context(), userID, accountID, provided, "")
 	if err != nil {
 		var apiErr apiError
 		if errors.As(err, &apiErr) {
@@ -461,20 +468,27 @@ func (h *ControllerHandler) PairAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sensors, err := h.loadLiveHardwareSensors(r.Context(), controller.id, controller.updatedAt)
+	if err := h.syncHardwareSensorsForActiveSystem(r.Context(), controller.id); err != nil {
+		log.Printf("sync paired sensors: %v", err)
+	}
+
+	sensors := []models.HardwareSensorResponse{}
+	loadedSensors, err := h.loadHardwareSensors(r.Context(), controller.id, system.assignedAt)
 	if err != nil {
 		log.Printf("load paired sensors: %v", err)
-		http.Error(w, "failed to load sensors", http.StatusInternalServerError)
-		return
+	} else {
+		sensors = loadedSensors
 	}
 
 	json.NewEncoder(w).Encode(models.HardwarePairResponse{
-		ID:           controller.id.String(),
-		ControllerID: controller.uid,
-		SystemID:     system.id.String(),
-		SystemName:   system.name,
-		Status:       "paired",
-		Sensors:      sensors,
+		ID:                controller.id.String(),
+		ControllerID:      controller.uid,
+		SystemID:          system.id.String(),
+		SystemName:        system.name,
+		Status:            controller.operationalStatus,
+		ClaimStatus:       controller.claimStatus,
+		OperationalStatus: controller.operationalStatus,
+		Sensors:           sensors,
 	})
 }
 
@@ -486,7 +500,8 @@ func (h *ControllerHandler) MyControllersAPI(w http.ResponseWriter, r *http.Requ
 			c.id,
 			COALESCE(c.controller_uid, c.hw_id),
 			COALESCE(s.name, c.name, 'Main Controller'),
-			c.status,
+			c.claim_status,
+			c.operational_status,
 			sca.assigned_at,
 			s.id,
 			COALESCE(s.name, c.name, 'Main Controller')
@@ -495,9 +510,8 @@ func (h *ControllerHandler) MyControllersAPI(w http.ResponseWriter, r *http.Requ
 		  ON sca.controller_id = c.id
 		 AND sca.unassigned_at IS NULL
 		JOIN systems s ON s.id = sca.system_id
-		WHERE c.account_id = $1
-		  AND c.owner_user_id IS NOT NULL
-		  AND UPPER(COALESCE(c.status, '')) <> 'UNCLAIMED'
+		WHERE c.owner_account_id = $1
+		  AND c.claim_status = 'CLAIMED'
 		ORDER BY sca.assigned_at DESC, c.created_at DESC
 	`, accountID)
 	if err != nil {
@@ -511,11 +525,12 @@ func (h *ControllerHandler) MyControllersAPI(w http.ResponseWriter, r *http.Requ
 		var controllerID uuid.UUID
 		var controllerUID string
 		var name string
-		var status string
+		var claimStatus string
+		var operationalStatus string
 		var sessionStart time.Time
 		var systemID uuid.UUID
 		var systemName string
-		if err := rows.Scan(&controllerID, &controllerUID, &name, &status, &sessionStart, &systemID, &systemName); err != nil {
+		if err := rows.Scan(&controllerID, &controllerUID, &name, &claimStatus, &operationalStatus, &sessionStart, &systemID, &systemName); err != nil {
 			continue
 		}
 
@@ -526,12 +541,14 @@ func (h *ControllerHandler) MyControllersAPI(w http.ResponseWriter, r *http.Requ
 		}
 
 		controllers = append(controllers, models.UserHardwareControllerResponse{
-			ControllerID: controllerUID,
-			SystemID:     systemID.String(),
-			SystemName:   systemName,
-			Name:         name,
-			Status:       status,
-			Sensors:      sensors,
+			ControllerID:      controllerUID,
+			SystemID:          systemID.String(),
+			SystemName:        systemName,
+			Name:              name,
+			Status:            operationalStatus,
+			ClaimStatus:       claimStatus,
+			OperationalStatus: operationalStatus,
+			Sensors:           sensors,
 		})
 	}
 
@@ -621,9 +638,14 @@ func (h *ControllerHandler) ControllerSensorsAPI(w http.ResponseWriter, r *http.
 		return
 	}
 
+	if err := h.syncHardwareSensorsForActiveSystem(r.Context(), controller.id); err != nil {
+		http.Error(w, "failed to prepare sensors", http.StatusInternalServerError)
+		return
+	}
+
 	sensors := []models.HardwareSensorResponse{}
 	if liveOnly {
-		if strings.EqualFold(strings.TrimSpace(controller.status), "ONLINE") {
+		if strings.EqualFold(strings.TrimSpace(controller.operationalStatus), "ONLINE") {
 			sensors, err = h.loadLiveHardwareSensors(r.Context(), controller.id, controller.updatedAt)
 			if err != nil {
 				http.Error(w, "failed to load sensors", http.StatusInternalServerError)
@@ -683,7 +705,8 @@ func (h *ControllerHandler) UpdateHardwareControllerAPI(w http.ResponseWriter, r
 		SET name = $1,
 		    updated_at = NOW()
 		WHERE id = $2
-		  AND account_id = $3
+		  AND owner_account_id = $3
+		  AND claim_status = 'CLAIMED'
 	`, name, controller.id, accountID)
 	if err != nil {
 		http.Error(w, "failed to update controller", http.StatusInternalServerError)
@@ -715,10 +738,12 @@ func (h *ControllerHandler) UpdateHardwareControllerAPI(w http.ResponseWriter, r
 	}
 
 	json.NewEncoder(w).Encode(models.UserHardwareControllerResponse{
-		ControllerID: controller.uid,
-		Name:         name,
-		SystemName:   name,
-		Status:       controller.status,
+		ControllerID:      controller.uid,
+		Name:              name,
+		SystemName:        name,
+		Status:            controller.operationalStatus,
+		ClaimStatus:       controller.claimStatus,
+		OperationalStatus: controller.operationalStatus,
 	})
 }
 
@@ -822,6 +847,138 @@ func (h *ControllerHandler) UpdateHardwareSensorAPI(w http.ResponseWriter, r *ht
 	})
 }
 
+func (h *ControllerHandler) DeleteHardwareSensorAPI(w http.ResponseWriter, r *http.Request) {
+	accountID := GetAccountID(r).(uuid.UUID)
+	controllerParam := strings.TrimSpace(chi.URLParam(r, "controllerId"))
+	sensorParam := strings.TrimSpace(chi.URLParam(r, "sensorId"))
+
+	controller, err := h.lookupAccountHardwareController(r.Context(), accountID, controllerParam)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	sensor, err := h.lookupHardwareSensor(r.Context(), controller.id, sensorParam)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+
+	tx, err := h.db.BeginTx(r.Context(), pgx.TxOptions{})
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	if sensor.legacyID != nil {
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM sensor_group_members
+			WHERE sensor_id = $1
+		`, *sensor.legacyID); err != nil {
+			http.Error(w, "failed to remove sensor groups", http.StatusInternalServerError)
+			return
+		}
+
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM sensor_readings
+			WHERE sensor_id = $1
+		`, *sensor.legacyID); err != nil {
+			http.Error(w, "failed to remove sensor readings", http.StatusInternalServerError)
+			return
+		}
+
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM sensor_configs
+			WHERE sensor_id = $1
+		`, *sensor.legacyID); err != nil {
+			http.Error(w, "failed to remove sensor configs", http.StatusInternalServerError)
+			return
+		}
+
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM alerts
+			WHERE sensor_id = $1
+		`, *sensor.legacyID); err != nil {
+			http.Error(w, "failed to remove sensor alerts", http.StatusInternalServerError)
+			return
+		}
+
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM sensors
+			WHERE id = $1
+			  AND controller_id = $2
+		`, *sensor.legacyID, controller.id); err != nil {
+			http.Error(w, "failed to remove discovered sensor", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if _, err := tx.Exec(r.Context(), `
+		DELETE FROM sensor_readings
+		WHERE system_sensor_id = $1
+	`, sensor.id); err != nil {
+		http.Error(w, "failed to remove hardware readings", http.StatusInternalServerError)
+		return
+	}
+
+	if _, err := tx.Exec(r.Context(), `
+		DELETE FROM alerts
+		WHERE system_sensor_id = $1
+	`, sensor.id); err != nil {
+		http.Error(w, "failed to remove hardware alerts", http.StatusInternalServerError)
+		return
+	}
+
+	if sensor.controllerSensorID != nil {
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM sensor_configurations
+			WHERE sensor_id = $1
+			  AND controller_id = $2
+		`, *sensor.controllerSensorID, controller.id); err != nil {
+			http.Error(w, "failed to remove controller sensor config", http.StatusInternalServerError)
+			return
+		}
+
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM controller_sensors
+			WHERE id = $1
+			  AND controller_id = $2
+		`, *sensor.controllerSensorID, controller.id); err != nil {
+			http.Error(w, "failed to remove controller sensor", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	tag, err := tx.Exec(r.Context(), `
+		DELETE FROM system_sensors
+		WHERE id = $1
+		  AND system_id = (
+		      SELECT system_id
+		      FROM system_controller_assignments
+		      WHERE controller_id = $2
+		        AND unassigned_at IS NULL
+		      ORDER BY assigned_at DESC
+		      LIMIT 1
+		  )
+	`, sensor.id, controller.id)
+	if err != nil {
+		http.Error(w, "failed to remove system sensor", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "sensor not found", http.StatusNotFound)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to commit sensor removal", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *ControllerHandler) ReleaseControllerAPI(w http.ResponseWriter, r *http.Request) {
 	accountID := GetAccountID(r).(uuid.UUID)
 	userID := GetUserID(r).(uuid.UUID)
@@ -833,7 +990,7 @@ func (h *ControllerHandler) ReleaseControllerAPI(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if controller.ownerUserID == "" {
+	if controller.claimStatus != "CLAIMED" || controller.ownerAccountID == "" || controller.ownerUserID == "" {
 		http.Error(w, "This controller is already unowned.", http.StatusConflict)
 		return
 	}
@@ -850,15 +1007,23 @@ func (h *ControllerHandler) ReleaseControllerAPI(w http.ResponseWriter, r *http.
 		return
 	}
 
-	_, err = tx.Exec(r.Context(), `
+	tag, err := tx.Exec(r.Context(), `
 		UPDATE controllers
 		SET owner_user_id = NULL,
-		    status = 'unclaimed',
+		    owner_account_id = NULL,
+		    account_id = NULL,
+		    claim_status = 'UNCLAIMED',
 		    updated_at = NOW()
-		WHERE id = $1 AND account_id = $2
+		WHERE id = $1
+		  AND owner_account_id = $2
+		  AND claim_status = 'CLAIMED'
 	`, controller.id, accountID)
 	if err != nil {
 		http.Error(w, "failed to remove controller", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() != 1 {
+		http.Error(w, "Controller ownership changed before it could be released.", http.StatusConflict)
 		return
 	}
 
@@ -912,7 +1077,42 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	configJSON, err := json.Marshal(req.Config)
+	metadata, err := h.lookupHardwareSensorMetadata(r.Context(), controller.id, sensor)
+	if err != nil {
+		http.Error(w, "failed to load hardware sensor metadata", http.StatusInternalServerError)
+		return
+	}
+
+	appConfig := buildLegacySensorConfig(req)
+	appConfig.Hardware = &models.SensorHardwareLayer{
+		SystemName: req.SystemName,
+		SensorType: req.SensorType,
+		SensorName: req.SensorName,
+		Config:     models.CloneHardwareConfigMap(req.Config),
+	}
+	appConfig.HardwareConfig = models.CloneHardwareConfigMap(req.Config)
+	appConfig.NormalizeThreeLayer(req.SensorType, metadata.StoredContext)
+
+	validation := validateAndFinalizeConfig(
+		req.SensorType,
+		req.UsedFor,
+		metadata.StoredContext,
+		appConfig,
+		metadata.ControllerCapability,
+		metadata.CalibrationStatus,
+	)
+	validatedConfig := validation.FinalConfig
+	if validatedConfig.Hardware == nil {
+		validatedConfig.Hardware = &models.SensorHardwareLayer{}
+	}
+	validatedConfig.Hardware.SystemName = req.SystemName
+	validatedConfig.Hardware.SensorType = req.SensorType
+	validatedConfig.Hardware.SensorName = validatedConfig.FriendlyName
+	validatedConfig.Hardware.Config = models.CloneHardwareConfigMap(req.Config)
+	validatedConfig.HardwareConfig = models.CloneHardwareConfigMap(req.Config)
+	validatedConfig.NormalizeThreeLayer(req.SensorType, metadata.StoredContext)
+
+	configJSON, err := json.Marshal(validatedConfig)
 	if err != nil {
 		http.Error(w, "invalid config object", http.StatusBadRequest)
 		return
@@ -944,7 +1144,7 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 			    configured = true,
 			    updated_at = NOW()
 			WHERE id = $3 AND controller_id = $4
-		`, req.SensorName, req.SensorType, *sensor.controllerSensorID, controller.id)
+		`, validatedConfig.FriendlyName, req.SensorType, *sensor.controllerSensorID, controller.id)
 		if err != nil {
 			http.Error(w, "failed to update controller sensor", http.StatusInternalServerError)
 			return
@@ -985,7 +1185,7 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 		    END,
 		    updated_at = NOW()
 		WHERE id = $3
-	`, req.SensorName, req.SensorType, sensor.id)
+	`, validatedConfig.FriendlyName, req.SensorType, sensor.id)
 	if err != nil {
 		http.Error(w, "failed to update system sensor", http.StatusInternalServerError)
 		return
@@ -1021,7 +1221,6 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	legacyConfig := buildLegacySensorConfig(req)
 	legacySensor := legacySensorRecord{}
 	legacyErr := pgx.ErrNoRows
 	if sensor.legacyID != nil {
@@ -1037,12 +1236,6 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 		}
 	}
 	if legacyErr == nil {
-		legacyConfigJSON, marshalErr := json.Marshal(legacyConfig)
-		if marshalErr != nil {
-			http.Error(w, "failed to encode device configuration", http.StatusInternalServerError)
-			return
-		}
-
 		_, err = tx.Exec(r.Context(), `
 			UPDATE sensors
 			SET name = COALESCE($1, name),
@@ -1050,7 +1243,7 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 			    type = $3,
 			    system_sensor_id = $5
 			WHERE id = $4
-		`, nullableString(req.SensorName), nullableString(req.UsedFor), sensor.sensorType, legacySensor.id, sensor.id)
+		`, nullableString(validatedConfig.FriendlyName), nullableString(req.UsedFor), sensor.sensorType, legacySensor.id, sensor.id)
 		if err != nil {
 			http.Error(w, "failed to update discovered sensor", http.StatusInternalServerError)
 			return
@@ -1077,7 +1270,7 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 				purpose
 			)
 			VALUES ($1, $2, $3::jsonb, true, NOW(), $4)
-		`, uuid.New(), legacySensor.id, legacyConfigJSON, nullableString(req.UsedFor))
+		`, uuid.New(), legacySensor.id, configJSON, nullableString(req.UsedFor))
 		if err != nil {
 			http.Error(w, "failed to save device sensor config", http.StatusInternalServerError)
 			return
@@ -1086,6 +1279,18 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 		http.Error(w, "failed to resolve discovered sensor", http.StatusInternalServerError)
 		return
 	}
+
+	// TODO: Learning phase reset - implementation pending
+	// if err := resetLearningPhase(r.Context(), tx, "system", sensor.id); err != nil {
+	// 	http.Error(w, "failed to reset system learning phase", http.StatusInternalServerError)
+	// 	return
+	// }
+	// if legacyErr == nil {
+	// 	if err := resetLearningPhase(r.Context(), tx, "legacy", legacySensor.id); err != nil {
+	// 		http.Error(w, "failed to reset sensor learning phase", http.StatusInternalServerError)
+	// 		return
+	// 	}
+	// }
 
 	if err := tx.Commit(r.Context()); err != nil {
 		http.Error(w, "failed to commit configuration", http.StatusInternalServerError)
@@ -1129,6 +1334,7 @@ func (h *ControllerHandler) AISuggestHardwareSensorConfigAPI(w http.ResponseWrit
 	}
 	req.Purpose = strings.TrimSpace(req.Purpose)
 	req.Context = normalizeSensorContext(req.Context)
+	req.FollowUpAnswers = normalizeFollowUpAnswers(req.FollowUpAnswers)
 	if req.Purpose == "" {
 		http.Error(w, "purpose is required", http.StatusBadRequest)
 		return
@@ -1142,9 +1348,10 @@ func (h *ControllerHandler) AISuggestHardwareSensorConfigAPI(w http.ResponseWrit
 
 	mergedContext := mergeSensorContext(req.Context, metadata.StoredContext)
 	req.Context = mergedContext
+	req = enrichAISuggestRequest(req)
 	historyDays := 14
-	if mergedContext != nil && mergedContext.HistoricalWindowDays != nil && *mergedContext.HistoricalWindowDays > 0 {
-		historyDays = *mergedContext.HistoricalWindowDays
+	if req.Context != nil && req.Context.HistoricalWindowDays != nil && *req.Context.HistoricalWindowDays > 0 {
+		historyDays = *req.Context.HistoricalWindowDays
 	}
 	historySummary := h.loadHardwareSensorHistorySummary(r.Context(), sensor.id, sensor.legacyID, historyDays)
 
@@ -1167,21 +1374,25 @@ func (h *ControllerHandler) AISuggestHardwareSensorConfigAPI(w http.ResponseWrit
 			explanation = "Configuration suggested by hosted AI model."
 		}
 	} else {
-		log.Printf("hosted AI unavailable for hardware sensor, using fallback: %v", hostedErr)
+		log.Printf("hosted AI unavailable for hardware sensor, using fallback: %s", sanitizeHostedAIError(hostedErr))
 		suggestedConfig = sensorHelper.generateAISuggestion(metadata.SensorType, req)
-		explanation = fmt.Sprintf("Configuration suggested by local fallback logic (%v).", hostedErr)
+		explanation = hostedAIFallbackExplanation(hostedErr)
 	}
 
 	validation := validateAndFinalizeConfig(
 		metadata.SensorType,
 		req.Purpose,
-		mergedContext,
+		req.Context,
 		suggestedConfig,
 		metadata.ControllerCapability,
 		metadata.CalibrationStatus,
 	)
 	if validation.ValidationStatus == "adjusted" {
 		explanation = strings.TrimSpace(explanation + " The backend safety validator adjusted one or more values before returning the final recommendation.")
+	}
+	followUpQuestions := buildAIFollowUpQuestions(metadata.SensorType, req, validation)
+	if len(followUpQuestions) > 0 {
+		explanation = "I need a bit more context before finalizing the configuration. Answer these quick questions and I can tighten the thresholds for your setup."
 	}
 
 	json.NewEncoder(w).Encode(models.AISuggestResponse{
@@ -1193,6 +1404,8 @@ func (h *ControllerHandler) AISuggestHardwareSensorConfigAPI(w http.ResponseWrit
 		AppliedRules:             validation.AppliedRules,
 		ConfidenceScore:          validation.ConfidenceScore,
 		RequiresUserConfirmation: validation.RequiresUserConfirmation,
+		NeedsFollowUp:            len(followUpQuestions) > 0,
+		FollowUpQuestions:        followUpQuestions,
 	})
 }
 
@@ -1304,6 +1517,21 @@ func (h *ControllerHandler) GetSensorConfigAPI(w http.ResponseWriter, r *http.Re
 		}
 	}
 
+	responseConfigJSON := configJSON
+	if appConfig != nil {
+		rawHardwareConfig := models.CloneHardwareConfigMap(appConfig.HardwareConfig)
+		if appConfig.Hardware != nil && len(appConfig.Hardware.Config) > 0 {
+			rawHardwareConfig = models.CloneHardwareConfigMap(appConfig.Hardware.Config)
+		}
+		if rawHardwareConfig != nil {
+			responseConfigJSON, err = json.Marshal(rawHardwareConfig)
+			if err != nil {
+				http.Error(w, "invalid hardware configuration", http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+
 	json.NewEncoder(w).Encode(models.HardwareSensorConfigResponse{
 		ControllerID:  controller.uid,
 		SystemID:      system.id.String(),
@@ -1313,7 +1541,7 @@ func (h *ControllerHandler) GetSensorConfigAPI(w http.ResponseWriter, r *http.Re
 		SensorName:    sensor.name,
 		UsedFor:       usedFor,
 		DashboardView: dashboardView,
-		Config:        json.RawMessage(configJSON),
+		Config:        json.RawMessage(responseConfigJSON),
 		AppConfig:     appConfig,
 	})
 }
@@ -1359,25 +1587,21 @@ func (h *ControllerHandler) DemoCreateControllerAPI(w http.ResponseWriter, r *ht
 		INSERT INTO controllers (
 			id,
 			account_id,
+			registered_by_account_id,
 			hw_id,
 			controller_uid,
 			name,
 			status,
+			claim_status,
+			operational_status,
 			created_at,
 			updated_at
 		)
-		VALUES ($1, $2, $3, $3, 'Main Controller', 'unclaimed', NOW(), NOW())
+		VALUES ($1, NULL, $2, $3, $3, 'Main Controller', 'OFFLINE', 'UNCLAIMED', 'OFFLINE', NOW(), NOW())
 		ON CONFLICT (hw_id) DO UPDATE
 		SET controller_uid = EXCLUDED.controller_uid,
 		    name = COALESCE(controllers.name, EXCLUDED.name),
-		    account_id = CASE
-		        WHEN controllers.owner_user_id IS NULL THEN EXCLUDED.account_id
-		        ELSE controllers.account_id
-		    END,
-		    status = CASE
-		        WHEN controllers.owner_user_id IS NULL THEN 'unclaimed'
-		        ELSE controllers.status
-		    END,
+		    registered_by_account_id = COALESCE(controllers.registered_by_account_id, EXCLUDED.registered_by_account_id),
 		    updated_at = NOW()
 		RETURNING id
 	`, uuid.New(), internaldb.MockAccountID, controllerUID).Scan(&controllerID)
@@ -1431,8 +1655,8 @@ func (h *ControllerHandler) claimController(ctx context.Context, userID uuid.UUI
 		return hardwareControllerRecord{}, systemRecord{}, err
 	}
 
-	if record.ownerUserID != "" {
-		if strings.EqualFold(record.ownerUserID, userID.String()) {
+	if record.claimStatus == "CLAIMED" || record.ownerAccountID != "" || record.ownerUserID != "" {
+		if strings.EqualFold(record.ownerAccountID, accountID.String()) {
 			return hardwareControllerRecord{}, systemRecord{}, apiError{status: http.StatusConflict, message: "This device is already added to your account."}
 		}
 		return hardwareControllerRecord{}, systemRecord{}, apiError{status: http.StatusConflict, message: "This controller is already owned by another account."}
@@ -1441,14 +1665,21 @@ func (h *ControllerHandler) claimController(ctx context.Context, userID uuid.UUI
 	err = tx.QueryRow(ctx, `
 		UPDATE controllers
 		SET owner_user_id = $1,
+		    owner_account_id = $2,
 		    account_id = $2,
-		    status = 'paired',
+		    claim_status = 'CLAIMED',
 		    controller_uid = COALESCE(NULLIF(controller_uid, ''), hw_id),
 		    updated_at = NOW()
 		WHERE id = $3
-		RETURNING updated_at
-	`, userID, accountID, record.id).Scan(&record.updatedAt)
+		  AND owner_user_id IS NULL
+		  AND owner_account_id IS NULL
+		  AND claim_status = 'UNCLAIMED'
+		RETURNING updated_at, operational_status
+	`, userID, accountID, record.id).Scan(&record.updatedAt, &record.operationalStatus)
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			return hardwareControllerRecord{}, systemRecord{}, apiError{status: http.StatusConflict, message: "This controller is already owned by another account."}
+		}
 		return hardwareControllerRecord{}, systemRecord{}, err
 	}
 
@@ -1461,7 +1692,8 @@ func (h *ControllerHandler) claimController(ctx context.Context, userID uuid.UUI
 		return hardwareControllerRecord{}, systemRecord{}, err
 	}
 
-	record.status = "paired"
+	record.claimStatus = "CLAIMED"
+	record.ownerAccountID = accountID.String()
 	record.ownerUserID = userID.String()
 	return record, system, nil
 }
@@ -1475,12 +1707,15 @@ func (h *ControllerHandler) findControllerForClaim(ctx context.Context, tx pgx.T
 		SELECT id,
 		       COALESCE(controller_uid, hw_id),
 		       COALESCE(name, 'Main Controller'),
-		       status,
+		       claim_status,
+		       operational_status,
+		       COALESCE(owner_account_id::text, ''),
 		       COALESCE(owner_user_id::text, ''),
 		       updated_at
 		FROM controllers
 		WHERE UPPER(COALESCE(controller_uid, hw_id)) = UPPER($1)
 		   OR id::text = $1
+		FOR UPDATE
 	`, normalized))
 	if err == nil {
 		return record, nil
@@ -1494,7 +1729,16 @@ func (h *ControllerHandler) findControllerForClaim(ctx context.Context, tx pgx.T
 
 func scanHardwareController(row pgx.Row) (hardwareControllerRecord, error) {
 	var record hardwareControllerRecord
-	err := row.Scan(&record.id, &record.uid, &record.name, &record.status, &record.ownerUserID, &record.updatedAt)
+	err := row.Scan(
+		&record.id,
+		&record.uid,
+		&record.name,
+		&record.claimStatus,
+		&record.operationalStatus,
+		&record.ownerAccountID,
+		&record.ownerUserID,
+		&record.updatedAt,
+	)
 	return record, err
 }
 
@@ -1507,7 +1751,9 @@ func (h *ControllerHandler) lookupOwnedHardwareController(ctx context.Context, u
 		SELECT id,
 		       COALESCE(controller_uid, hw_id),
 		       COALESCE(name, 'Main Controller'),
-		       status,
+		       claim_status,
+		       operational_status,
+		       COALESCE(owner_account_id::text, ''),
 		       COALESCE(owner_user_id::text, ''),
 		       updated_at
 		FROM controllers
@@ -1537,13 +1783,15 @@ func (h *ControllerHandler) lookupAccountHardwareController(ctx context.Context,
 		SELECT id,
 		       COALESCE(controller_uid, hw_id),
 		       COALESCE(name, 'Main Controller'),
-		       status,
+		       claim_status,
+		       operational_status,
+		       COALESCE(owner_account_id::text, ''),
 		       COALESCE(owner_user_id::text, ''),
 		       updated_at
 		FROM controllers
-		WHERE account_id = $1
+		WHERE owner_account_id = $1
 		  AND owner_user_id IS NOT NULL
-		  AND UPPER(COALESCE(status, '')) <> 'UNCLAIMED'
+		  AND claim_status = 'CLAIMED'
 		  AND (UPPER(COALESCE(controller_uid, hw_id)) = UPPER($2) OR id::text = $2)
 	`, accountID, strings.TrimSpace(identifier)))
 	if err != nil {
@@ -1666,6 +1914,111 @@ func (h *ControllerHandler) loadHardwareSensors(ctx context.Context, controllerI
 	return sensors, rows.Err()
 }
 
+func (h *ControllerHandler) syncHardwareSensorsForActiveSystem(ctx context.Context, controllerID uuid.UUID) error {
+	system, err := loadActiveSystemForController(ctx, h.db, controllerID)
+	if err != nil {
+		return err
+	}
+
+	type pendingControllerSensor struct {
+		id         uuid.UUID
+		uid        string
+		name       string
+		sensorType string
+		status     string
+		configured bool
+	}
+
+	controllerRows, err := h.db.Query(ctx, `
+		SELECT
+			id,
+			COALESCE(sensor_uid, ''),
+			COALESCE(name, ''),
+			type,
+			COALESCE(status, 'live'),
+			configured
+		FROM controller_sensors
+		WHERE controller_id = $1
+		ORDER BY created_at ASC, sensor_uid ASC
+	`, controllerID)
+	if err != nil {
+		return err
+	}
+	defer controllerRows.Close()
+
+	pendingControllerSensors := []pendingControllerSensor{}
+	for controllerRows.Next() {
+		var sensor pendingControllerSensor
+		if err := controllerRows.Scan(&sensor.id, &sensor.uid, &sensor.name, &sensor.sensorType, &sensor.status, &sensor.configured); err != nil {
+			return err
+		}
+		pendingControllerSensors = append(pendingControllerSensors, sensor)
+	}
+	if err := controllerRows.Err(); err != nil {
+		return err
+	}
+	controllerRows.Close()
+
+	for _, sensor := range pendingControllerSensors {
+		trimmedUID := strings.TrimSpace(sensor.uid)
+		if trimmedUID == "" {
+			continue
+		}
+
+		if _, err := ensureSystemSensorBinding(
+			ctx,
+			h.db,
+			system.id,
+			controllerID,
+			trimmedUID,
+			sensor.sensorType,
+			sensor.name,
+			sensor.status,
+			sensor.configured,
+			&sensor.id,
+			nil,
+			nil,
+		); err != nil {
+			return err
+		}
+	}
+
+	legacyRows, err := h.db.Query(ctx, `
+		SELECT hw_id
+		FROM sensors
+		WHERE controller_id = $1
+		ORDER BY last_seen DESC NULLS LAST, hw_id ASC
+	`, controllerID)
+	if err != nil {
+		return err
+	}
+	defer legacyRows.Close()
+
+	legacySensorUIDs := []string{}
+	for legacyRows.Next() {
+		var sensorUID string
+		if err := legacyRows.Scan(&sensorUID); err != nil {
+			return err
+		}
+		legacySensorUIDs = append(legacySensorUIDs, sensorUID)
+	}
+	if err := legacyRows.Err(); err != nil {
+		return err
+	}
+	legacyRows.Close()
+
+	for _, sensorUID := range legacySensorUIDs {
+		if strings.TrimSpace(sensorUID) == "" {
+			continue
+		}
+		if _, err := h.ensureHardwareSensorForLegacy(ctx, controllerID, sensorUID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (h *ControllerHandler) loadLiveHardwareSensors(ctx context.Context, controllerID uuid.UUID, sessionStart time.Time) ([]models.HardwareSensorResponse, error) {
 	rows, err := h.db.Query(ctx, `
 		SELECT
@@ -1752,7 +2105,7 @@ func (h *ControllerHandler) ensureDefaultHardwareSensors(ctx context.Context, tx
 	}
 
 	if temperatureSensorID != uuid.Nil {
-		configJSON, err := json.Marshal(map[string]interface{}{
+		defaultHardwareConfig := map[string]interface{}{
 			"temperatureMin":           20,
 			"temperatureMax":           35,
 			"temperatureWarningMin":    18,
@@ -1761,10 +2114,18 @@ func (h *ControllerHandler) ensureDefaultHardwareSensors(ctx context.Context, tx
 			"humidityMax":              80,
 			"humidityWarningMin":       35,
 			"humidityWarningMax":       85,
-			"readingFlowType":          "Constant readings per day",
+			"readingFlowType":          "CONSTANT_PER_DAY",
 			"reportsPerDay":            24,
 			"estimatedBatteryLifeDays": 77,
+		}
+		defaultConfig := buildLegacySensorConfig(models.SaveHardwareSensorConfigRequest{
+			SensorType:    "temperature_humidity",
+			SensorName:    "Temperature & Humidity Sensor",
+			UsedFor:       "Climate Monitoring",
+			DashboardView: "Dual Climate",
+			Config:        defaultHardwareConfig,
 		})
+		configJSON, err := json.Marshal(defaultConfig)
 		if err != nil {
 			return err
 		}
@@ -1871,7 +2232,7 @@ func (h *ControllerHandler) ensureHardwareSensorForLegacy(ctx context.Context, c
 		false,
 		&controllerSensorID,
 		&legacySensor.id,
-		nil,
+		legacySensor.lastSeen,
 	)
 	if err != nil {
 		return hardwareSensorRecord{}, err
@@ -1893,8 +2254,9 @@ func (h *ControllerHandler) ensureHardwareSensorForLegacy(ctx context.Context, c
 
 func lookupLegacySensorRecord(ctx context.Context, q queryRower, controllerID uuid.UUID, sensorIdentifier string) (legacySensorRecord, error) {
 	var sensor legacySensorRecord
+	var lastSeen sql.NullTime
 	err := q.QueryRow(ctx, `
-		SELECT id, hw_id, COALESCE(name, ''), type, COALESCE(status, 'OK')
+		SELECT id, hw_id, COALESCE(name, ''), type, COALESCE(status, 'OK'), last_seen
 		FROM sensors
 		WHERE controller_id = $1
 		  AND (id::text = $2 OR hw_id = $2)
@@ -1904,7 +2266,11 @@ func lookupLegacySensorRecord(ctx context.Context, q queryRower, controllerID uu
 		&sensor.name,
 		&sensor.sensorType,
 		&sensor.status,
+		&lastSeen,
 	)
+	if lastSeen.Valid {
+		sensor.lastSeen = &lastSeen.Time
+	}
 	return sensor, err
 }
 
@@ -1966,13 +2332,16 @@ func (h *ControllerHandler) loadHardwareSensorHistorySummary(
 		days = 90
 	}
 
+	queryCtx, cancel := context.WithTimeout(ctx, aiHistoryQueryTimeout())
+	defer cancel()
+
 	var count int
 	var minValue *float64
 	var maxValue *float64
 	var avgValue *float64
 	var lastValue *float64
 
-	err := h.db.QueryRow(ctx, `
+	err := h.db.QueryRow(queryCtx, `
 		SELECT
 			COUNT(*),
 			MIN(value),
@@ -2092,6 +2461,15 @@ func hardwareConfigToAppConfig(configJSON []byte, sensorType string, sensorName 
 			appConfig.Thresholds = humidityThreshold
 		}
 	}
+	if appConfig.Hardware == nil {
+		appConfig.Hardware = &models.SensorHardwareLayer{}
+	}
+	appConfig.Hardware.SensorType = strings.TrimSpace(sensorType)
+	appConfig.Hardware.SensorName = strings.TrimSpace(sensorName)
+	if len(appConfig.Hardware.Config) == 0 {
+		appConfig.Hardware.Config = models.CloneHardwareConfigMap(appConfig.HardwareConfig)
+	}
+	appConfig.NormalizeThreeLayer(sensorType, nil)
 
 	return &appConfig, nil
 }
@@ -2102,6 +2480,14 @@ func buildLegacySensorConfig(req models.SaveHardwareSensorConfigRequest) models.
 		if strings.TrimSpace(cfg.FriendlyName) == "" {
 			cfg.FriendlyName = req.SensorName
 		}
+		cfg.HardwareConfig = models.CloneHardwareConfigMap(req.Config)
+		cfg.Hardware = &models.SensorHardwareLayer{
+			SystemName: strings.TrimSpace(req.SystemName),
+			SensorType: strings.TrimSpace(req.SensorType),
+			SensorName: strings.TrimSpace(req.SensorName),
+			Config:     models.CloneHardwareConfigMap(req.Config),
+		}
+		cfg.NormalizeThreeLayer(req.SensorType, nil)
 		return cfg
 	}
 
@@ -2120,7 +2506,7 @@ func buildLegacySensorConfig(req models.SaveHardwareSensorConfigRequest) models.
 		WarningMax: numericPointer(req.Config["humidityWarningMax"]),
 	}
 
-	return models.SensorConfig{
+	config := models.SensorConfig{
 		FriendlyName:         strings.TrimSpace(req.SensorName),
 		UseCase:              strings.TrimSpace(req.UsedFor),
 		PresentationProfile:  strings.TrimSpace(req.DashboardView),
@@ -2132,7 +2518,16 @@ func buildLegacySensorConfig(req models.SaveHardwareSensorConfigRequest) models.
 			BatteryLifeDays:   estimatedBatteryLifeDays,
 			SamplingFrequency: reportsPerDay,
 		},
+		HardwareConfig: models.CloneHardwareConfigMap(req.Config),
+		Hardware: &models.SensorHardwareLayer{
+			SystemName: strings.TrimSpace(req.SystemName),
+			SensorType: strings.TrimSpace(req.SensorType),
+			SensorName: strings.TrimSpace(req.SensorName),
+			Config:     models.CloneHardwareConfigMap(req.Config),
+		},
 	}
+	config.NormalizeThreeLayer(req.SensorType, nil)
+	return config
 }
 
 func positiveIntOrDefault(value any, fallback int) int {
@@ -2278,7 +2673,9 @@ func (h *ControllerHandler) lookupAdminController(ctx context.Context, identifie
 		SELECT id,
 		       COALESCE(controller_uid, hw_id),
 		       COALESCE(name, 'Main Controller'),
-		       status,
+		       claim_status,
+		       operational_status,
+		       COALESCE(owner_account_id::text, ''),
 		       COALESCE(owner_user_id::text, ''),
 		       updated_at
 		FROM controllers
@@ -2302,7 +2699,9 @@ func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.Admi
 			COALESCE(c.controller_uid, c.hw_id),
 			COALESCE(c.name, 'Main Controller'),
 			COALESCE(c.location, ''),
-			c.status,
+			c.operational_status,
+			c.claim_status,
+			c.operational_status,
 			COALESCE(u.email, ''),
 			COUNT(cs.id)::int,
 			COUNT(cs.id) FILTER (WHERE cs.configured = true)::int,
@@ -2311,7 +2710,7 @@ func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.Admi
 		FROM controllers c
 		LEFT JOIN users u ON u.id = c.owner_user_id
 		LEFT JOIN controller_sensors cs ON cs.controller_id = c.id
-		GROUP BY c.id, c.controller_uid, c.hw_id, c.name, c.location, c.status, u.email, c.last_seen, c.updated_at
+		GROUP BY c.id, c.controller_uid, c.hw_id, c.name, c.location, c.operational_status, c.claim_status, u.email, c.last_seen, c.updated_at
 		ORDER BY c.updated_at DESC, c.created_at DESC
 	`)
 	if err != nil {
@@ -2331,6 +2730,8 @@ func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.Admi
 			&device.Name,
 			&device.Location,
 			&device.Status,
+			&device.ClaimStatus,
+			&device.OperationalStatus,
 			&device.OwnerEmail,
 			&device.SensorCount,
 			&device.ConfiguredSensors,

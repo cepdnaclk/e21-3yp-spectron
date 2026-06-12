@@ -180,26 +180,80 @@ func (app *integrationApp) createController(t *testing.T, accountID uuid.UUID, o
 	if status == "" {
 		status = "unclaimed"
 	}
+	claimStatus := "UNCLAIMED"
+	operationalStatus := "OFFLINE"
+	var ownerAccountID *uuid.UUID
+	var legacyAccountID *uuid.UUID
+	if ownerUserID != nil {
+		claimStatus = "CLAIMED"
+		operationalStatus = "PENDING_CONFIG"
+		ownerAccountID = &accountID
+		legacyAccountID = &accountID
+	}
 
 	if _, err := app.pool.Exec(context.Background(), `
 		INSERT INTO controllers (
 			id,
 			account_id,
+			owner_account_id,
+			registered_by_account_id,
 			hw_id,
 			controller_uid,
 			name,
 			status,
+			claim_status,
+			operational_status,
 			owner_user_id,
 			created_at,
 			updated_at,
 			min_reporting_interval_sec
 		)
-		VALUES ($1, $2, $3, $3, 'Main Controller', $4, $5, NOW(), NOW(), 300)
-	`, controllerID, accountID, uid, status, ownerUserID); err != nil {
+		VALUES ($1, $2, $3, $4, $5, $5, 'Main Controller', $6, $7, $8, $9, NOW(), NOW(), 300)
+	`, controllerID, legacyAccountID, ownerAccountID, accountID, uid, operationalStatus, claimStatus, operationalStatus, ownerUserID); err != nil {
 		t.Fatalf("insert controller: %v", err)
 	}
 
 	return testController{id: controllerID, uid: uid}
+}
+
+func (app *integrationApp) createLegacySensors(t *testing.T, controllerID uuid.UUID) []testSensor {
+	t.Helper()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	sensors := []testSensor{}
+
+	for index, sensor := range []struct {
+		uid        string
+		name       string
+		sensorType string
+		unit       string
+	}{
+		{uid: "SEN-LOAD-001", name: "Load Sensor", sensorType: "load", unit: "kg"},
+		{uid: "SEN-TH-001", name: "Temperature & Humidity Sensor", sensorType: "temperature_humidity", unit: "C/%RH"},
+		{uid: "SEN-US-001", name: "Ultrasonic Sensor", sensorType: "ultrasonic", unit: "cm"},
+	} {
+		sensorID := uuid.New()
+		if _, err := app.pool.Exec(ctx, `
+			INSERT INTO sensors (
+				id,
+				controller_id,
+				hw_id,
+				type,
+				name,
+				unit,
+				status,
+				last_seen
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, 'OK', $7)
+		`, sensorID, controllerID, sensor.uid, sensor.sensorType, sensor.name, sensor.unit, now.Add(time.Duration(index)*time.Second)); err != nil {
+			t.Fatalf("insert legacy sensor: %v", err)
+		}
+
+		sensors = append(sensors, testSensor{id: sensorID, uid: sensor.uid})
+	}
+
+	return sensors
 }
 
 func (app *integrationApp) createSystemWithSensors(t *testing.T, accountID uuid.UUID, controllerID *uuid.UUID) (testSystem, []testSensor) {

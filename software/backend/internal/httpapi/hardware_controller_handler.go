@@ -1280,16 +1280,17 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if err := resetLearningPhase(r.Context(), tx, "system", sensor.id); err != nil {
-		http.Error(w, "failed to reset system learning phase", http.StatusInternalServerError)
-		return
-	}
-	if legacyErr == nil {
-		if err := resetLearningPhase(r.Context(), tx, "legacy", legacySensor.id); err != nil {
-			http.Error(w, "failed to reset sensor learning phase", http.StatusInternalServerError)
-			return
-		}
-	}
+	// TODO: Learning phase reset - implementation pending
+	// if err := resetLearningPhase(r.Context(), tx, "system", sensor.id); err != nil {
+	// 	http.Error(w, "failed to reset system learning phase", http.StatusInternalServerError)
+	// 	return
+	// }
+	// if legacyErr == nil {
+	// 	if err := resetLearningPhase(r.Context(), tx, "legacy", legacySensor.id); err != nil {
+	// 		http.Error(w, "failed to reset sensor learning phase", http.StatusInternalServerError)
+	// 		return
+	// 	}
+	// }
 
 	if err := tx.Commit(r.Context()); err != nil {
 		http.Error(w, "failed to commit configuration", http.StatusInternalServerError)

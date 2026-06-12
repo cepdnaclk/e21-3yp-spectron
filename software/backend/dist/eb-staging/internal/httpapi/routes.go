@@ -82,7 +82,6 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		// Controllers
 		r.Route("/controllers", func(r chi.Router) {
 			r.Get("/", controllerHandler.List)
-			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/pair", controllerHandler.Pair)
 			r.Get("/{id}", controllerHandler.Get)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Patch("/{id}", controllerHandler.Update)
 		})
@@ -94,6 +93,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Put("/{controllerId}", controllerHandler.UpdateHardwareControllerAPI)
 			r.Get("/{controllerId}/sensors", controllerHandler.ControllerSensorsAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Delete("/{controllerId}/claim", controllerHandler.ReleaseControllerAPI)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Delete("/{controllerId}/sensors/{sensorId}", controllerHandler.DeleteHardwareSensorAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Patch("/{controllerId}/sensors/{sensorId}", controllerHandler.UpdateHardwareSensorAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Put("/{controllerId}/sensors/{sensorId}", controllerHandler.UpdateHardwareSensorAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{controllerId}/sensors/{sensorId}/ai-suggest-config", controllerHandler.AISuggestHardwareSensorConfigAPI)
@@ -124,9 +124,11 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		})
 		r.Route("/sensors", func(r chi.Router) {
 			r.Get("/{id}", sensorHandler.Get)
-			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Patch("/{id}", sensorHandler.Update)
-			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Put("/{id}", sensorHandler.Update)
-			r.Post("/{id}/ai-suggest-config", sensorHandler.AISuggestConfig)
+		// TODO: Learning phase endpoints - implementation pending
+		// r.Get("/{id}/learning-phase", sensorHandler.GetLearningPhaseStatus)
+		// r.Post("/{id}/learning-phase/suggestions", sensorHandler.GetLearningPhaseSuggestions)
+		// r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/learning-phase/apply", sensorHandler.ApplyLearningPhaseSuggestions)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/ai-suggest-config", sensorHandler.AISuggestConfig)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/config", sensorHandler.SaveConfig)
 		})
 
@@ -139,6 +141,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		r.Route("/alerts", func(r chi.Router) {
 			r.Get("/", alertHandler.List)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/ack", alertHandler.Acknowledge)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/apply-recommendation", alertHandler.ApplyRecommendation)
 		})
 	})
 }

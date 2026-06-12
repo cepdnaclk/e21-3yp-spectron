@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -47,6 +48,9 @@ var migration011SensorReadingsRetention string
 //go:embed migrations/012_sensor_type_compatibility.sql
 var migration012SensorTypeCompatibility string
 
+//go:embed migrations/013_controller_claim_ownership.sql
+var migration013ControllerClaimOwnership string
+
 type migration struct {
 	name string
 	sql  string
@@ -65,11 +69,39 @@ var startupMigrations = []migration{
 	{name: "010_activate_verified_email_users", sql: migration010ActivateVerifiedEmailUsers},
 	{name: "011_sensor_readings_retention", sql: migration011SensorReadingsRetention},
 	{name: "012_sensor_type_compatibility", sql: migration012SensorTypeCompatibility},
+	{name: "013_controller_claim_ownership", sql: migration013ControllerClaimOwnership},
 }
 
 func ApplyStartupMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	for _, m := range startupMigrations {
 		if _, err := pool.Exec(ctx, m.sql); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "permission denied for schema public") {
+				cfg := pool.Config()
+				dbName := "<database>"
+				dbUser := "<db_user>"
+				if cfg != nil && cfg.ConnConfig != nil {
+					if strings.TrimSpace(cfg.ConnConfig.Database) != "" {
+						dbName = strings.TrimSpace(cfg.ConnConfig.Database)
+					}
+					if strings.TrimSpace(cfg.ConnConfig.User) != "" {
+						dbUser = strings.TrimSpace(cfg.ConnConfig.User)
+					}
+				}
+				return fmt.Errorf(
+					"apply migration %s: the database user %q can connect to database %q but cannot create objects in schema public. "+
+						"Connect as a PostgreSQL superuser and run:\n"+
+						"  ALTER DATABASE %s OWNER TO %s;\n"+
+						"  GRANT USAGE, CREATE ON SCHEMA public TO %s;\n"+
+						"Then start the backend again.\nOriginal error: %w",
+					m.name,
+					dbUser,
+					dbName,
+					dbName,
+					dbUser,
+					dbUser,
+					err,
+				)
+			}
 			return fmt.Errorf("apply migration %s: %w", m.name, err)
 		}
 	}

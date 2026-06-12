@@ -77,6 +77,16 @@ func (h *IngestHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// TODO: Learning phase feedback - implementation pending
+	// for _, sensor := range req.Sensors {
+	// 	sensorUID := sensor.ID
+	// 	go func() {
+	// 		bgCtx, cancel := context.WithTimeout(context.Background(), hostedAITimeout())
+	// 		defer cancel()
+	// 		maybeGenerateLearningFeedbackForUpload(bgCtx, h.db, controllerID, sensorUID)
+	// 	}()
+	// }
+
 	queued := false
 	if err := h.publisher.PublishRawReadings(r.Context(), event); err != nil {
 		if errors.Is(err, iot.ErrProducerDisabled) {
@@ -150,10 +160,11 @@ func (h *IngestHandler) Discover(w http.ResponseWriter, r *http.Request) {
 
 	_, err = tx.Exec(r.Context(), `
 		UPDATE controllers
-		SET status = 'ONLINE',
+		SET operational_status = 'ONLINE',
+		    status = 'ONLINE',
 		    last_seen = $2,
 		    updated_at = CASE
-		        WHEN UPPER(COALESCE(status, '')) = 'ONLINE' THEN updated_at
+		        WHEN operational_status = 'ONLINE' THEN updated_at
 		        ELSE $2
 		    END,
 		    min_reporting_interval_sec = LEAST(min_reporting_interval_sec, $3)
@@ -326,10 +337,11 @@ func (h *IngestHandler) Config(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	_, _ = h.db.Exec(r.Context(), `
 		UPDATE controllers
-		SET status = 'ONLINE',
+		SET operational_status = 'ONLINE',
+		    status = 'ONLINE',
 		    last_seen = $2,
 		    updated_at = CASE
-		        WHEN UPPER(COALESCE(status, '')) = 'ONLINE' THEN updated_at
+		        WHEN operational_status = 'ONLINE' THEN updated_at
 		        ELSE $2
 		    END,
 		    min_reporting_interval_sec = LEAST(min_reporting_interval_sec, $3)
@@ -485,7 +497,8 @@ func buildDefaultDeviceConfigID(sensorID string, samplePeriodMs uint32, tempHiX1
 func decodeDeviceSensorConfig(rawConfig []byte) (models.SensorConfig, error) {
 	var activeConfig models.SensorConfig
 	if err := json.Unmarshal(rawConfig, &activeConfig); err == nil {
-		if activeConfig.ReportIntervalPerDay > 0 || len(activeConfig.MetricThresholds) > 0 || activeConfig.FriendlyName != "" {
+		activeConfig.NormalizeThreeLayer("", nil)
+		if activeConfig.HasMeaningfulContent() {
 			return activeConfig, nil
 		}
 	}
@@ -509,7 +522,7 @@ func decodeDeviceSensorConfig(rawConfig []byte) (models.SensorConfig, error) {
 		WarningMax: flatConfigFloatPtr(flat, "humidityWarningMax"),
 	}
 
-	return models.SensorConfig{
+	config := models.SensorConfig{
 		FriendlyName:         flatConfigString(flat, "friendlyName"),
 		UseCase:              flatConfigString(flat, "usedFor"),
 		PresentationProfile:  flatConfigString(flat, "dashboardView"),
@@ -521,7 +534,10 @@ func decodeDeviceSensorConfig(rawConfig []byte) (models.SensorConfig, error) {
 			BatteryLifeDays:   flatConfigInt(flat, "estimatedBatteryLifeDays", 0),
 			SamplingFrequency: reportsPerDay,
 		},
-	}, nil
+		HardwareConfig: flat,
+	}
+	config.NormalizeThreeLayer("", nil)
+	return config, nil
 }
 
 func flatConfigString(config map[string]any, key string) string {

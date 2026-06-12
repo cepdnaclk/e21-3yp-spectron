@@ -21,21 +21,25 @@ type HardwareSensorResponse struct {
 }
 
 type HardwarePairResponse struct {
-	ID           string                   `json:"id"`
-	ControllerID string                   `json:"controllerId"`
-	SystemID     string                   `json:"systemId,omitempty"`
-	SystemName   string                   `json:"systemName,omitempty"`
-	Status       string                   `json:"status"`
-	Sensors      []HardwareSensorResponse `json:"sensors"`
+	ID                string                   `json:"id"`
+	ControllerID      string                   `json:"controllerId"`
+	SystemID          string                   `json:"systemId,omitempty"`
+	SystemName        string                   `json:"systemName,omitempty"`
+	Status            string                   `json:"status"`
+	ClaimStatus       string                   `json:"claimStatus"`
+	OperationalStatus string                   `json:"operationalStatus"`
+	Sensors           []HardwareSensorResponse `json:"sensors"`
 }
 
 type UserHardwareControllerResponse struct {
-	ControllerID string                   `json:"controllerId"`
-	SystemID     string                   `json:"systemId,omitempty"`
-	SystemName   string                   `json:"systemName,omitempty"`
-	Name         string                   `json:"name"`
-	Status       string                   `json:"status"`
-	Sensors      []HardwareSensorResponse `json:"sensors"`
+	ControllerID      string                   `json:"controllerId"`
+	SystemID          string                   `json:"systemId,omitempty"`
+	SystemName        string                   `json:"systemName,omitempty"`
+	Name              string                   `json:"name"`
+	Status            string                   `json:"status"`
+	ClaimStatus       string                   `json:"claimStatus"`
+	OperationalStatus string                   `json:"operationalStatus"`
+	Sensors           []HardwareSensorResponse `json:"sensors"`
 }
 
 type UserHardwareControllersResponse struct {
@@ -130,6 +134,8 @@ type AdminDeviceResponse struct {
 	Name              string `json:"name"`
 	Location          string `json:"location,omitempty"`
 	Status            string `json:"status"`
+	ClaimStatus       string `json:"claimStatus"`
+	OperationalStatus string `json:"operationalStatus"`
 	OwnerEmail        string `json:"ownerEmail,omitempty"`
 	SensorCount       int    `json:"sensorCount"`
 	ConfiguredSensors int    `json:"configuredSensors"`

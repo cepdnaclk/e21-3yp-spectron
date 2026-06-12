@@ -124,11 +124,10 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		})
 		r.Route("/sensors", func(r chi.Router) {
 			r.Get("/{id}", sensorHandler.Get)
-			r.Get("/{id}/learning-phase", sensorHandler.GetLearningPhaseStatus)
-			r.Post("/{id}/learning-phase/suggestions", sensorHandler.GetLearningPhaseSuggestions)
-			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/learning-phase/apply", sensorHandler.ApplyLearningPhaseSuggestions)
-			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Patch("/{id}", sensorHandler.Update)
-			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Put("/{id}", sensorHandler.Update)
+		// TODO: Learning phase endpoints - implementation pending
+		// r.Get("/{id}/learning-phase", sensorHandler.GetLearningPhaseStatus)
+		// r.Post("/{id}/learning-phase/suggestions", sensorHandler.GetLearningPhaseSuggestions)
+		// r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/learning-phase/apply", sensorHandler.ApplyLearningPhaseSuggestions)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/ai-suggest-config", sensorHandler.AISuggestConfig)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/config", sensorHandler.SaveConfig)
 		})

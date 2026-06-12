@@ -7,16 +7,18 @@ import (
 )
 
 type Controller struct {
-	ID        uuid.UUID  `json:"id"`
-	AccountID uuid.UUID  `json:"account_id"`
-	HWID      string     `json:"hw_id"`
-	Name      *string    `json:"name,omitempty"`
-	Purpose   *string    `json:"purpose,omitempty"`
-	Location  *string    `json:"location,omitempty"`
-	QRCode    *string    `json:"qr_code,omitempty"`
-	Status    string     `json:"status"` // ONLINE, OFFLINE, PENDING_CONFIG
-	LastSeen  *time.Time `json:"last_seen,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID                uuid.UUID  `json:"id"`
+	AccountID         uuid.UUID  `json:"account_id"`
+	HWID              string     `json:"hw_id"`
+	Name              *string    `json:"name,omitempty"`
+	Purpose           *string    `json:"purpose,omitempty"`
+	Location          *string    `json:"location,omitempty"`
+	QRCode            *string    `json:"qr_code,omitempty"`
+	Status            string     `json:"status"` // ONLINE, OFFLINE, PENDING_CONFIG
+	ClaimStatus       string     `json:"claim_status"`
+	OperationalStatus string     `json:"operational_status"`
+	LastSeen          *time.Time `json:"last_seen,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
 }
 
 type PairControllerRequest struct {

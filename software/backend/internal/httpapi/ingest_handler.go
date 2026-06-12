@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -78,14 +77,15 @@ func (h *IngestHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, sensor := range req.Sensors {
-		sensorUID := sensor.ID
-		go func() {
-			bgCtx, cancel := context.WithTimeout(context.Background(), hostedAITimeout())
-			defer cancel()
-			maybeGenerateLearningFeedbackForUpload(bgCtx, h.db, controllerID, sensorUID)
-		}()
-	}
+	// TODO: Learning phase feedback - implementation pending
+	// for _, sensor := range req.Sensors {
+	// 	sensorUID := sensor.ID
+	// 	go func() {
+	// 		bgCtx, cancel := context.WithTimeout(context.Background(), hostedAITimeout())
+	// 		defer cancel()
+	// 		maybeGenerateLearningFeedbackForUpload(bgCtx, h.db, controllerID, sensorUID)
+	// 	}()
+	// }
 
 	queued := false
 	if err := h.publisher.PublishRawReadings(r.Context(), event); err != nil {

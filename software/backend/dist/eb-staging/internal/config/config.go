@@ -3,6 +3,7 @@ package config
 import (
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -49,10 +50,7 @@ type EmailConfig struct {
 }
 
 func Load() (*Config, error) {
-	// Load .env if present; ignore error if file is missing
-	_ = godotenv.Load()
-	// Keep local secrets such as SMTP credentials outside tracked .env files.
-	_ = godotenv.Overload(".env.local")
+	loadEnvFiles()
 
 	httpPort := getenv("PORT", "")
 	if httpPort == "" {
@@ -114,6 +112,62 @@ func Load() (*Config, error) {
 			FrontendURL: strings.TrimRight(getenv("FRONTEND_URL", "http://localhost:3001"), "/"),
 		},
 	}, nil
+}
+
+func loadEnvFiles() {
+	backendRoot, ok := findBackendRoot()
+	if !ok {
+		// Fall back to the current working directory for non-standard launches.
+		_ = godotenv.Load()
+		// Keep local secrets such as SMTP credentials outside tracked .env files.
+		_ = godotenv.Overload(".env.local")
+		return
+	}
+
+	_ = godotenv.Load(filepath.Join(backendRoot, ".env"))
+	// Keep local secrets such as SMTP credentials outside tracked .env files.
+	_ = godotenv.Overload(filepath.Join(backendRoot, ".env.local"))
+}
+
+func findBackendRoot() (string, bool) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+
+	for dir := cwd; ; dir = filepath.Dir(dir) {
+		if isBackendRoot(dir) {
+			return dir, true
+		}
+
+		nestedBackend := filepath.Join(dir, "software", "backend")
+		if isBackendRoot(nestedBackend) {
+			return nestedBackend, true
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+	}
+
+	return "", false
+}
+
+func isBackendRoot(dir string) bool {
+	if dir == "" {
+		return false
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
+		return false
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "cmd", "api", "main.go")); err != nil {
+		return false
+	}
+
+	return true
 }
 
 func getenv(key, fallback string) string {

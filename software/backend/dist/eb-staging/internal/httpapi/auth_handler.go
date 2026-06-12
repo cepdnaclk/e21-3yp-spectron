@@ -1,14 +1,9 @@
 package httpapi
 
 import (
-	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"log"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -19,30 +14,20 @@ import (
 
 	"spectron-backend/internal/auth"
 	"spectron-backend/internal/config"
-	"spectron-backend/internal/mail"
 	"spectron-backend/internal/models"
 )
 
 type AuthHandler struct {
-	db            *pgxpool.Pool
-	mailer        *mail.Mailer
-	emailFrontend string
+	db *pgxpool.Pool
 }
 
 const (
-	emailVerificationTTL       = 30 * time.Minute
-	resendVerificationCooldown = time.Minute
-	verifyEmailSuccessMessage  = "Email verified successfully."
-	verifyEmailGenericMessage  = "If an account needs verification, a verification email has been sent."
-	signupVerificationMessage  = "Account created. Please check your email to verify your account."
+	signupSuccessMessage           = "Account created. You can sign in now."
+	verificationNotRequiredMessage = "Email verification is no longer required. You can sign in now."
 )
 
-func NewAuthHandler(db *pgxpool.Pool, emailConfig config.EmailConfig) *AuthHandler {
-	return &AuthHandler{
-		db:            db,
-		mailer:        mail.NewMailer(emailConfig),
-		emailFrontend: strings.TrimRight(emailConfig.FrontendURL, "/"),
-	}
+func NewAuthHandler(db *pgxpool.Pool, _ config.EmailConfig) *AuthHandler {
+	return &AuthHandler{db: db}
 }
 
 type RegisterRequest struct {
@@ -146,10 +131,6 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "email and a password of at least 6 characters are required", http.StatusBadRequest)
 		return
 	}
-	if !h.mailer.Configured() {
-		http.Error(w, "Verification email could not be sent. Please check SMTP settings and try again.", http.StatusServiceUnavailable)
-		return
-	}
 
 	tx, err := h.db.Begin(r.Context())
 	if err != nil {
@@ -159,37 +140,14 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	var verificationToken string
 	var existingUserID uuid.UUID
-	var existingAccountType string
-	var existingVerified bool
 	err = tx.QueryRow(r.Context(), `
-		SELECT id, account_type, is_email_verified
+		SELECT id
 		FROM users
 		WHERE email = $1
-	`, email).Scan(&existingUserID, &existingAccountType, &existingVerified)
+	`, email).Scan(&existingUserID)
 	if err == nil {
-		if existingAccountType == "USER" && !existingVerified {
-			verificationToken, err = h.createVerificationTokenIfAllowed(r.Context(), tx, existingUserID)
-			if err != nil {
-				log.Printf("Failed to create verification token for existing user: %v", err)
-				http.Error(w, "failed to prepare email verification", http.StatusInternalServerError)
-				return
-			}
-		}
-
-		if err := tx.Commit(r.Context()); err != nil {
-			log.Printf("Failed to commit duplicate signup handling: %v", err)
-			http.Error(w, "failed to commit signup request", http.StatusInternalServerError)
-			return
-		}
-
-		if err := h.sendVerificationEmail(context.Background(), email, verificationToken); err != nil {
-			log.Printf("Failed to send verification email to %s: %v", email, err)
-			http.Error(w, "Verification email could not be sent. Please check SMTP settings and try again.", http.StatusServiceUnavailable)
-			return
-		}
-		writeSignupVerificationResponse(w)
+		http.Error(w, "email already registered", http.StatusConflict)
 		return
 	}
 	if err != pgx.ErrNoRows {
@@ -209,12 +167,12 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	_, err = tx.Exec(r.Context(), `
 		INSERT INTO users (id, email, password_hash, phone, name, account_type, status, is_email_verified)
-		VALUES ($1, $2, $3, $4, $5, 'USER', 'ACTIVE', false)
+		VALUES ($1, $2, $3, $4, $5, 'USER', 'ACTIVE', true)
 	`, userID, email, hashedPassword, req.Phone, req.Name)
 	if err != nil {
 		log.Printf("Failed to create user: %v", err)
 		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
-			writeSignupVerificationResponse(w)
+			http.Error(w, "email already registered", http.StatusConflict)
 			return
 		}
 		http.Error(w, "failed to create account", http.StatusInternalServerError)
@@ -249,249 +207,36 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	verificationToken, err = h.createVerificationToken(r.Context(), tx, userID)
-	if err != nil {
-		log.Printf("Failed to create verification token: %v", err)
-		http.Error(w, "failed to prepare email verification", http.StatusInternalServerError)
-		return
-	}
-
 	if err := tx.Commit(r.Context()); err != nil {
 		log.Printf("Failed to commit transaction: %v", err)
 		http.Error(w, "failed to commit transaction: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if err := h.sendVerificationEmail(context.Background(), email, verificationToken); err != nil {
-		log.Printf("Failed to send verification email to %s: %v", email, err)
-		http.Error(w, "Verification email could not be sent. Please check SMTP settings and try again.", http.StatusServiceUnavailable)
-		return
-	}
-	writeSignupVerificationResponse(w)
+	writeSignupSuccessResponse(w)
 }
 
-func writeSignupVerificationResponse(w http.ResponseWriter) {
+func writeSignupSuccessResponse(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(AuthResponse{
-		Status:  "EMAIL_VERIFICATION_REQUIRED",
-		Message: signupVerificationMessage,
+		Status:  "ACTIVE",
+		Message: signupSuccessMessage,
 	})
 }
 
 func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
-	var req VerifyEmailRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
-		return
-	}
-
-	token := strings.TrimSpace(req.Token)
-	if token == "" {
-		http.Error(w, "verification token is required", http.StatusBadRequest)
-		return
-	}
-
-	tx, err := h.db.Begin(r.Context())
-	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
-		return
-	}
-	defer tx.Rollback(r.Context())
-
-	var userID uuid.UUID
-	var expiresAt time.Time
-	var usedAt *time.Time
-	err = tx.QueryRow(r.Context(), `
-		SELECT user_id, expires_at, used_at
-		FROM email_verification_tokens
-		WHERE token_hash = $1
-	`, hashVerificationToken(token)).Scan(&userID, &expiresAt, &usedAt)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			http.Error(w, "Invalid or already used verification token.", http.StatusBadRequest)
-			return
-		}
-		http.Error(w, "database error", http.StatusInternalServerError)
-		return
-	}
-
-	if usedAt != nil {
-		http.Error(w, "Invalid or already used verification token.", http.StatusBadRequest)
-		return
-	}
-	if !expiresAt.After(time.Now().UTC()) {
-		http.Error(w, "Verification token has expired.", http.StatusBadRequest)
-		return
-	}
-
-	_, err = tx.Exec(r.Context(), `
-		UPDATE users
-		SET
-			is_email_verified = true,
-			status = CASE
-				WHEN account_type = 'USER' AND status = 'PENDING_APPROVAL' THEN 'ACTIVE'
-				ELSE status
-			END
-		WHERE id = $1
-	`, userID)
-	if err != nil {
-		http.Error(w, "failed to verify email", http.StatusInternalServerError)
-		return
-	}
-
-	_, err = tx.Exec(r.Context(), `
-		UPDATE email_verification_tokens
-		SET used_at = NOW()
-		WHERE user_id = $1 AND used_at IS NULL
-	`, userID)
-	if err != nil {
-		http.Error(w, "failed to consume verification token", http.StatusInternalServerError)
-		return
-	}
-
-	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, "failed to commit email verification", http.StatusInternalServerError)
-		return
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"status":  "verified",
-		"message": verifyEmailSuccessMessage,
+		"status":  "disabled",
+		"message": verificationNotRequiredMessage,
 	})
 }
 
 func (h *AuthHandler) ResendVerification(w http.ResponseWriter, r *http.Request) {
-	var req ResendVerificationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
-		return
-	}
-
-	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if email == "" {
-		http.Error(w, "email is required", http.StatusBadRequest)
-		return
-	}
-
-	if !h.mailer.Configured() {
-		http.Error(w, "Verification email could not be sent. Please check SMTP settings and try again.", http.StatusServiceUnavailable)
-		return
-	}
-
-	var verificationToken string
-	tx, err := h.db.Begin(r.Context())
-	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
-		return
-	}
-	defer tx.Rollback(r.Context())
-
-	var userID uuid.UUID
-	var isVerified bool
-	var accountType string
-	err = tx.QueryRow(r.Context(), `
-		SELECT id, is_email_verified, account_type
-		FROM users
-		WHERE email = $1
-	`, email).Scan(&userID, &isVerified, &accountType)
-	if err == nil && accountType == "USER" && !isVerified {
-		verificationToken, err = h.createVerificationTokenIfAllowed(r.Context(), tx, userID)
-		if err != nil {
-			log.Printf("Failed to create resend verification token: %v", err)
-			http.Error(w, "failed to prepare email verification", http.StatusInternalServerError)
-			return
-		}
-	} else if err != nil && err != pgx.ErrNoRows {
-		log.Printf("Failed to load resend user: %v", err)
-		http.Error(w, "database error", http.StatusInternalServerError)
-		return
-	}
-
-	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, "failed to process resend request", http.StatusInternalServerError)
-		return
-	}
-
-	if err := h.sendVerificationEmail(context.Background(), email, verificationToken); err != nil {
-		log.Printf("Failed to send verification email to %s: %v", email, err)
-		http.Error(w, "Verification email could not be sent. Please check SMTP settings and try again.", http.StatusServiceUnavailable)
-		return
-	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"message": verifyEmailGenericMessage,
+		"message": verificationNotRequiredMessage,
 	})
-}
-
-func (h *AuthHandler) createVerificationTokenIfAllowed(ctx context.Context, tx pgx.Tx, userID uuid.UUID) (string, error) {
-	var recentlySent bool
-	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM email_verification_tokens
-			WHERE user_id = $1
-			  AND created_at > NOW() - ($2::double precision * INTERVAL '1 second')
-		)
-	`, userID, resendVerificationCooldown.Seconds()).Scan(&recentlySent); err != nil {
-		return "", err
-	}
-	if recentlySent {
-		return "", nil
-	}
-	return h.createVerificationToken(ctx, tx, userID)
-}
-
-func (h *AuthHandler) createVerificationToken(ctx context.Context, tx pgx.Tx, userID uuid.UUID) (string, error) {
-	token, err := generateVerificationToken()
-	if err != nil {
-		return "", err
-	}
-
-	_, err = tx.Exec(ctx, `
-		UPDATE email_verification_tokens
-		SET used_at = NOW()
-		WHERE user_id = $1 AND used_at IS NULL
-	`, userID)
-	if err != nil {
-		return "", err
-	}
-
-	_, err = tx.Exec(ctx, `
-		INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, NOW())
-	`, uuid.New(), userID, hashVerificationToken(token), time.Now().UTC().Add(emailVerificationTTL))
-	if err != nil {
-		return "", err
-	}
-
-	return token, nil
-}
-
-func generateVerificationToken() (string, error) {
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(buf), nil
-}
-
-func hashVerificationToken(token string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(token)))
-	return hex.EncodeToString(sum[:])
-}
-
-func (h *AuthHandler) sendVerificationEmail(ctx context.Context, email string, token string) error {
-	if strings.TrimSpace(token) == "" {
-		return nil
-	}
-
-	frontendURL := h.emailFrontend
-	if frontendURL == "" {
-		frontendURL = "http://localhost:3001"
-	}
-	verificationURL := frontendURL + "/verify-email?token=" + url.QueryEscape(token)
-	return h.mailer.SendVerificationEmail(ctx, email, verificationURL)
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -536,8 +281,14 @@ func (h *AuthHandler) loginWithAccountType(w http.ResponseWriter, r *http.Reques
 	}
 
 	if !isEmailVerified {
-		http.Error(w, "Please verify your email before logging in.", http.StatusForbidden)
-		return
+		if _, updateErr := h.db.Exec(r.Context(), `
+			UPDATE users
+			SET is_email_verified = true
+			WHERE id = $1
+		`, userID); updateErr != nil {
+			log.Printf("Failed to auto-verify user %s during login: %v", userID, updateErr)
+		}
+		isEmailVerified = true
 	}
 
 	if status != "ACTIVE" {
@@ -567,13 +318,14 @@ func (h *AuthHandler) loginWithAccountType(w http.ResponseWriter, r *http.Reques
 	}
 
 	user := models.User{
-		ID:          userID,
-		Email:       req.Email,
-		Name:        name,
-		Phone:       phone,
-		AvatarURL:   avatarURL,
-		AccountType: accountType,
-		Status:      status,
+		ID:            userID,
+		Email:         req.Email,
+		Name:          name,
+		Phone:         phone,
+		AvatarURL:     avatarURL,
+		AccountType:   accountType,
+		Status:        status,
+		EmailVerified: isEmailVerified,
 	}
 
 	json.NewEncoder(w).Encode(AuthResponse{
@@ -776,27 +528,27 @@ func (h *AuthHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		     SELECT sg.id
 		     FROM sensor_groups sg
 		     JOIN controllers c ON sg.controller_id = c.id
-		     WHERE c.account_id = $1
+		     WHERE c.owner_account_id = $1
 		 )
 		    OR sensor_id IN (
 		     SELECT s.id
 		     FROM sensors s
 		     JOIN controllers c ON s.controller_id = c.id
-		     WHERE c.account_id = $1
+		     WHERE c.owner_account_id = $1
 		 )`,
 		`DELETE FROM sensor_readings
 		 WHERE sensor_id IN (
 		     SELECT s.id
 		     FROM sensors s
 		     JOIN controllers c ON s.controller_id = c.id
-		     WHERE c.account_id = $1
+		     WHERE c.owner_account_id = $1
 		 )`,
 		`DELETE FROM sensor_configs
 		 WHERE sensor_id IN (
 		     SELECT s.id
 		     FROM sensors s
 		     JOIN controllers c ON s.controller_id = c.id
-		     WHERE c.account_id = $1
+		     WHERE c.owner_account_id = $1
 		 )`,
 		`DELETE FROM alerts WHERE account_id = $1`,
 		`DELETE FROM sensor_groups
@@ -869,16 +621,21 @@ func (h *AuthHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		Role      string    `json:"role"`
 	}
 
-	var users []UserResponse
+	users := make([]UserResponse, 0)
 	for rows.Next() {
 		var u UserResponse
-		var createdAt string
+		var createdAt time.Time
 		err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Phone, &u.Status, &createdAt, &u.Role)
 		if err != nil {
-			continue
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
 		}
-		u.CreatedAt = createdAt
+		u.CreatedAt = createdAt.UTC().Format(time.RFC3339)
 		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -917,8 +674,8 @@ func (h *AuthHandler) CreateViewer(w http.ResponseWriter, r *http.Request) {
 
 	userID := uuid.New()
 	_, err = tx.Exec(r.Context(), `
-		INSERT INTO users (id, email, password_hash, phone, name, account_type, status)
-		VALUES ($1, $2, $3, $4, $5, 'USER', 'ACTIVE')
+		INSERT INTO users (id, email, password_hash, phone, name, account_type, status, is_email_verified)
+		VALUES ($1, $2, $3, $4, $5, 'USER', 'ACTIVE', true)
 	`, userID, email, hashedPassword, req.Phone, req.Name)
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
@@ -969,7 +726,7 @@ func (h *AuthHandler) AdminListOwners(w http.ResponseWriter, r *http.Request) {
 		FROM account_memberships owner_membership
 		JOIN users u ON u.id = owner_membership.user_id
 		JOIN accounts a ON a.id = owner_membership.account_id
-		LEFT JOIN controllers c ON c.account_id = a.id AND c.owner_user_id IS NOT NULL
+		LEFT JOIN controllers c ON c.owner_account_id = a.id AND c.claim_status = 'CLAIMED'
 		LEFT JOIN account_memberships viewer ON viewer.account_id = a.id AND viewer.role = 'VIEWER'
 		WHERE u.account_type = 'USER' AND owner_membership.role = 'OWNER'
 		GROUP BY u.id, u.email, u.name, u.phone, u.status, a.id, a.name, u.created_at
@@ -1048,8 +805,8 @@ func (h *AuthHandler) AdminCreateOwner(w http.ResponseWriter, r *http.Request) {
 	userID := uuid.New()
 	accountID := uuid.New()
 	_, err = tx.Exec(r.Context(), `
-		INSERT INTO users (id, email, password_hash, phone, name, account_type, status)
-		VALUES ($1, $2, $3, $4, $5, 'USER', 'ACTIVE')
+		INSERT INTO users (id, email, password_hash, phone, name, account_type, status, is_email_verified)
+		VALUES ($1, $2, $3, $4, $5, 'USER', 'ACTIVE', true)
 	`, userID, email, hashedPassword, req.Phone, req.Name)
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {

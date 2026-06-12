@@ -31,7 +31,6 @@ import {
   ArrowBack,
   BatteryChargingFull,
   Close,
-  Tune,
   ShowChart as ShowChartIcon,
   BarChart as BarChartIcon,
   Speed as SpeedIcon,
@@ -3774,9 +3773,6 @@ const SensorConfig: React.FC = () => {
             <Typography variant="h4" sx={pageTitleSx}>
               Configure {sensor.type} Sensor
             </Typography>
-          </Box>
-          <Box sx={{ p: 1.4, borderRadius: '50%', bgcolor: 'rgba(108, 137, 48, 0.12)' }}>
-            <Tune color="primary" />
           </Box>
         </Stack>
 

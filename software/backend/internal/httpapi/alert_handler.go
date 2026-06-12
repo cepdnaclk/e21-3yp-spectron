@@ -2,14 +2,12 @@ package httpapi
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"spectron-backend/internal/models"
@@ -138,53 +136,7 @@ func (h *AlertHandler) Acknowledge(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AlertHandler) ApplyRecommendation(w http.ResponseWriter, r *http.Request) {
-	alertID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		http.Error(w, "invalid alert id", http.StatusBadRequest)
-		return
-	}
-
-	accountID := GetAccountID(r).(uuid.UUID)
-
-	var sensorID *uuid.UUID
-	var alertType string
-	err = h.db.QueryRow(r.Context(), `
-		SELECT sensor_id, type
-		FROM alerts
-		WHERE id = $1
-		  AND account_id = $2
-	`, alertID, accountID).Scan(&sensorID, &alertType)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			http.Error(w, "alert not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, "alert not found", http.StatusNotFound)
-		return
-	}
-
-	if alertType != learningRecommendationAlertType {
-		http.Error(w, "this alert does not carry an AI recommendation", http.StatusBadRequest)
-		return
-	}
-	if sensorID == nil || *sensorID == uuid.Nil {
-		http.Error(w, "alert is not linked to a sensor recommendation", http.StatusBadRequest)
-		return
-	}
-
-	result, err := applyLearningPhaseFeedback(r.Context(), h.db, *sensorID, accountID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			http.Error(w, "sensor not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"status": "ok",
-		"sensor": result,
-	})
+	// TODO: Learning phase feedback - implementation pending
+	http.Error(w, "this feature is not yet implemented", http.StatusNotImplemented)
+	return
 }
