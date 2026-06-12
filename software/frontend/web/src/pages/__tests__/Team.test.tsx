@@ -1,10 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Team from '../main/Team';
-import { createViewer, getAccountUsers } from '../../services/authService';
+import { createViewer, deleteViewer, getAccountUsers } from '../../services/authService';
 
 vi.mock('../../services/authService', () => ({
   createViewer: vi.fn(),
+  deleteViewer: vi.fn(),
   getAccountUsers: vi.fn(),
 }));
 
@@ -83,5 +84,33 @@ describe('Viewer accounts', () => {
     expect(await screen.findByText('Cached Viewer')).toBeInTheDocument();
     expect(screen.getByText('cached@spectron.com')).toBeInTheDocument();
     expect(screen.queryByText(/no viewer accounts created yet/i)).not.toBeInTheDocument();
+  });
+
+  it('removes a viewer from the table', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getAccountUsers).mockResolvedValueOnce([
+      {
+        id: 'viewer-3',
+        email: 'remove@spectron.com',
+        name: 'Removed Viewer',
+        phone: undefined,
+        role: 'VIEWER',
+        status: 'ACTIVE',
+        created_at: '2026-06-11T12:00:00Z',
+      },
+    ]);
+    vi.mocked(deleteViewer).mockResolvedValue();
+
+    render(<Team />);
+
+    expect(await screen.findByText('Removed Viewer')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /remove viewer remove@spectron.com/i }));
+
+    expect(deleteViewer).toHaveBeenCalledWith('viewer-3');
+    await waitFor(() => {
+      expect(screen.queryByText('Removed Viewer')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText(/viewer account removed/i)).toBeInTheDocument();
   });
 });

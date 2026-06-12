@@ -1,11 +1,8 @@
 const DEPLOYED_API_BASE_URL = 'https://spectroniot.xyz';
 
-const configuredApiBaseUrl = process.env.REACT_APP_API_URL;
+const configuredApiBaseUrl = process.env.REACT_APP_API_URL?.trim().replace(/\/$/, '');
 
-export const API_BASE_URL =
-  configuredApiBaseUrl && !configuredApiBaseUrl.includes('localhost')
-    ? configuredApiBaseUrl
-    : DEPLOYED_API_BASE_URL;
+export const API_BASE_URL = configuredApiBaseUrl || DEPLOYED_API_BASE_URL;
 
 export const API_ENDPOINTS = {
   AUTH: {
@@ -47,5 +44,6 @@ export const API_ENDPOINTS = {
   USERS: {
     LIST: '/users',
     CREATE_VIEWER: '/users/viewers',
+    DELETE_VIEWER: (id: string) => `/users/viewers/${id}`,
   },
 };

@@ -6,6 +6,7 @@ import {
   CardContent,
   Chip,
   Grid,
+  IconButton,
   Stack,
   Table,
   TableBody,
@@ -14,15 +15,23 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
-import { GroupAdd, Refresh } from '@mui/icons-material';
-import { AccountUser, createViewer, getAccountUsers } from '../../services/authService';
+import { DeleteOutline, GroupAdd, Refresh } from '@mui/icons-material';
+import { AccountUser, createViewer, deleteViewer, getAccountUsers } from '../../services/authService';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 
 const LOCAL_VIEWERS_KEY = 'spectron-created-viewers';
 
 const userIdentity = (user: AccountUser) => user.id || user.email.toLowerCase();
+
+const usersMatch = (left: AccountUser, right: AccountUser) => {
+  return (
+    (Boolean(left.id) && Boolean(right.id) && left.id === right.id) ||
+    left.email.toLowerCase() === right.email.toLowerCase()
+  );
+};
 
 const mergeUsers = (...groups: AccountUser[][]): AccountUser[] => {
   const usersByIdentity = new Map<string, AccountUser>();
@@ -59,11 +68,16 @@ const rememberCreatedViewer = (viewer: AccountUser) => {
   writeStoredViewers(mergeUsers([viewer], readStoredViewers()));
 };
 
+const forgetStoredViewer = (viewer: AccountUser) => {
+  writeStoredViewers(readStoredViewers().filter((storedViewer) => !usersMatch(storedViewer, viewer)));
+};
+
 const Team: React.FC = () => {
   const [users, setUsers] = useState<AccountUser[]>([]);
   const [form, setForm] = useState({ name: '', email: '', password: '', phone: '' });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [removingViewerId, setRemovingViewerId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -93,9 +107,13 @@ const Team: React.FC = () => {
 
   const upsertViewer = (viewer: AccountUser) => {
     setUsers((current) => {
-      const withoutViewer = current.filter((user) => user.id !== viewer.id && user.email !== viewer.email);
+      const withoutViewer = current.filter((user) => !usersMatch(user, viewer));
       return [viewer, ...withoutViewer];
     });
+  };
+
+  const removeViewerFromTable = (viewer: AccountUser) => {
+    setUsers((current) => current.filter((user) => !usersMatch(user, viewer)));
   };
 
   const handleCreateViewer = async (event: React.FormEvent) => {
@@ -129,6 +147,23 @@ const Team: React.FC = () => {
       setError(typeof responseData === 'string' ? responseData : 'Failed to create viewer.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteViewer = async (viewer: AccountUser) => {
+    setRemovingViewerId(userIdentity(viewer));
+    setError('');
+    setNotice('');
+    try {
+      await deleteViewer(viewer.id);
+      forgetStoredViewer(viewer);
+      removeViewerFromTable(viewer);
+      setNotice('Viewer account removed.');
+    } catch (err: any) {
+      const responseData = err?.response?.data;
+      setError(typeof responseData === 'string' ? responseData : 'Failed to remove viewer.');
+    } finally {
+      setRemovingViewerId('');
     }
   };
 
@@ -226,6 +261,7 @@ const Team: React.FC = () => {
                   <TableCell>Role</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>Created</TableCell>
+                  <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -238,11 +274,26 @@ const Team: React.FC = () => {
                     <TableCell><Chip size="small" label={user.role} color={user.role === 'OWNER' ? 'primary' : 'default'} /></TableCell>
                     <TableCell><Chip size="small" label={user.status} color={user.status === 'ACTIVE' ? 'success' : 'default'} /></TableCell>
                     <TableCell>{new Date(user.created_at).toLocaleString()}</TableCell>
+                    <TableCell align="right">
+                      <Tooltip title="Remove viewer">
+                        <span>
+                          <IconButton
+                            aria-label={`Remove viewer ${user.email}`}
+                            color="error"
+                            disabled={removingViewerId === userIdentity(user)}
+                            onClick={() => handleDeleteViewer(user)}
+                            size="small"
+                          >
+                            <DeleteOutline fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </TableCell>
                   </TableRow>
                 ))}
                 {!loading && viewerUsers.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={4}>
+                    <TableCell colSpan={5}>
                       <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
                         No viewer accounts created yet.
                       </Typography>
@@ -251,7 +302,7 @@ const Team: React.FC = () => {
                 )}
                 {loading && (
                   <TableRow>
-                    <TableCell colSpan={4}>
+                    <TableCell colSpan={5}>
                       <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
                         Loading viewer accounts...
                       </Typography>

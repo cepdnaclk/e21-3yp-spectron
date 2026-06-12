@@ -201,3 +201,7 @@ export const createViewer = async (data: CreateViewerRequest): Promise<User> => 
   const response = await api.post<User>(API_ENDPOINTS.USERS.CREATE_VIEWER, data);
   return normalizeUser(response.data);
 };
+
+export const deleteViewer = async (viewerId: string): Promise<void> => {
+  await api.delete(API_ENDPOINTS.USERS.DELETE_VIEWER(viewerId));
+};

@@ -63,3 +63,57 @@ func TestCreateViewerUpdatesAccountUserListIntegration(t *testing.T) {
 
 	t.Fatalf("created viewer %s was not returned by GET /users", viewerEmail)
 }
+
+func TestDeleteViewerRemovesAccountUserIntegration(t *testing.T) {
+	app := newIntegrationApp(t)
+	owner := app.createTestUser(t, "OWNER")
+
+	viewerEmail := "viewer-delete-" + time.Now().UTC().Format("20060102150405.000000000") + "@spectron.test"
+	createRec := executeRequest(app.rr, jsonRequest(t, http.MethodPost, "/users/viewers", owner.token, map[string]string{
+		"email":    viewerEmail,
+		"password": "viewer-password",
+		"name":     "Delete Viewer",
+	}))
+	if createRec.Code != http.StatusOK {
+		t.Fatalf("expected create viewer 200, got %d: %s", createRec.Code, createRec.Body.String())
+	}
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(createRec.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create viewer response: %v", err)
+	}
+	if created.ID == "" {
+		t.Fatal("expected created viewer id")
+	}
+
+	deleteRec := executeRequest(app.rr, jsonRequest(t, http.MethodDelete, "/users/viewers/"+created.ID, owner.token, nil))
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("expected delete viewer 200, got %d: %s", deleteRec.Code, deleteRec.Body.String())
+	}
+
+	listRec := executeRequest(app.rr, jsonRequest(t, http.MethodGet, "/users", owner.token, nil))
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected list users 200, got %d: %s", listRec.Code, listRec.Body.String())
+	}
+
+	var response struct {
+		Users []struct {
+			Email string `json:"email"`
+			Role  string `json:"role"`
+		} `json:"users"`
+		Count int `json:"count"`
+	}
+	if err := json.NewDecoder(listRec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode list users response: %v", err)
+	}
+	if response.Count != 1 {
+		t.Fatalf("expected only owner after viewer delete, got %d users", response.Count)
+	}
+	for _, user := range response.Users {
+		if user.Email == viewerEmail {
+			t.Fatalf("deleted viewer %s was still returned by GET /users", viewerEmail)
+		}
+	}
+}
