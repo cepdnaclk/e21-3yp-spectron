@@ -1281,11 +1281,29 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
   ],
 };
 
+// Temperature/Humidity sensor type aliases
 OBSERVABLE_METRIC_CATALOG.temp_humidity = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
 OBSERVABLE_METRIC_CATALOG.dht11 = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
 OBSERVABLE_METRIC_CATALOG.dht22 = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
+OBSERVABLE_METRIC_CATALOG.temperature_sensor = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
+OBSERVABLE_METRIC_CATALOG.temperature = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
+OBSERVABLE_METRIC_CATALOG.humidity_sensor = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
+OBSERVABLE_METRIC_CATALOG.sht30 = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
+OBSERVABLE_METRIC_CATALOG.sht31 = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
+OBSERVABLE_METRIC_CATALOG.sht35 = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
+
+// Load/Weight sensor type aliases
 OBSERVABLE_METRIC_CATALOG.load_cell = OBSERVABLE_METRIC_CATALOG.load;
+OBSERVABLE_METRIC_CATALOG.load_cell_sensor = OBSERVABLE_METRIC_CATALOG.load;
+OBSERVABLE_METRIC_CATALOG.weight_sensor = OBSERVABLE_METRIC_CATALOG.load;
+
+// Gas sensor type aliases
 OBSERVABLE_METRIC_CATALOG.gas = OBSERVABLE_METRIC_CATALOG.gas_sensor;
+OBSERVABLE_METRIC_CATALOG.gas_sensor_iot = OBSERVABLE_METRIC_CATALOG.gas_sensor;
+
+// Ultrasonic sensor type aliases
+OBSERVABLE_METRIC_CATALOG.ultrasonic_sensor = OBSERVABLE_METRIC_CATALOG.ultrasonic;
+OBSERVABLE_METRIC_CATALOG.distance_sensor = OBSERVABLE_METRIC_CATALOG.ultrasonic;
 
 const PRESENTATION_PROFILE_DEFINITIONS: Record<PresentationProfileKey, PresentationProfileDefinition> = {
   single_trend: {
