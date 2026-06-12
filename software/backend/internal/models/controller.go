@@ -14,7 +14,7 @@ type Controller struct {
 	Purpose           *string    `json:"purpose,omitempty"`
 	Location          *string    `json:"location,omitempty"`
 	QRCode            *string    `json:"qr_code,omitempty"`
-	Status            string     `json:"status"`
+	Status            string     `json:"status"` // ONLINE, OFFLINE, PENDING_CONFIG
 	ClaimStatus       string     `json:"claim_status"`
 	OperationalStatus string     `json:"operational_status"`
 	LastSeen          *time.Time `json:"last_seen,omitempty"`

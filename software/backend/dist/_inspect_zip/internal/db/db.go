@@ -13,4 +13,3 @@ func NewPool(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	}
 	return pgxpool.NewWithConfig(ctx, cfg)
 }
-
