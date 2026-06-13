@@ -91,9 +91,6 @@ const Controllers: React.FC = () => {
         />
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} justifyContent="space-between" sx={{ position: 'relative' }}>
           <Box>
-            <Typography variant="overline" sx={{ color: '#e1c7a3', fontWeight: 800 }}>
-              Controller fleet
-            </Typography>
             <Typography variant="h4" sx={{ mt: 0.5, fontSize: { xs: '1.65rem', sm: '2rem', md: undefined } }}>
               Keep every Spectron node in view.
             </Typography>

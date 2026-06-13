@@ -209,10 +209,7 @@ const ControllerDashboard: React.FC = () => {
     if (sensor.config_active) {
       return { label: 'Configured', color: 'primary' as const };
     }
-    if (sensor.status === 'OK') {
-      return { label: 'Connected - config optional', color: 'success' as const };
-    }
-    return { label: 'Not connected', color: 'default' as const };
+    return null;
   };
 
   const getConnectionChip = (sensor: Sensor) => {
@@ -436,9 +433,6 @@ const ControllerDashboard: React.FC = () => {
             mb={2}
           >
             <Box sx={{ minWidth: 0 }}>
-              <Typography variant="overline" sx={{ color: '#e1c7a3', fontWeight: 800 }}>
-                Controller workspace
-              </Typography>
               {editingControllerName ? (
                 <Stack
                   direction={{ xs: 'column', sm: 'row' }}
@@ -550,14 +544,7 @@ const ControllerDashboard: React.FC = () => {
 
       <Box display="flex" justifyContent="space-between" alignItems="center" gap={2}>
         <Box>
-          <Typography variant="overline" color="secondary" fontWeight={800}>
-            Connected hardware
-          </Typography>
           <Typography variant="h5">Sensors ({sensors.length})</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, display: { xs: 'none', sm: 'block' } }}>
-            Configuration is optional for this hardware verification run. First confirm that
-            discovered sensors and live readings reach the UI.
-          </Typography>
         </Box>
       </Box>
 
@@ -746,11 +733,13 @@ const ControllerDashboard: React.FC = () => {
                       {sensor.type}
                     </Typography>
                     <Stack direction="row" spacing={1} sx={{ mb: 1.5, flexWrap: 'wrap' }}>
-                      <Chip
-                        size="small"
-                        label={readinessChip.label}
-                        color={readinessChip.color}
-                      />
+                      {readinessChip && (
+                        <Chip
+                          size="small"
+                          label={readinessChip.label}
+                          color={readinessChip.color}
+                        />
+                      )}
                       {observationChip && (
                         <Chip
                           size="small"
@@ -771,25 +760,14 @@ const ControllerDashboard: React.FC = () => {
                         ))}
                       </Box>
                     )}
-                    <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
-                      {sensor.purpose ? (
+                    {sensor.purpose && (
+                      <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
                         <Typography variant="body2" color="text.secondary">
                           {sensor.purpose}
                         </Typography>
-                      ) : sensor.config_active ? (
-                        <Typography variant="body2" color="text.secondary" fontStyle="italic">
-                          {sensor.observation?.message || 'Collecting live readings.'}
-                        </Typography>
-                      ) : sensor.status === 'OK' ? (
-                        <Typography variant="body2" color="text.secondary" fontStyle="italic">
-                          Sensor is discovered and can show readings now. Configuration can be added later.
-                        </Typography>
-                      ) : (
-                        <Typography variant="body2" color="text.secondary" fontStyle="italic">
-                          Sensor was discovered before, but it is not connected right now.
-                        </Typography>
-                      )}
-                      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2 }}>
+                      </Box>
+                    )}
+                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2 }}>
                         <Button
                           variant="outlined"
                           startIcon={sensor.config_active ? <Tune /> : <Settings />}
@@ -828,8 +806,7 @@ const ControllerDashboard: React.FC = () => {
                             {removingSensorId === sensor.id ? 'Removing...' : 'Remove'}
                           </Button>
                         )}
-                      </Stack>
-                    </Box>
+                    </Stack>
                   </CardContent>
                 </Card>
               </Grid>

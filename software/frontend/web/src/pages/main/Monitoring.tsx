@@ -16,7 +16,9 @@ import {
   Divider,
   FormControlLabel,
   Grid,
+  IconButton,
   LinearProgress,
+  Popover,
   Stack,
   TextField,
   Typography,
@@ -40,6 +42,7 @@ import {
   TableChart,
   Fullscreen,
   FullscreenExit,
+  Info,
 } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import type { jsPDF as JsPDFDocument } from 'jspdf';
@@ -1278,6 +1281,7 @@ const Monitoring: React.FC = () => {
   const [expandedChartSensorId, setExpandedChartSensorId] = useState<string | null>(null);
   const [expandedChartData, setExpandedChartData] = useState<{ controller: ControllerMonitoringGroup; sensorCard: SensorCardData } | null>(null);
   const [timeRange, setTimeRange] = useState<'24h' | '7d' | '30d'>('24h');
+  const [monitoringInfoAnchor, setMonitoringInfoAnchor] = useState<HTMLElement | null>(null);
 
   const getDateRangeForTimeRange = (range: '24h' | '7d' | '30d') => {
     const to = new Date();
@@ -1517,9 +1521,6 @@ const Monitoring: React.FC = () => {
   return (
     <Container maxWidth="xl" sx={{ py: { xs: 2, md: 3 } }}>
       <Box sx={{ mb: 3 }}>
-        <Typography variant="overline" color="secondary" fontWeight={800}>
-          Monitoring
-        </Typography>
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
           spacing={1.5}
@@ -1527,11 +1528,37 @@ const Monitoring: React.FC = () => {
           alignItems={{ xs: 'flex-start', sm: 'center' }}
         >
           <Box>
-            <Typography variant="h4">Live Monitoring</Typography>
-            <Typography color="text.secondary" sx={{ mt: 0.5, maxWidth: 700, display: { xs: 'none', sm: 'block' } }}>
-              Keep the view simple: each controller gets its own section, and each sensor shows one
-              clear status, one current reading, and one lightweight visual.
-            </Typography>
+            <Stack direction="row" spacing={0.5} alignItems="center">
+              <Typography variant="h4">Live Monitoring</Typography>
+              <IconButton
+                size="small"
+                aria-label="About the monitoring dashboard"
+                onClick={(event) => setMonitoringInfoAnchor(event.currentTarget)}
+                sx={{ color: 'text.secondary' }}
+              >
+                <Info sx={{ fontSize: '1.1rem' }} />
+              </IconButton>
+            </Stack>
+            <Popover
+              open={Boolean(monitoringInfoAnchor)}
+              anchorEl={monitoringInfoAnchor}
+              onClose={() => setMonitoringInfoAnchor(null)}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+              PaperProps={{
+                sx: {
+                  mt: 0.75,
+                  maxWidth: 360,
+                  p: 1.5,
+                  border: '1px solid rgba(60, 57, 17, 0.12)',
+                },
+              }}
+            >
+              <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                Each controller has its own section. Every sensor shows one clear status, its current
+                reading, and a lightweight visual.
+              </Typography>
+            </Popover>
             {lastUpdatedAt && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
                 Updated{' '}
@@ -2123,17 +2150,10 @@ const Monitoring: React.FC = () => {
                             <Stack
                               direction="row"
                               spacing={1}
-                              justifyContent="space-between"
+                              justifyContent="flex-end"
                               alignItems={{ xs: 'stretch', sm: 'center' }}
                               sx={{ mt: { xs: 1.25, sm: 2.5 }, pt: { xs: 1.25, sm: 2 }, borderTop: '1px solid', borderColor: 'divider' }}
                             >
-                              <Typography variant="caption" color="text.secondary" sx={{ pr: 1, display: { xs: 'none', sm: 'block' } }}>
-                                {item.hasLiveReadings
-                                  ? item.sensor.config_active
-                                    ? 'Configuration is active for this sensor.'
-                                    : 'No configuration saved yet.'
-                                  : item.insight}
-                              </Typography>
                               <Button
                                 variant="outlined"
                                 size="small"

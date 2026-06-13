@@ -25,6 +25,10 @@ import {
   AccordionDetails,
   Switch,
   FormControlLabel,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import {
@@ -2487,8 +2491,7 @@ const SensorConfig: React.FC = () => {
   const renderSetupStep = () => (
     <Box sx={{ ...sectionSx, position: 'relative' }}>
       {/* AI ASSISTANCE BUTTON - TOP RIGHT */}
-      {!showAiAssistance && (
-        <Box sx={{ position: 'absolute', top: -50, right: 0 }}>
+      <Box sx={{ position: 'absolute', top: -50, right: 0 }}>
           <Button
             variant="outlined"
             onClick={() => setShowAiAssistance(true)}
@@ -2508,8 +2511,7 @@ const SensorConfig: React.FC = () => {
           >
             AI Assistance
           </Button>
-        </Box>
-      )}
+      </Box>
 
       <Stack spacing={3}>
         {/* LEARNING PHASE INDICATOR */}
@@ -2574,27 +2576,48 @@ const SensorConfig: React.FC = () => {
           </Alert>
         )}
 
-        {/* AI PROMPT INPUT */}
-        {showAiAssistance && (
-          <Box sx={{ p: 2.5, borderRadius: 2, bgcolor: '#f0f7f0', border: '2px solid rgba(108, 137, 48, 0.2)', position: 'relative' }}>
+        {/* AI ASSISTANCE DIALOG */}
+        <Dialog
+          open={showAiAssistance}
+          onClose={() => setShowAiAssistance(false)}
+          fullWidth
+          maxWidth="sm"
+          PaperProps={{
+            sx: {
+              m: { xs: 1.5, sm: 3 },
+              width: { xs: 'calc(100% - 24px)', sm: '100%' },
+              maxHeight: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' },
+              borderRadius: { xs: 2, sm: 3 },
+            },
+          }}
+        >
+          <DialogTitle
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 1,
+              pb: 1,
+            }}
+          >
+            <Typography component="span" variant="h6" sx={{ fontWeight: 700 }}>
+              AI Assistance
+            </Typography>
             <IconButton
-              size="small"
+              aria-label="Close AI assistance"
               onClick={() => setShowAiAssistance(false)}
-              sx={{
-                position: 'absolute',
-                top: 8,
-                right: 8,
-                color: '#6c8930',
-              }}
+              edge="end"
             >
               <Close />
             </IconButton>
+          </DialogTitle>
+          <DialogContent dividers sx={{ bgcolor: '#f7faf4', p: { xs: 2, sm: 2.5 } }}>
             <Stack
-              direction={{ xs: 'column', sm: 'row' }}
+              direction="row"
               spacing={1}
               justifyContent="space-between"
-              alignItems={{ xs: 'flex-start', sm: 'center' }}
-              sx={{ mb: 1 }}
+              alignItems="center"
+              sx={{ mb: 1.5 }}
             >
               <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
                 Describe Your Setup
@@ -2724,18 +2747,15 @@ const SensorConfig: React.FC = () => {
               </Stack>
             </Alert>
           )}
-          <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+          </DialogContent>
+          <DialogActions sx={{ px: { xs: 2, sm: 2.5 }, py: 1.5 }}>
             <Button
-              size="small"
-              variant="outlined"
               onClick={() => setShowAiAssistance(false)}
-              fullWidth
             >
-              Close AI Assistance
+              Close
             </Button>
-          </Stack>
-        </Box>
-        )}
+          </DialogActions>
+        </Dialog>
 
         {/* SENSOR NAME */}
         <Box>
@@ -3782,9 +3802,6 @@ const SensorConfig: React.FC = () => {
         </Box>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} sx={{ mb: 2 }}>
           <Box>
-            <Typography variant="overline" sx={{ ...pageKickerSx, display: { xs: 'none', sm: 'block' } }}>
-              Sensor setup
-            </Typography>
             <Typography variant="h4" sx={{ ...pageTitleSx, fontSize: { xs: '1.45rem', sm: '2rem' } }}>
               Configure {sensor.type} Sensor
             </Typography>
@@ -3823,12 +3840,6 @@ const SensorConfig: React.FC = () => {
 
         <Box sx={{ mt: 0.5 }}>
           {renderActiveStep()}
-
-          {activeStepMeta.key === 'alerts' && (
-            <Alert severity="info" sx={{ mt: 3 }}>
-              Once you save, this configuration activates immediately and your sensor will start reporting with these settings.
-            </Alert>
-          )}
 
           <AutoDismissAlert
             open={Boolean(pageError)}

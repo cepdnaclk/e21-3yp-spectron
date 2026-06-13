@@ -18,9 +18,6 @@ const AdminSystem: React.FC = () => {
 
   return (
     <Box>
-      <Typography variant="overline" color="secondary" fontWeight={800}>
-        System Health
-      </Typography>
       <Typography variant="h4" sx={{ mb: 1 }}>Infrastructure status</Typography>
       <Typography color="text.secondary" sx={{ mb: 3, display: { xs: 'none', sm: 'block' } }}>
         First-pass health checks for the API and database. MQTT and Kafka panels can be added once those services expose metrics.

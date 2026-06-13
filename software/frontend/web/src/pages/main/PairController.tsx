@@ -156,9 +156,6 @@ const PairController: React.FC = () => {
             <QrCodeScanner color="secondary" />
           </Box>
           <Box>
-            <Typography variant="overline" color="secondary" fontWeight={800}>
-              Controller setup
-            </Typography>
             <Typography variant="h4">Scan Controller QR</Typography>
           </Box>
         </Stack>

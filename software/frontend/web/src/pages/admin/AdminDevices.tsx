@@ -124,9 +124,6 @@ const AdminDevices: React.FC = () => {
         sx={{ mb: 3 }}
       >
         <Box>
-          <Typography variant="overline" color="secondary" fontWeight={800}>
-            Device Registry
-          </Typography>
           <Typography variant="h4">Controllers</Typography>
           <Typography color="text.secondary" sx={{ mt: 0.75, display: { xs: 'none', sm: 'block' } }}>
             Register physical controller IDs and review which account owns each device.

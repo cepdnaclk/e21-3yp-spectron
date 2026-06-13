@@ -206,9 +206,6 @@ const AdminAddDevice: React.FC = () => {
           </Typography>
         </Box>
 
-        <Typography variant="overline" color="secondary" fontWeight={800}>
-          Device Registry
-        </Typography>
         <Typography variant="h4" sx={{ mb: 1 }}>
           Device Created
         </Typography>
@@ -362,9 +359,6 @@ const AdminAddDevice: React.FC = () => {
   return (
     <Box>
       {backButton}
-      <Typography variant="overline" color="secondary" fontWeight={800}>
-        Device Registry
-      </Typography>
       <Typography variant="h4" sx={{ mb: 1 }}>
         Add Controller
       </Typography>

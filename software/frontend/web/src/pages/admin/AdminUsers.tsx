@@ -132,9 +132,6 @@ const AdminUsers: React.FC = () => {
         sx={{ mb: 3 }}
       >
         <Box>
-          <Typography variant="overline" color="secondary" fontWeight={800}>
-            Owner Accounts
-          </Typography>
           <Typography variant="h4" sx={{ mb: 1 }}>
             Users and approvals
           </Typography>
