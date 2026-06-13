@@ -90,7 +90,8 @@ const AdminLayout: React.FC = () => {
         position: 'relative',
         isolation: 'isolate',
         display: 'flex',
-        minHeight: '100vh',
+        minHeight: '100dvh',
+        overflow: 'visible',
         '&::before': {
           content: '""',
           position: 'fixed',
@@ -226,9 +227,11 @@ const AdminLayout: React.FC = () => {
         component="main"
         sx={{
           flexGrow: 1,
+          minWidth: 0,
           width: '100%',
           ml: { md: '286px' },
-          pb: { xs: 11, md: 4 },
+          pb: { xs: 'calc(88px + env(safe-area-inset-bottom))', md: 4 },
+          overflow: 'visible',
         }}
       >
         <Box
@@ -275,22 +278,23 @@ const AdminLayout: React.FC = () => {
           showLabels
           sx={{
             position: 'fixed',
-            bottom: 12,
-            left: 12,
-            right: 12,
-            borderRadius: 2,
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 'calc(64px + env(safe-area-inset-bottom))',
+            pb: 'env(safe-area-inset-bottom)',
+            borderRadius: '18px 18px 0 0',
             border: '1px solid rgba(60, 57, 17, 0.12)',
-            boxShadow: 'none',
-            overflowX: 'auto',
-            overflowY: 'hidden',
-            justifyContent: 'flex-start',
+            boxShadow: '0 -8px 24px rgba(60, 57, 17, 0.08)',
+            bgcolor: 'rgba(255, 253, 248, 0.98)',
+            overflow: 'hidden',
             zIndex: 20,
             '& .MuiBottomNavigationAction-root': {
-              minWidth: 78,
-              px: 0.5,
+              minWidth: 0,
+              px: 0.25,
             },
             '& .MuiBottomNavigationAction-label': {
-              fontSize: 11,
+              fontSize: 9,
               whiteSpace: 'nowrap',
             },
           }}

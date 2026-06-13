@@ -18,7 +18,7 @@ const AdminAudit: React.FC = () => {
         Audit
       </Typography>
       <Typography variant="h4" sx={{ mb: 1 }}>Operational audit trail</Typography>
-      <Typography color="text.secondary" sx={{ mb: 3, maxWidth: 760 }}>
+      <Typography color="text.secondary" sx={{ mb: 3, maxWidth: 760, display: { xs: 'none', sm: 'block' } }}>
         This section is structured for the production audit log. The current backend stores token and device timestamps; the next step is a dedicated audit_events table for immutable admin activity.
       </Typography>
 

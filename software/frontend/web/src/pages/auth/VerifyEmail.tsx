@@ -15,18 +15,18 @@ const VerifyEmail: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <Container maxWidth="lg" sx={{ minHeight: '100vh', display: 'grid', alignItems: 'center', py: 4 }}>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '0.95fr 1.05fr' }, gap: 3, alignItems: 'stretch' }}>
+    <Container maxWidth="lg" sx={{ minHeight: '100dvh', display: 'grid', alignItems: 'center', py: { xs: 2, md: 4 } }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '0.95fr 1.05fr' }, gap: { xs: 1.5, md: 3 }, alignItems: 'stretch' }}>
         <Box
           sx={{
-            p: { xs: 3, md: 5 },
+            p: { xs: 2.5, md: 5 },
             borderRadius: 2,
             bgcolor: '#3c3911',
             color: '#fffdf8',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            minHeight: { xs: 240, md: 460 },
+            minHeight: { xs: 145, md: 460 },
             overflow: 'hidden',
             position: 'relative',
           }}
@@ -37,18 +37,18 @@ const VerifyEmail: React.FC = () => {
             <Typography variant="h5">Spectron</Typography>
           </Stack>
           <Box sx={{ position: 'relative', maxWidth: 520 }}>
-            <Typography variant="h4">Email verification is turned off.</Typography>
-            <Typography sx={{ mt: 1.5, color: 'rgba(255, 253, 248, 0.76)' }}>
+            <Typography variant="h4" sx={{ fontSize: { xs: '1.45rem', sm: '2rem', md: undefined } }}>Email verification is turned off.</Typography>
+            <Typography sx={{ mt: 1.5, color: 'rgba(255, 253, 248, 0.76)', display: { xs: 'none', sm: 'block' } }}>
               Accounts can now sign in directly without confirming a verification link.
             </Typography>
           </Box>
-          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative', color: '#e1c7a3' }}>
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative', color: '#e1c7a3', display: { xs: 'none', md: 'flex' } }}>
             <Login />
             <Typography variant="body2" fontWeight={800}>Sign in and continue setup</Typography>
           </Stack>
         </Box>
 
-        <Paper elevation={0} sx={{ p: { xs: 3, md: 4 }, borderRadius: 2, border: '1.5px solid rgba(60, 57, 17, 0.12)', alignSelf: 'center' }}>
+        <Paper elevation={0} sx={{ p: { xs: 2.5, md: 4 }, borderRadius: 2, border: '1.5px solid rgba(60, 57, 17, 0.12)', alignSelf: 'center' }}>
           <Typography variant="h4" component="h1" gutterBottom>
             Sign In Directly
           </Typography>

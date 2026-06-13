@@ -2024,8 +2024,21 @@ const SensorConfig: React.FC = () => {
         followUpAnswers,
       });
       handleAiSuggestionResponse(suggestions, sensorType);
-    } catch (error) {
-      setPageError('Failed to get AI suggestions. Please try again or configure manually.');
+    } catch (error: any) {
+      let errorMessage = 'Failed to get AI suggestions. Please try again or configure manually.';
+      
+      // Provide more specific error messages based on the error type
+      if (error?.response?.status === 404) {
+        errorMessage = 'Sensor not found. Please ensure the sensor is properly configured and try again.';
+      } else if (error?.response?.status === 403) {
+        errorMessage = 'You do not have permission to use AI assistance for this sensor.';
+      } else if (error?.response?.status === 400) {
+        errorMessage = error?.response?.data?.message || 'Invalid request. Please check your input and try again.';
+      } else if (error?.message?.includes('timeout')) {
+        errorMessage = 'Request timed out. The AI service may be slow. Please try again.';
+      }
+      
+      setPageError(errorMessage);
       console.error('AI parse error:', error);
     } finally {
       setRequestingAi(false);
@@ -2493,7 +2506,7 @@ const SensorConfig: React.FC = () => {
               },
             }}
           >
-            Need Help? Use AI Assistance
+            AI Assistance
           </Button>
         </Box>
       )}
@@ -3739,7 +3752,7 @@ const SensorConfig: React.FC = () => {
 
   return (
     <Container maxWidth="xl" sx={{ py: { xs: 2, md: 3 } }}>
-      <Paper elevation={0} sx={{ p: { xs: 2.5, md: 3.5 }, borderRadius: 2, border: '1px solid rgba(60, 57, 17, 0.1)' }}>
+      <Paper elevation={0} sx={{ p: { xs: 1.75, sm: 2.5, md: 3.5 }, borderRadius: 2, border: '1px solid rgba(60, 57, 17, 0.1)', overflow: 'hidden' }}>
         <Box
           sx={{
             position: 'sticky',
@@ -3769,10 +3782,10 @@ const SensorConfig: React.FC = () => {
         </Box>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} sx={{ mb: 2 }}>
           <Box>
-            <Typography variant="overline" sx={pageKickerSx}>
+            <Typography variant="overline" sx={{ ...pageKickerSx, display: { xs: 'none', sm: 'block' } }}>
               Sensor setup
             </Typography>
-            <Typography variant="h4" sx={pageTitleSx}>
+            <Typography variant="h4" sx={{ ...pageTitleSx, fontSize: { xs: '1.45rem', sm: '2rem' } }}>
               Configure {sensor.type} Sensor
             </Typography>
           </Box>
@@ -3803,7 +3816,7 @@ const SensorConfig: React.FC = () => {
           <Typography variant="h5" sx={{ ...pageTitleSx, fontSize: { xs: '1.5rem', md: '1.9rem' } }}>
             {activeStepMeta.title}
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, display: { xs: 'none', sm: 'block' } }}>
             {activeStepMeta.description}
           </Typography>
         </Box>

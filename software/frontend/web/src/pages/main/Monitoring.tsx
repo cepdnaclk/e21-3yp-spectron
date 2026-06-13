@@ -20,6 +20,7 @@ import {
   Stack,
   TextField,
   Typography,
+  useMediaQuery,
   useTheme,
 } from '@mui/material';
 import { alpha, Theme } from '@mui/material/styles';
@@ -1261,6 +1262,7 @@ const buildPdfReport = async (
 
 const Monitoring: React.FC = () => {
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const navigate = useNavigate();
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -1299,12 +1301,11 @@ const Monitoring: React.FC = () => {
       const groupedControllers = await Promise.all(
         controllerList.map(async (controller) => {
           const sensors = await getHardwareSensors(controller.id);
-          // Filter to only live/active sensors
-          const activeSensors = sensors.filter((s) => s.status === 'OK');
+          // Include all sensors regardless of status to show historical readings even when disconnected
           const { from, to } = getDateRangeForTimeRange(range);
 
           const sensorCards = await Promise.all(
-            activeSensors.map(async (sensor) => {
+            sensors.map(async (sensor) => {
               const readings = await getSensorReadings(sensor.id, {
                 from: from.toISOString(),
                 to: to.toISOString(),
@@ -1527,7 +1528,7 @@ const Monitoring: React.FC = () => {
         >
           <Box>
             <Typography variant="h4">Live Monitoring</Typography>
-            <Typography color="text.secondary" sx={{ mt: 0.5, maxWidth: 700 }}>
+            <Typography color="text.secondary" sx={{ mt: 0.5, maxWidth: 700, display: { xs: 'none', sm: 'block' } }}>
               Keep the view simple: each controller gets its own section, and each sensor shows one
               clear status, one current reading, and one lightweight visual.
             </Typography>
@@ -1542,11 +1543,7 @@ const Monitoring: React.FC = () => {
               </Typography>
             )}
           </Box>
-          <Stack
-            direction={{ xs: 'column', sm: 'row' }}
-            spacing={1}
-            sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}
-          >
+          <Stack direction="row" spacing={1} sx={{ alignSelf: { xs: 'stretch', sm: 'center' }, width: { xs: '100%', sm: 'auto' } }}>
             <Button
               variant="contained"
               startIcon={<Download />}
@@ -1555,14 +1552,16 @@ const Monitoring: React.FC = () => {
                 setReportDialogOpen(true);
               }}
               disabled={controllers.length === 0}
+              sx={{ flex: { xs: 1, sm: 'initial' }, px: { xs: 1.25, sm: 2.25 } }}
             >
-              Download Report
+              {isMobile ? 'Report' : 'Download Report'}
             </Button>
             <Button
               variant="outlined"
               startIcon={<Refresh />}
               onClick={() => loadMonitoringData({ showSkeleton: false })}
               disabled={refreshing}
+              sx={{ flex: { xs: 1, sm: 'initial' }, px: { xs: 1.25, sm: 2.25 } }}
             >
               {refreshing ? 'Refreshing...' : 'Refresh'}
             </Button>
@@ -1571,11 +1570,15 @@ const Monitoring: React.FC = () => {
       </Box>
 
       {/* Time Range Selector */}
-      <Stack direction="row" spacing={1} sx={{ mb: 3, alignItems: 'center' }}>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1}
+        sx={{ mb: 3, alignItems: { xs: 'stretch', sm: 'center' } }}
+      >
         <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
           Data Range:
         </Typography>
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
           {(['24h', '7d', '30d'] as const).map((range) => (
             <Button
               key={range}
@@ -1586,7 +1589,8 @@ const Monitoring: React.FC = () => {
                 loadMonitoringData({ showSkeleton: false, range });
               }}
               sx={{
-                minWidth: '70px',
+                minWidth: { xs: 'calc(33.333% - 6px)', sm: '70px' },
+                flexGrow: { xs: 1, sm: 0 },
                 fontWeight: timeRange === range ? 800 : 600,
               }}
             >
@@ -1596,47 +1600,53 @@ const Monitoring: React.FC = () => {
         </Stack>
       </Stack>
 
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 3 }}>
-        <Card sx={{ flex: 1, bgcolor: '#fffaf4' }}>
-          <CardContent sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-            <Box sx={{ p: 1.2, borderRadius: '50%', bgcolor: alpha(theme.palette.secondary.main, 0.12) }}>
+      <Grid container spacing={{ xs: 1, md: 2 }} sx={{ mb: 3 }}>
+        <Grid item xs={4}>
+        <Card sx={{ height: '100%', bgcolor: '#fffaf4' }}>
+          <CardContent sx={{ display: 'flex', gap: { xs: 0.75, sm: 2 }, alignItems: 'center', p: { xs: 1.25, sm: 2 } }}>
+            <Box sx={{ p: 1.2, borderRadius: '50%', bgcolor: alpha(theme.palette.secondary.main, 0.12), display: { xs: 'none', sm: 'flex' } }}>
               <DeviceHub color="secondary" />
             </Box>
-            <Box>
-              <Typography variant="subtitle2" color="text.secondary">
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.1 }}>
                 Controllers
               </Typography>
               <Typography variant="h5">{summary.controllers}</Typography>
             </Box>
           </CardContent>
         </Card>
-        <Card sx={{ flex: 1, bgcolor: '#f7fbf0' }}>
-          <CardContent sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-            <Box sx={{ p: 1.2, borderRadius: '50%', bgcolor: alpha(theme.palette.primary.main, 0.12) }}>
+        </Grid>
+        <Grid item xs={4}>
+        <Card sx={{ height: '100%', bgcolor: '#f7fbf0' }}>
+          <CardContent sx={{ display: 'flex', gap: { xs: 0.75, sm: 2 }, alignItems: 'center', p: { xs: 1.25, sm: 2 } }}>
+            <Box sx={{ p: 1.2, borderRadius: '50%', bgcolor: alpha(theme.palette.primary.main, 0.12), display: { xs: 'none', sm: 'flex' } }}>
               <CheckCircle color="primary" />
             </Box>
-            <Box>
-              <Typography variant="subtitle2" color="text.secondary">
-                Within Range
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.1 }}>
+                Healthy
               </Typography>
               <Typography variant="h5">{summary.healthy}</Typography>
             </Box>
           </CardContent>
         </Card>
-        <Card sx={{ flex: 1, bgcolor: '#fff7ef' }}>
-          <CardContent sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-            <Box sx={{ p: 1.2, borderRadius: '50%', bgcolor: alpha(theme.palette.warning.main, 0.18) }}>
+        </Grid>
+        <Grid item xs={4}>
+        <Card sx={{ height: '100%', bgcolor: '#fff7ef' }}>
+          <CardContent sx={{ display: 'flex', gap: { xs: 0.75, sm: 2 }, alignItems: 'center', p: { xs: 1.25, sm: 2 } }}>
+            <Box sx={{ p: 1.2, borderRadius: '50%', bgcolor: alpha(theme.palette.warning.main, 0.18), display: { xs: 'none', sm: 'flex' } }}>
               <WarningAmber sx={{ color: theme.palette.warning.dark }} />
             </Box>
-            <Box>
-              <Typography variant="subtitle2" color="text.secondary">
-                Needs Attention
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.1 }}>
+                Attention
               </Typography>
               <Typography variant="h5">{summary.needsAttention}</Typography>
             </Box>
           </CardContent>
         </Card>
-      </Stack>
+        </Grid>
+      </Grid>
 
       <AutoDismissAlert open={Boolean(errorMessage)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setErrorMessage(null)}>
           {errorMessage}
@@ -1686,7 +1696,7 @@ const Monitoring: React.FC = () => {
                       Controller
                     </Typography>
                     <Typography variant="h5">{controller.name}</Typography>
-                    <Typography sx={{ color: 'rgba(255, 253, 248, 0.76)', mt: 0.5 }}>
+                    <Typography variant="body2" sx={{ color: 'rgba(255, 253, 248, 0.76)', mt: 0.5 }}>
                       {controller.location || 'Location not set'} • Last update{' '}
                       {formatDateTime(controller.lastSeen)}
                     </Typography>
@@ -1704,7 +1714,7 @@ const Monitoring: React.FC = () => {
                         fontWeight: 800,
                       }}
                     />
-                    <Chip
+                    {!isMobile && <Chip
                       label={`${activeCount}/${controller.sensors.length} live`}
                       size="small"
                       sx={{
@@ -1712,7 +1722,7 @@ const Monitoring: React.FC = () => {
                         color: '#fffdf8',
                         fontWeight: 800,
                       }}
-                    />
+                    />}
                     <Chip
                       label={
                         warningCount > 0
@@ -1740,8 +1750,8 @@ const Monitoring: React.FC = () => {
                 </Stack>
               </Box>
 
-              <CardContent sx={{ p: { xs: 2, md: 3 } }}>
-                <Grid container spacing={2}>
+              <CardContent sx={{ p: { xs: 1.25, sm: 2, md: 3 } }}>
+                <Grid container spacing={{ xs: 1.25, sm: 2 }}>
                   {controller.sensors.map((item) => {
                     const styles = getHealthStyles(theme, item.health);
                     const SensorIcon = getSensorIcon(item.sensor.type);
@@ -1816,15 +1826,15 @@ const Monitoring: React.FC = () => {
                           }}
                         >
                           <CardContent
-                            sx={{ p: 2.25, height: '100%', display: 'flex', flexDirection: 'column' }}
+                            sx={{ p: { xs: 1.5, sm: 2.25 }, height: '100%', display: 'flex', flexDirection: 'column' }}
                           >
                             <Stack
                               direction="row"
                               justifyContent="space-between"
                               alignItems="flex-start"
-                              spacing={2}
+                              spacing={1}
                             >
-                              <Stack direction="row" spacing={1.4} alignItems="center">
+                              <Stack direction="row" spacing={1.4} alignItems="center" sx={{ minWidth: 0 }}>
                                 <Box
                                   sx={{
                                     p: 1.1,
@@ -1835,19 +1845,19 @@ const Monitoring: React.FC = () => {
                                 >
                                   <SensorIcon />
                                 </Box>
-                                <Box>
-                                  <Typography variant="h6" sx={{ lineHeight: 1.2 }}>
+                                <Box sx={{ minWidth: 0 }}>
+                                  <Typography variant="h6" sx={{ lineHeight: 1.2, overflowWrap: 'anywhere' }}>
                                     {item.sensor.name || `${item.sensor.type} Sensor`}
                                   </Typography>
-                                  <Typography variant="body2" color="text.secondary">
+                                  <Typography variant="body2" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>
                                     {item.sensor.purpose ||
                                       item.sensor.context?.location?.label ||
                                       item.sensor.hw_id}
                                   </Typography>
                                 </Box>
                               </Stack>
-                              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" justifyContent="flex-end">
-                                {!item.hasLiveReadings && (
+                              <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap" justifyContent="flex-end">
+                                {!isMobile && !item.hasLiveReadings && (
                                   <Chip size="small" variant="outlined" color="info" label="No readings" />
                                 )}
                                 <Chip size="small" label={item.healthLabel} color={styles.chipColor} />
@@ -1855,10 +1865,11 @@ const Monitoring: React.FC = () => {
                             </Stack>
 
                             <Stack
-                              direction={{ xs: 'column', sm: 'row' }}
+                              direction="row"
                               spacing={2}
                               justifyContent="space-between"
-                              sx={{ mt: 2 }}
+                              alignItems="flex-end"
+                              sx={{ mt: { xs: 1.25, sm: 2 } }}
                             >
                               <Box>
                                 <Typography variant="caption" color="text.secondary">
@@ -1873,13 +1884,13 @@ const Monitoring: React.FC = () => {
                                 >
                                   {formatSensorValue(item.displayValue, displayUnit)}
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25, display: 'block' }}>
                                   {item.latestTime
                                     ? `Seen at ${formatDateTime(item.latestTime)}`
                                     : 'Waiting for live readings'}
                                 </Typography>
                               </Box>
-                              <Stack spacing={0.75} sx={{ minWidth: { sm: 220 } }}>
+                              <Stack spacing={0.75} sx={{ minWidth: { sm: 220 }, display: { xs: 'none', sm: 'flex' } }}>
                                 <Chip
                                   size="small"
                                   variant="outlined"
@@ -1898,7 +1909,7 @@ const Monitoring: React.FC = () => {
                               </Stack>
                             </Stack>
 
-                            <Divider sx={{ my: 2 }} />
+                            <Divider sx={{ my: { xs: 1.25, sm: 2 } }} />
 
                             {usesGauge ? (
                               <Box>
@@ -1936,16 +1947,16 @@ const Monitoring: React.FC = () => {
                                 />
                               </Box>
                             ) : (
-                              <Box sx={{ width: '100%', height: 184 }}>
+                              <Box sx={{ width: '100%', height: { xs: 118, sm: 184 } }}>
                                 <Stack
                                   direction="row"
                                   justifyContent="space-between"
                                   alignItems="center"
                                   sx={{ mb: 1 }}
                                 >
-                                  <Typography variant="subtitle2">{chartTitle}</Typography>
+                                  <Typography variant="subtitle2" sx={{ display: { xs: 'none', sm: 'block' } }}>{chartTitle}</Typography>
                                   <Stack direction="row" spacing={1} alignItems="center">
-                                    <Typography variant="caption" color="text.secondary">
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>
                                       {formatUseCaseLabel(item.useCase)}
                                     </Typography>
                                     <Button
@@ -2110,13 +2121,13 @@ const Monitoring: React.FC = () => {
                             )}
 
                             <Stack
-                              direction={{ xs: 'column', sm: 'row' }}
+                              direction="row"
                               spacing={1}
                               justifyContent="space-between"
                               alignItems={{ xs: 'stretch', sm: 'center' }}
-                              sx={{ mt: 2.5, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}
+                              sx={{ mt: { xs: 1.25, sm: 2.5 }, pt: { xs: 1.25, sm: 2 }, borderTop: '1px solid', borderColor: 'divider' }}
                             >
-                              <Typography variant="caption" color="text.secondary" sx={{ pr: 1 }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ pr: 1, display: { xs: 'none', sm: 'block' } }}>
                                 {item.hasLiveReadings
                                   ? item.sensor.config_active
                                     ? 'Configuration is active for this sensor.'
@@ -2140,9 +2151,9 @@ const Monitoring: React.FC = () => {
                                     },
                                   })
                                 }
-                                sx={{ alignSelf: { xs: 'stretch', sm: 'flex-end' }, ml: { sm: 'auto' } }}
+                                sx={{ ml: 'auto', minHeight: { xs: 36, sm: 44 }, px: { xs: 1.5, sm: 2 } }}
                               >
-                                Edit Config
+                                {isMobile ? 'Configure' : 'Edit Config'}
                               </Button>
                             </Stack>
                           </CardContent>
@@ -2157,7 +2168,7 @@ const Monitoring: React.FC = () => {
         })}
       </Stack>
 
-      <Card sx={{ mt: 3, bgcolor: '#fff9f1' }}>
+      <Card sx={{ mt: 3, bgcolor: '#fff9f1', display: { xs: 'none', md: 'block' } }}>
         <CardContent sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
           <TipsAndUpdates color="secondary" />
           <Typography color="text.secondary">

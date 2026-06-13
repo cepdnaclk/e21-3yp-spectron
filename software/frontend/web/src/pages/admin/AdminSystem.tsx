@@ -22,7 +22,7 @@ const AdminSystem: React.FC = () => {
         System Health
       </Typography>
       <Typography variant="h4" sx={{ mb: 1 }}>Infrastructure status</Typography>
-      <Typography color="text.secondary" sx={{ mb: 3 }}>
+      <Typography color="text.secondary" sx={{ mb: 3, display: { xs: 'none', sm: 'block' } }}>
         First-pass health checks for the API and database. MQTT and Kafka panels can be added once those services expose metrics.
       </Typography>
 
@@ -31,7 +31,7 @@ const AdminSystem: React.FC = () => {
           const Icon = card.icon;
           const ok = String(card.value).toLowerCase() === 'ok';
           return (
-            <Grid item xs={12} md={4} key={card.label}>
+            <Grid item xs={card.label === 'Server Time' ? 12 : 6} md={4} key={card.label}>
               <Card>
                 <CardContent>
                   <Stack direction="row" spacing={1.5} alignItems="center">

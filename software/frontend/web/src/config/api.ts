@@ -2,7 +2,24 @@ const DEPLOYED_API_BASE_URL = 'https://spectroniot.xyz';
 
 const configuredApiBaseUrl = process.env.REACT_APP_API_URL?.trim().replace(/\/$/, '');
 
-export const API_BASE_URL = configuredApiBaseUrl || DEPLOYED_API_BASE_URL;
+const normalizeApiBaseUrl = (configuredUrl?: string) => {
+  if (!configuredUrl) {
+    return DEPLOYED_API_BASE_URL;
+  }
+
+  try {
+    const url = new URL(configuredUrl);
+    if (url.hostname.endsWith('.elasticbeanstalk.com')) {
+      return DEPLOYED_API_BASE_URL;
+    }
+  } catch {
+    return configuredUrl;
+  }
+
+  return configuredUrl;
+};
+
+export const API_BASE_URL = normalizeApiBaseUrl(configuredApiBaseUrl);
 
 export const API_ENDPOINTS = {
   AUTH: {

@@ -105,7 +105,7 @@ const Alerts: React.FC = () => {
           Attention center
         </Typography>
         <Typography variant="h4">Alerts</Typography>
-        <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+        <Typography color="text.secondary" sx={{ mt: 0.5, display: { xs: 'none', sm: 'block' } }}>
           Review critical events and clear resolved notifications.
         </Typography>
       </Box>
@@ -130,10 +130,10 @@ const Alerts: React.FC = () => {
               borderTop: index === 0 ? '1px solid rgba(60, 57, 17, 0.1)' : undefined,
             }}
           >
-            <CardContent sx={{ p: 2.5 }}>
-              <Box display="flex" justifyContent="space-between" alignItems="flex-start" gap={2} mb={1}>
-                <Stack direction="row" spacing={1.5} alignItems="center">
-                  <Box sx={{ p: 1, borderRadius: '50%', bgcolor: 'rgba(235, 79, 18, 0.12)' }}>
+            <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+              <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'flex-start' }} gap={1.5} mb={1}>
+                <Stack direction="row" spacing={1.5} alignItems="center" minWidth={0}>
+                  <Box sx={{ p: { xs: 0.65, sm: 1 }, borderRadius: '50%', bgcolor: 'rgba(235, 79, 18, 0.12)' }}>
                     <NotificationsActive color="secondary" />
                   </Box>
                   <Box>
@@ -149,12 +149,13 @@ const Alerts: React.FC = () => {
                   label={alert.severity}
                   color={getSeverityColor(alert.severity) as any}
                   size="small"
+                  sx={{ alignSelf: 'flex-start' }}
                 />
               </Box>
-              <Typography variant="body1" sx={{ mt: 1, pt: 2, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
+              <Typography variant="body2" sx={{ mt: 1, pt: 1.25, borderTop: '1px solid rgba(60, 57, 17, 0.08)', lineHeight: 1.5 }}>
                 {alert.message}
               </Typography>
-              <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap">
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1.5 }} flexWrap="wrap">
                 {!alert.acknowledged_at && alert.type === 'LEARNING_PHASE_RECOMMENDATION' && (
                   <Button
                     size="small"

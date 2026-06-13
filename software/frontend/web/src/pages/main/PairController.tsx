@@ -150,7 +150,7 @@ const PairController: React.FC = () => {
 
   return (
     <Container maxWidth="md" sx={{ py: { xs: 2, md: 3 } }}>
-      <Paper elevation={0} sx={{ p: { xs: 2.5, md: 3.5 }, borderRadius: 2, border: 'none', backgroundColor: 'transparent' }}>
+      <Paper elevation={0} sx={{ p: { xs: 1.5, sm: 2.5, md: 3.5 }, borderRadius: 2, border: 'none', backgroundColor: 'transparent' }}>
         <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
           <Box sx={{ p: 1, borderRadius: '50%', bgcolor: 'rgba(235, 79, 18, 0.12)' }}>
             <QrCodeScanner color="secondary" />
@@ -162,7 +162,7 @@ const PairController: React.FC = () => {
             <Typography variant="h4">Scan Controller QR</Typography>
           </Box>
         </Stack>
-        <Typography color="text.secondary" sx={{ mb: 2, maxWidth: 680 }}>
+        <Typography color="text.secondary" sx={{ mb: 2, maxWidth: 680, display: { xs: 'none', sm: 'block' } }}>
           Scan the QR code on the controller label or enter the controller ID manually. A controller can be added only while it is unowned.
         </Typography>
 
@@ -170,7 +170,7 @@ const PairController: React.FC = () => {
           {error}
         </AutoDismissAlert>
 
-        <Box component="form" onSubmit={handlePair} sx={{ mt: 3, pt: 3, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
+        <Box component="form" onSubmit={handlePair} sx={{ mt: { xs: 2, sm: 3 }, pt: { xs: 2, sm: 3 }, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
           {isScannerSupported ? (
             <Box sx={{ mb: 2 }}>
               {!isCameraRunning ? (

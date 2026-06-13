@@ -138,7 +138,7 @@ const AdminUsers: React.FC = () => {
           <Typography variant="h4" sx={{ mb: 1 }}>
             Users and approvals
           </Typography>
-          <Typography color="text.secondary">
+          <Typography color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>
             Approve owner signup requests or create owner credentials directly.
           </Typography>
         </Box>
@@ -161,7 +161,7 @@ const AdminUsers: React.FC = () => {
       </AutoDismissAlert>
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} md={4}>
+        <Grid item xs={4}>
           <Card>
             <CardContent>
               <Typography color="text.secondary">Pending approvals</Typography>
@@ -169,7 +169,7 @@ const AdminUsers: React.FC = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} md={4}>
+        <Grid item xs={4}>
           <Card>
             <CardContent>
               <Typography color="text.secondary">Active owners</Typography>
@@ -177,7 +177,7 @@ const AdminUsers: React.FC = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} md={4}>
+        <Grid item xs={4}>
           <Card>
             <CardContent>
               <Typography color="text.secondary">Viewer accounts</Typography>
@@ -224,7 +224,7 @@ const AdminUsers: React.FC = () => {
         <CardContent>
           <Typography variant="h6" sx={{ mb: 2 }}>Owner accounts</Typography>
           <Divider sx={{ mb: 2 }} />
-          <TableContainer>
+          <TableContainer className="mobile-card-table">
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -240,16 +240,16 @@ const AdminUsers: React.FC = () => {
               <TableBody>
                 {owners.map((owner) => (
                   <TableRow key={owner.id} hover>
-                    <TableCell>
+                    <TableCell data-label="Owner">
                       <Typography fontWeight={800}>{owner.name || owner.email}</Typography>
                       <Typography variant="caption" color="text.secondary">{owner.email}</Typography>
                     </TableCell>
-                    <TableCell>{owner.organizationName}</TableCell>
-                    <TableCell><Chip size="small" label={owner.status} color={statusColor(owner.status) as any} /></TableCell>
-                    <TableCell>{owner.controllerCount}</TableCell>
-                    <TableCell>{owner.viewerCount}</TableCell>
-                    <TableCell>{new Date(owner.createdAt).toLocaleString()}</TableCell>
-                    <TableCell align="right">
+                    <TableCell data-label="Organization">{owner.organizationName}</TableCell>
+                    <TableCell data-label="Status"><Chip size="small" label={owner.status} color={statusColor(owner.status) as any} /></TableCell>
+                    <TableCell data-label="Controllers">{owner.controllerCount}</TableCell>
+                    <TableCell data-label="Viewers">{owner.viewerCount}</TableCell>
+                    <TableCell data-label="Created">{new Date(owner.createdAt).toLocaleString()}</TableCell>
+                    <TableCell data-label="Actions" align="right">
                       <Stack direction="row" spacing={1} justifyContent="flex-end">
                         {owner.status !== 'ACTIVE' && (
                           <Button size="small" startIcon={<CheckCircle />} onClick={() => updateOwnerStatus(owner, 'approve')} sx={compactButtonSx}>
@@ -266,7 +266,7 @@ const AdminUsers: React.FC = () => {
                   </TableRow>
                 ))}
                 {owners.length === 0 && (
-                  <TableRow>
+                  <TableRow className="mobile-empty-row">
                     <TableCell colSpan={7}>
                       <Typography color="text.secondary" align="center" sx={{ py: 3 }}>
                         No owner accounts yet.

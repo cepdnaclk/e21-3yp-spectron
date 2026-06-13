@@ -53,44 +53,53 @@ const SignIn: React.FC = () => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ minHeight: '100vh', display: 'grid', alignItems: 'center', py: 4 }}>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.05fr 0.95fr' }, gap: 3, alignItems: 'stretch' }}>
+    <Container
+      maxWidth="lg"
+      sx={{
+        minHeight: '100dvh',
+        display: 'grid',
+        alignItems: 'center',
+        px: { xs: 2, sm: 3 },
+        py: { xs: 2, md: 4 },
+      }}
+    >
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.05fr 0.95fr' }, gap: { xs: 1.5, md: 3 }, alignItems: 'stretch' }}>
         <Box
           sx={{
-            p: { xs: 3, md: 5 },
-            borderRadius: 2,
+            p: { xs: 2.25, md: 5 },
+            borderRadius: { xs: 3, md: 2 },
             bgcolor: '#3c3911',
             color: '#fffdf8',
             display: 'flex',
             flexDirection: 'column',
-            justifyContent: 'space-between',
-            minHeight: { xs: 280, md: 560 },
+            justifyContent: { xs: 'flex-start', md: 'space-between' },
+            minHeight: { xs: 142, md: 560 },
             overflow: 'hidden',
             position: 'relative',
           }}
         >
-          <Box sx={{ position: 'absolute', width: 260, height: 260, borderRadius: '50%', bgcolor: 'rgba(235, 79, 18, 0.24)', right: -60, top: -50 }} />
+          <Box sx={{ position: 'absolute', width: { xs: 180, md: 260 }, height: { xs: 180, md: 260 }, borderRadius: '50%', bgcolor: 'rgba(235, 79, 18, 0.24)', right: -60, top: -50 }} />
           <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative' }}>
             <SpectronLogo size={42} />
             <Typography variant="h5">Spectron</Typography>
           </Stack>
-          <Box sx={{ position: 'relative', maxWidth: 520 }}>
-            <Typography variant="h4">Smart monitoring that feels alive.</Typography>
-            <Typography sx={{ mt: 1.5, color: 'rgba(255, 253, 248, 0.76)' }}>
+          <Box sx={{ position: 'relative', maxWidth: 520, mt: { xs: 2, md: 0 } }}>
+            <Typography variant="h4" sx={{ fontSize: { xs: '1.55rem', sm: '2rem', md: undefined } }}>Smart monitoring that feels alive.</Typography>
+            <Typography sx={{ mt: 1.5, color: 'rgba(255, 253, 248, 0.76)', display: { xs: 'none', sm: 'block' } }}>
               Sign in to manage controllers, configure AI-assisted sensors, and keep your environment readings easy to understand.
             </Typography>
           </Box>
-          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative', color: '#e1c7a3' }}>
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative', color: '#e1c7a3', display: { xs: 'none', md: 'flex' } }}>
             <Sensors />
             <Typography variant="body2" fontWeight={800}>Real-time IoT dashboard</Typography>
           </Stack>
         </Box>
 
-        <Paper elevation={0} sx={{ p: { xs: 3, md: 4 }, borderRadius: 2, border: '1.5px solid rgba(60, 57, 17, 0.12)', alignSelf: 'center' }}>
+        <Paper elevation={0} sx={{ p: { xs: 2.25, sm: 3, md: 4 }, borderRadius: { xs: 3, md: 2 }, border: '1.5px solid rgba(60, 57, 17, 0.12)', alignSelf: 'center' }}>
           <Typography variant="h4" component="h1" gutterBottom>
             Welcome back
           </Typography>
-          <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+          <Typography variant="body1" color="text.secondary" sx={{ mb: { xs: 2, md: 3 } }}>
             Sign in to manage your monitoring kit.
           </Typography>
 
@@ -143,7 +152,7 @@ const SignIn: React.FC = () => {
               variant="contained"
               color="secondary"
               sx={{
-                mt: 3,
+                mt: { xs: 2, md: 3 },
                 mb: 2,
                 minHeight: 46,
                 '& .MuiCircularProgress-root': {

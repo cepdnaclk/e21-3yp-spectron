@@ -20,11 +20,15 @@ export const getApiErrorMessage = (error: unknown, fallback: string): string => 
   }
 
   if (maybeError?.code === 'ECONNABORTED') {
-    return 'Backend request timed out. Check that the backend API is running and REACT_APP_API_URL is correct.';
+    return 'The server took too long to respond. Check your internet connection and try again.';
   }
 
   if (!maybeError?.response && maybeError?.message === 'Network Error') {
-    return 'Backend is not reachable. Check that the backend API is running and REACT_APP_API_URL is correct.';
+    return 'Cannot reach the Spectron server. Check your internet connection and try again.';
+  }
+
+  if (!maybeError?.response && maybeError?.code === 'ERR_NETWORK') {
+    return maybeError.message || 'Cannot reach the Spectron server. Check your internet connection and try again.';
   }
 
   if (!maybeError?.response && maybeError?.message) {

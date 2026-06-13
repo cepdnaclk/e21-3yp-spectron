@@ -4,6 +4,18 @@
   padding: 0;
 }
 
+html,
+body {
+  height: 100%;
+  min-height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+html {
+  background: #faf0ea;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
@@ -16,6 +28,17 @@ body {
     radial-gradient(circle at top left, rgba(235, 79, 18, 0.12), transparent 34rem),
     linear-gradient(135deg, #faf0ea 0%, #fff8ed 48%, #edf4df 100%);
   color: #262411;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y pinch-zoom;
 }
 
 code {
@@ -35,4 +58,90 @@ a:hover {
 
 video {
   display: block;
+  max-width: 100%;
+}
+
+img,
+svg {
+  max-width: 100%;
+}
+
+@media (max-width: 599.95px) {
+  body {
+    font-size: 15px;
+  }
+
+  #root {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .mobile-card-table,
+  .mobile-card-table .MuiTableContainer-root {
+    overflow: visible;
+  }
+
+  .mobile-card-table .MuiTable-root,
+  .mobile-card-table .MuiTableBody-root,
+  .mobile-card-table .MuiTableRow-root,
+  .mobile-card-table .MuiTableCell-root {
+    display: block;
+    width: 100%;
+  }
+
+  .mobile-card-table .MuiTableHead-root {
+    display: none;
+  }
+
+  .mobile-card-table .MuiTableRow-root {
+    margin-bottom: 14px;
+    padding: 14px;
+    border: 1px solid rgba(60, 57, 17, 0.12);
+    border-radius: 14px;
+    background: rgba(255, 253, 248, 0.76);
+  }
+
+  .mobile-card-table .MuiTableCell-root {
+    min-height: 0;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(60, 57, 17, 0.08);
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-card-table .MuiTableCell-root:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  .mobile-card-table .MuiTableCell-root[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    color: #6a624f;
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .mobile-card-table .MuiTableCell-alignRight {
+    text-align: left;
+  }
+
+  .mobile-card-table .MuiTableCell-alignRight .MuiStack-root {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .mobile-card-table .mobile-empty-row {
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .mobile-card-table .mobile-empty-row .MuiTableCell-root {
+    padding: 18px 0;
+    text-align: center;
+    border: 0;
+  }
 }

@@ -170,7 +170,7 @@ const Team: React.FC = () => {
   const viewerUsers = users.filter((user) => user.role === 'VIEWER');
 
   return (
-    <Box sx={{ px: { xs: 2, md: 4 }, py: 2 }}>
+    <Box sx={{ px: { xs: 1.75, md: 4 }, py: { xs: 1.5, md: 2 } }}>
       <Stack
         direction={{ xs: 'column', sm: 'row' }}
         justifyContent="space-between"
@@ -185,7 +185,7 @@ const Team: React.FC = () => {
           <Typography variant="h4" sx={{ mb: 1 }}>
             Viewer accounts
           </Typography>
-          <Typography color="text.secondary">
+          <Typography color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>
             Owners can create read-only viewer accounts for people in their organization.
           </Typography>
         </Box>
@@ -253,7 +253,7 @@ const Team: React.FC = () => {
 
       <Card>
         <CardContent>
-          <TableContainer>
+          <TableContainer className="mobile-card-table">
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -267,14 +267,14 @@ const Team: React.FC = () => {
               <TableBody>
                 {viewerUsers.map((user) => (
                   <TableRow key={user.id} hover>
-                    <TableCell>
+                    <TableCell data-label="User">
                       <Typography fontWeight={800}>{user.name || user.email}</Typography>
                       <Typography variant="caption" color="text.secondary">{user.email}</Typography>
                     </TableCell>
-                    <TableCell><Chip size="small" label={user.role} color={user.role === 'OWNER' ? 'primary' : 'default'} /></TableCell>
-                    <TableCell><Chip size="small" label={user.status} color={user.status === 'ACTIVE' ? 'success' : 'default'} /></TableCell>
-                    <TableCell>{new Date(user.created_at).toLocaleString()}</TableCell>
-                    <TableCell align="right">
+                    <TableCell data-label="Role"><Chip size="small" label={user.role} color={user.role === 'OWNER' ? 'primary' : 'default'} /></TableCell>
+                    <TableCell data-label="Status"><Chip size="small" label={user.status} color={user.status === 'ACTIVE' ? 'success' : 'default'} /></TableCell>
+                    <TableCell data-label="Created">{new Date(user.created_at).toLocaleString()}</TableCell>
+                    <TableCell data-label="Actions" align="right">
                       <Tooltip title="Remove viewer">
                         <span>
                           <IconButton
@@ -292,7 +292,7 @@ const Team: React.FC = () => {
                   </TableRow>
                 ))}
                 {!loading && viewerUsers.length === 0 && (
-                  <TableRow>
+                  <TableRow className="mobile-empty-row">
                     <TableCell colSpan={5}>
                       <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
                         No viewer accounts created yet.
@@ -301,7 +301,7 @@ const Team: React.FC = () => {
                   </TableRow>
                 )}
                 {loading && (
-                  <TableRow>
+                  <TableRow className="mobile-empty-row">
                     <TableCell colSpan={5}>
                       <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
                         Loading viewer accounts...

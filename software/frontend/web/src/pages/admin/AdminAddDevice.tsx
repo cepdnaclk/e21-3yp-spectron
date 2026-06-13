@@ -212,7 +212,7 @@ const AdminAddDevice: React.FC = () => {
         <Typography variant="h4" sx={{ mb: 1 }}>
           Device Created
         </Typography>
-        <Typography color="text.secondary" sx={{ mb: 3, maxWidth: 760 }}>
+        <Typography color="text.secondary" sx={{ mb: 3, maxWidth: 760, display: { xs: 'none', sm: 'block' } }}>
           The controller is now registered. Print the controller ID QR label or copy the ID before handing it off to the owner.
         </Typography>
 
@@ -368,7 +368,7 @@ const AdminAddDevice: React.FC = () => {
       <Typography variant="h4" sx={{ mb: 1 }}>
         Add Controller
       </Typography>
-      <Typography color="text.secondary" sx={{ mb: 3, maxWidth: 780 }}>
+      <Typography color="text.secondary" sx={{ mb: 3, maxWidth: 780, display: { xs: 'none', sm: 'block' } }}>
         Register the controller first. Once it is created, this page will switch into a QR label view for printing and copying the controller ID.
       </Typography>
 
@@ -414,7 +414,7 @@ const AdminAddDevice: React.FC = () => {
               }
               label="Create default sensor placeholders"
             />
-            <Stack direction="row" spacing={1.25} sx={{ mt: 2 }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} sx={{ mt: 2 }}>
               <Button
                 type="submit"
                 variant="contained"

@@ -367,13 +367,15 @@ const ControllerDashboard: React.FC = () => {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ pt: { xs: 10, md: 11 }, pb: { xs: 2, md: 3 } }}>
+    <Container maxWidth="xl" sx={{ pt: { xs: 1, md: 11 }, pb: { xs: 2, md: 3 } }}>
       <Box
         sx={{
-          position: 'fixed',
-          top: { xs: 16, md: 24 },
-          left: { xs: 16, md: 'calc(268px + 32px)' },
+          position: { xs: 'sticky', md: 'fixed' },
+          top: { xs: 8, md: 24 },
+          left: { md: 'calc(268px + 32px)' },
           zIndex: 20,
+          width: 'fit-content',
+          mb: { xs: 1.5, md: 0 },
         }}
       >
         <IconButton
@@ -425,14 +427,21 @@ const ControllerDashboard: React.FC = () => {
         }}
       >
         <CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}>
-          <Box display="flex" justifyContent="space-between" alignItems="flex-start" gap={2} mb={2}>
-            <Box>
+          <Box
+            display="flex"
+            flexDirection={{ xs: 'column', sm: 'row' }}
+            justifyContent="space-between"
+            alignItems={{ xs: 'stretch', sm: 'flex-start' }}
+            gap={2}
+            mb={2}
+          >
+            <Box sx={{ minWidth: 0 }}>
               <Typography variant="overline" sx={{ color: '#e1c7a3', fontWeight: 800 }}>
                 Controller workspace
               </Typography>
               {editingControllerName ? (
                 <Stack
-                  direction="row"
+                  direction={{ xs: 'column', sm: 'row' }}
                   spacing={1}
                   alignItems="center"
                   component="form"
@@ -449,8 +458,9 @@ const ControllerDashboard: React.FC = () => {
                     autoFocus
                     variant="filled"
                     label="Controller name"
+                    fullWidth
                     sx={{
-                      minWidth: { xs: 220, sm: 360 },
+                      minWidth: 0,
                       bgcolor: 'rgba(255, 253, 248, 0.12)',
                       borderRadius: 1,
                       '& .MuiInputBase-input, & .MuiInputLabel-root': {
@@ -476,8 +486,8 @@ const ControllerDashboard: React.FC = () => {
                   </IconButton>
                 </Stack>
               ) : (
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography variant="h4">{controller.name || 'Unnamed Controller'}</Typography>
+                <Stack direction="row" spacing={1} alignItems="flex-start">
+                  <Typography variant="h4" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{controller.name || 'Unnamed Controller'}</Typography>
                   {canManageControllers && (
                     <IconButton
                       aria-label="Edit controller name"
@@ -490,7 +500,7 @@ const ControllerDashboard: React.FC = () => {
                 </Stack>
               )}
             </Box>
-            <Stack direction="row" spacing={1}>
+            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
               <Chip
                 label={controller.claim_status || 'CLAIMED'}
                 color="primary"
@@ -505,7 +515,7 @@ const ControllerDashboard: React.FC = () => {
             </Stack>
           </Box>
           {controller.purpose && (
-            <Typography variant="body1" sx={{ color: 'rgba(255, 253, 248, 0.76)' }} gutterBottom>
+            <Typography variant="body1" sx={{ color: 'rgba(255, 253, 248, 0.76)', display: { xs: 'none', sm: 'block' } }} gutterBottom>
               {controller.purpose}
             </Typography>
           )}
@@ -513,7 +523,7 @@ const ControllerDashboard: React.FC = () => {
             {controller.location && (
               <Chip icon={<Place />} label={controller.location} sx={{ bgcolor: 'rgba(255, 253, 248, 0.12)', color: '#fffdf8' }} />
             )}
-            <Chip icon={<Memory />} label={controller.hw_id} sx={{ bgcolor: 'rgba(255, 253, 248, 0.12)', color: '#fffdf8' }} />
+            <Chip icon={<Memory />} label={controller.hw_id} sx={{ bgcolor: 'rgba(255, 253, 248, 0.12)', color: '#fffdf8', display: { xs: 'none', sm: 'inline-flex' } }} />
           </Stack>
           {canManageControllers && (
             <Button
@@ -544,7 +554,7 @@ const ControllerDashboard: React.FC = () => {
             Connected hardware
           </Typography>
           <Typography variant="h5">Sensors ({sensors.length})</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, display: { xs: 'none', sm: 'block' } }}>
             Configuration is optional for this hardware verification run. First confirm that
             discovered sensors and live readings reach the UI.
           </Typography>
@@ -660,14 +670,21 @@ const ControllerDashboard: React.FC = () => {
                   }
                 >
                   <CardContent sx={{ p: 2.5 }}>
-                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                      <Box display="flex" alignItems="center" gap={1}>
+                    <Box
+                      display="flex"
+                      flexDirection={{ xs: 'column', sm: 'row' }}
+                      justifyContent="space-between"
+                      alignItems={{ xs: 'stretch', sm: 'center' }}
+                      gap={1.25}
+                      mb={1}
+                    >
+                      <Box display="flex" alignItems="center" gap={1} minWidth={0}>
                         <Box sx={{ p: 1, borderRadius: '50%', bgcolor: 'rgba(108, 137, 48, 0.12)' }}>
                           <DeviceThermostat color="primary" />
                         </Box>
                         {editingSensorId === sensor.id ? (
                           <Stack
-                            direction="row"
+                            direction={{ xs: 'column', sm: 'row' }}
                             spacing={0.5}
                             alignItems="center"
                             component="form"
@@ -682,7 +699,8 @@ const ControllerDashboard: React.FC = () => {
                               onChange={(event) => setSensorNameDraft(event.target.value)}
                               autoFocus
                               label="Sensor name"
-                              sx={{ minWidth: { xs: 180, sm: 240 } }}
+                              fullWidth
+                              sx={{ minWidth: 0 }}
                             />
                             <IconButton
                               aria-label="Save sensor name"

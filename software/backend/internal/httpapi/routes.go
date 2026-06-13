@@ -21,6 +21,8 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 			"http://127.0.0.1:3000",
 			"http://127.0.0.1:3001",
 			"http://127.0.0.1:3002",
+			"https://localhost",
+			"capacitor://localhost",
 		}
 	}
 

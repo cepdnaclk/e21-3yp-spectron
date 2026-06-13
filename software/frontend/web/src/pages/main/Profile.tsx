@@ -429,7 +429,7 @@ const Profile: React.FC = () => {
                     direction={{ xs: 'column', sm: 'row' }}
                     spacing={1}
                     alignItems={{ xs: 'center', sm: 'center' }}
-                    sx={{ mt: 1 }}
+                    sx={{ mt: 1, display: { xs: 'none', sm: 'flex' } }}
                   >
                     <Typography
                       variant="body2"
@@ -455,7 +455,7 @@ const Profile: React.FC = () => {
                   variant="outlined"
                   startIcon={<Logout />}
                   onClick={handleLogout}
-                  sx={{ minWidth: 132 }}
+                  sx={{ minWidth: { xs: 0, sm: 132 }, width: { xs: '100%', sm: 'auto' } }}
                 >
                   Logout
                 </Button>
@@ -465,7 +465,7 @@ const Profile: React.FC = () => {
                   startIcon={<Save />}
                   onClick={handleSaveProfile}
                   disabled={profileSaving || avatarSaving}
-                  sx={{ minWidth: 154 }}
+                  sx={{ minWidth: { xs: 0, sm: 154 }, width: { xs: '100%', sm: 'auto' } }}
                 >
                   {profileSaving ? 'Saving...' : 'Save changes'}
                 </Button>

@@ -86,18 +86,18 @@ const SignUp: React.FC = () => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ minHeight: '100vh', display: 'grid', alignItems: 'center', py: 4 }}>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '0.95fr 1.05fr' }, gap: 3, alignItems: 'stretch' }}>
+    <Container maxWidth="lg" sx={{ minHeight: '100dvh', display: 'grid', alignItems: 'center', py: { xs: 2, md: 4 } }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '0.95fr 1.05fr' }, gap: { xs: 1.5, md: 3 }, alignItems: 'stretch' }}>
         <Box
           sx={{
-            p: { xs: 3, md: 5 },
+            p: { xs: 2.5, md: 5 },
             borderRadius: 2,
             bgcolor: '#3c3911',
             color: '#fffdf8',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            minHeight: { xs: 240, md: 620 },
+            minHeight: { xs: 145, md: 620 },
             overflow: 'hidden',
             position: 'relative',
           }}
@@ -108,18 +108,18 @@ const SignUp: React.FC = () => {
             <Typography variant="h5">Spectron</Typography>
           </Stack>
           <Box sx={{ position: 'relative', maxWidth: 520 }}>
-            <Typography variant="h4">Build a clearer sensing workspace.</Typography>
-            <Typography sx={{ mt: 1.5, color: 'rgba(255, 253, 248, 0.76)' }}>
+            <Typography variant="h4" sx={{ fontSize: { xs: '1.45rem', sm: '2rem', md: undefined } }}>Build a clearer sensing workspace.</Typography>
+            <Typography sx={{ mt: 1.5, color: 'rgba(255, 253, 248, 0.76)', display: { xs: 'none', sm: 'block' } }}>
             Create an owner account, sign in, and then pair controllers or invite viewers.
             </Typography>
           </Box>
-          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative', color: '#e1c7a3' }}>
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative', color: '#e1c7a3', display: { xs: 'none', md: 'flex' } }}>
             <PersonAddAlt />
             <Typography variant="body2" fontWeight={800}>Fast setup for teams and labs</Typography>
           </Stack>
         </Box>
 
-        <Paper elevation={0} sx={{ p: { xs: 3, md: 4 }, borderRadius: 2, border: '1.5px solid rgba(60, 57, 17, 0.12)', alignSelf: 'center' }}>
+        <Paper elevation={0} sx={{ p: { xs: 2.5, md: 4 }, borderRadius: 2, border: '1.5px solid rgba(60, 57, 17, 0.12)', alignSelf: 'center' }}>
           <Typography variant="h4" component="h1" gutterBottom>
             Create Account
           </Typography>

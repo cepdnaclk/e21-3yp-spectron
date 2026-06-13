@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
+import { ThemeProvider, createTheme, responsiveFontSizes } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import SignIn from './pages/auth/SignIn';
@@ -25,7 +25,7 @@ import AdminUsers from './pages/admin/AdminUsers';
 import AdminSystem from './pages/admin/AdminSystem';
 import AdminAudit from './pages/admin/AdminAudit';
 
-const theme = createTheme({
+let theme = createTheme({
   palette: {
     mode: 'light',
     primary: {
@@ -91,6 +91,52 @@ const theme = createTheme({
         body: {
           backgroundColor: '#faf0ea',
         },
+        '@media (max-width: 599.95px)': {
+          '.MuiContainer-root': {
+            paddingLeft: '14px',
+            paddingRight: '14px',
+          },
+          '.MuiCardContent-root': {
+            padding: '16px',
+          },
+          '.MuiTypography-h4': {
+            fontSize: '1.75rem',
+            lineHeight: 1.15,
+            overflowWrap: 'anywhere',
+          },
+          '.MuiTypography-h5': {
+            fontSize: '1.35rem',
+            lineHeight: 1.2,
+            overflowWrap: 'anywhere',
+          },
+          '.MuiTypography-h6': {
+            overflowWrap: 'anywhere',
+          },
+          '.MuiButton-root': {
+            minWidth: 0,
+          },
+          '.MuiDialog-paper': {
+            margin: '14px',
+            width: 'calc(100% - 28px)',
+            maxHeight: 'calc(100% - 28px)',
+          },
+          '.MuiDialogTitle-root': {
+            padding: '18px 18px 8px',
+          },
+          '.MuiDialogContent-root': {
+            paddingLeft: '18px',
+            paddingRight: '18px',
+          },
+          '.MuiDialogActions-root': {
+            padding: '12px 18px 18px',
+            flexDirection: 'column-reverse',
+            alignItems: 'stretch',
+          },
+          '.MuiDialogActions-root > .MuiButton-root': {
+            marginLeft: '0 !important',
+            width: '100%',
+          },
+        },
       },
     },
     MuiCard: {
@@ -117,6 +163,10 @@ const theme = createTheme({
         root: {
           borderRadius: 16,
           minHeight: 44,
+          paddingLeft: 18,
+          paddingRight: 18,
+          whiteSpace: 'normal',
+          lineHeight: 1.25,
         },
         contained: {
           boxShadow: 'none',
@@ -227,6 +277,8 @@ const theme = createTheme({
     },
   },
 });
+
+theme = responsiveFontSizes(theme, { factor: 3 });
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();

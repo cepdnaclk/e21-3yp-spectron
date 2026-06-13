@@ -47,7 +47,7 @@ const AdminDashboard: React.FC = () => {
             Admin Dashboard
           </Typography>
           <Typography variant="h4">Device operations overview</Typography>
-          <Typography color="text.secondary" sx={{ mt: 0.75, maxWidth: 760 }}>
+          <Typography color="text.secondary" sx={{ mt: 0.75, maxWidth: 760, display: { xs: 'none', sm: 'block' } }}>
             Register hardware IDs, print controller QR labels, and keep ownership visible after users claim controllers.
           </Typography>
         </Box>
@@ -66,11 +66,11 @@ const AdminDashboard: React.FC = () => {
         {statCards.map((card) => {
           const Icon = card.icon;
           return (
-            <Grid item xs={12} sm={6} lg={3} key={card.key}>
+            <Grid item xs={6} lg={3} key={card.key}>
               <Card sx={{ bgcolor: card.tone }}>
                 <CardContent>
-                  <Stack direction="row" spacing={1.5} alignItems="center">
-                    <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'rgba(108, 137, 48, 0.13)', color: 'primary.main' }}>
+                  <Stack direction="row" spacing={{ xs: 0.75, sm: 1.5 }} alignItems="center">
+                    <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'rgba(108, 137, 48, 0.13)', color: 'primary.main', display: { xs: 'none', sm: 'flex' } }}>
                       <Icon />
                     </Box>
                     <Box>
@@ -91,7 +91,7 @@ const AdminDashboard: React.FC = () => {
         <Grid item xs={12} md={7}>
           <Card>
             <CardContent>
-              <Typography variant="h6">Recommended Operating Flow</Typography>
+              <Typography variant="h6">Operating Flow</Typography>
               <Stack spacing={1.3} sx={{ mt: 2 }}>
                 {[
                   'Admin registers a physical controller ID.',
@@ -99,7 +99,7 @@ const AdminDashboard: React.FC = () => {
                   'User scans the QR code from the app and claims the controller if it is unowned.',
                   'Sensors are configured and monitored from the normal user dashboard.',
                 ].map((item, index) => (
-                  <Stack direction="row" spacing={1.2} alignItems="center" key={item}>
+                  <Stack direction="row" spacing={1.2} alignItems="flex-start" key={item}>
                     <Chip label={index + 1} color="primary" size="small" />
                     <Typography>{item}</Typography>
                   </Stack>

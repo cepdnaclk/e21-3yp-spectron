@@ -84,7 +84,8 @@ const Layout: React.FC = () => {
         position: 'relative',
         isolation: 'isolate',
         display: 'flex',
-        minHeight: '100vh',
+        minHeight: '100dvh',
+        overflow: 'visible',
         '&::before': {
           content: '""',
           position: 'fixed',
@@ -228,16 +229,18 @@ const Layout: React.FC = () => {
         component="main"
         sx={{
           flexGrow: 1,
+          minWidth: 0,
           width: '100%',
           ml: { md: '268px' },
-          pb: { xs: 10, md: 4 },
+          pb: { xs: 'calc(88px + env(safe-area-inset-bottom))', md: 4 },
+          overflow: 'visible',
         }}
       >
         <Box
           component="header"
           sx={{
             px: { xs: 2, md: 4 },
-            pt: { xs: 2, md: 3 },
+            pt: { xs: 1.5, md: 3 },
             pb: { xs: 1, md: 0 },
             display: 'flex',
             justifyContent: 'space-between',
@@ -261,14 +264,25 @@ const Layout: React.FC = () => {
           showLabels
           sx={{
             position: 'fixed',
-            bottom: 12,
-            left: 12,
-            right: 12,
-            borderRadius: 2,
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 'calc(64px + env(safe-area-inset-bottom))',
+            pb: 'env(safe-area-inset-bottom)',
+            borderRadius: '18px 18px 0 0',
             border: '1px solid rgba(60, 57, 17, 0.12)',
-            boxShadow: 'none',
+            boxShadow: '0 -8px 24px rgba(60, 57, 17, 0.08)',
             overflow: 'hidden',
             zIndex: 20,
+            bgcolor: 'rgba(255, 253, 248, 0.98)',
+            '& .MuiBottomNavigationAction-root': {
+              minWidth: 0,
+              px: 0.25,
+            },
+            '& .MuiBottomNavigationAction-label': {
+              fontSize: 9,
+              whiteSpace: 'nowrap',
+            },
           }}
         >
           {routes.map((item) => (

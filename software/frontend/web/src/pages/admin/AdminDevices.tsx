@@ -128,11 +128,16 @@ const AdminDevices: React.FC = () => {
             Device Registry
           </Typography>
           <Typography variant="h4">Controllers</Typography>
-          <Typography color="text.secondary" sx={{ mt: 0.75 }}>
+          <Typography color="text.secondary" sx={{ mt: 0.75, display: { xs: 'none', sm: 'block' } }}>
             Register physical controller IDs and review which account owns each device.
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexShrink: 0 }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1}
+          alignItems="stretch"
+          sx={{ flexShrink: 0, width: { xs: '100%', md: 'auto' } }}
+        >
           <Button variant="outlined" startIcon={<Refresh />} onClick={loadDevices} sx={compactButtonSx}>
             Refresh
           </Button>
@@ -156,7 +161,7 @@ const AdminDevices: React.FC = () => {
 
       <Card>
         <CardContent>
-          <TableContainer>
+          <TableContainer className="mobile-card-table">
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -173,23 +178,23 @@ const AdminDevices: React.FC = () => {
               <TableBody>
                 {devices.map((device) => (
                   <TableRow key={device.id} hover>
-                    <TableCell>
+                    <TableCell data-label="Controller">
                       <Typography fontWeight={800}>{device.controllerId}</Typography>
                       <Typography variant="caption" color="text.secondary">{device.location || 'No location'}</Typography>
                     </TableCell>
-                    <TableCell>{device.name}</TableCell>
-                    <TableCell>
+                    <TableCell data-label="Name">{device.name}</TableCell>
+                    <TableCell data-label="Claim status">
                       <Chip
                         size="small"
                         label={device.claimStatus}
                         color={device.claimStatus === 'CLAIMED' ? 'primary' : 'default'}
                       />
                     </TableCell>
-                    <TableCell><Chip size="small" label={device.operationalStatus || device.status} /></TableCell>
-                    <TableCell>{device.ownerEmail || 'Unclaimed'}</TableCell>
-                    <TableCell>{device.configuredSensors}/{device.sensorCount} configured</TableCell>
-                    <TableCell>{formatDate(device.updatedAt)}</TableCell>
-                    <TableCell align="right">
+                    <TableCell data-label="Operational"><Chip size="small" label={device.operationalStatus || device.status} /></TableCell>
+                    <TableCell data-label="Owner">{device.ownerEmail || 'Unclaimed'}</TableCell>
+                    <TableCell data-label="Sensors">{device.configuredSensors}/{device.sensorCount} configured</TableCell>
+                    <TableCell data-label="Updated">{formatDate(device.updatedAt)}</TableCell>
+                    <TableCell data-label="Actions" align="right">
                       <Tooltip title="Copy QR payload">
                         <IconButton
                           size="small"
@@ -212,7 +217,7 @@ const AdminDevices: React.FC = () => {
                   </TableRow>
                 ))}
                 {devices.length === 0 && (
-                  <TableRow>
+                  <TableRow className="mobile-empty-row">
                     <TableCell colSpan={8}>
                       <Typography align="center" color="text.secondary" sx={{ py: 3 }}>
                         No devices registered yet.

@@ -68,8 +68,8 @@ const Controllers: React.FC = () => {
     <Container maxWidth="xl" sx={{ py: { xs: 2, md: 3 } }}>
       <Box
         sx={{
-          mb: 3,
-          p: { xs: 2.5, md: 3.5 },
+          mb: { xs: 2, md: 3 },
+          p: { xs: 2, md: 3.5 },
           borderRadius: 2,
           bgcolor: '#3c3911',
           color: '#fffdf8',
@@ -94,10 +94,10 @@ const Controllers: React.FC = () => {
             <Typography variant="overline" sx={{ color: '#e1c7a3', fontWeight: 800 }}>
               Controller fleet
             </Typography>
-            <Typography variant="h4" sx={{ mt: 0.5 }}>
+            <Typography variant="h4" sx={{ mt: 0.5, fontSize: { xs: '1.65rem', sm: '2rem', md: undefined } }}>
               Keep every Spectron node in view.
             </Typography>
-            <Typography sx={{ mt: 1, maxWidth: 620, color: 'rgba(255, 253, 248, 0.76)' }}>
+            <Typography sx={{ mt: 1, maxWidth: 620, color: 'rgba(255, 253, 248, 0.76)', display: { xs: 'none', sm: 'block' } }}>
               Add, configure, and monitor your connected sensing hardware from one calm workspace.
             </Typography>
           </Box>
@@ -106,7 +106,7 @@ const Controllers: React.FC = () => {
             color="secondary"
             startIcon={<Add />}
             onClick={() => navigate('/controllers/pair')}
-            sx={{ alignSelf: { xs: 'stretch', md: 'flex-end' } }}
+            sx={{ alignSelf: { xs: 'stretch', md: 'flex-end' }, display: { xs: 'none', md: 'inline-flex' } }}
           >
             Add Controller
           </Button>
@@ -152,9 +152,9 @@ const Controllers: React.FC = () => {
                 }}
                 onClick={() => navigate(`/controllers/${controller.id}`)}
               >
-                <CardContent sx={{ p: 2.5 }}>
-                  <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
-                    <Box display="flex" alignItems="center" gap={1.5}>
+                <CardContent sx={{ p: { xs: 1.75, sm: 2.5 } }}>
+                  <Box display="flex" flexDirection="row" justifyContent="space-between" alignItems="flex-start" gap={1} mb={{ xs: 1.25, sm: 2 }}>
+                    <Box display="flex" alignItems="center" gap={1.5} minWidth={0}>
                       <Box sx={{ p: 1, borderRadius: '50%', bgcolor: 'rgba(108, 137, 48, 0.12)' }}>
                         <ChipIcon color="primary" />
                       </Box>
@@ -162,7 +162,7 @@ const Controllers: React.FC = () => {
                         {controller.name || 'Unnamed Controller'}
                       </Typography>
                     </Box>
-                    <Stack direction="row" spacing={0.75}>
+                    <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
                       <Chip
                         label={controller.claim_status || 'CLAIMED'}
                         color="primary"
@@ -176,7 +176,7 @@ const Controllers: React.FC = () => {
                     </Stack>
                   </Box>
                   {controller.purpose && (
-                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                    <Typography variant="body2" color="text.secondary" gutterBottom sx={{ display: { xs: 'none', sm: 'block' } }}>
                       {controller.purpose}
                     </Typography>
                   )}
@@ -190,7 +190,7 @@ const Controllers: React.FC = () => {
                       </Stack>
                     )}
                     <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-                      <Typography variant="caption" color="text.secondary">
+                      <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>
                         Hardware ID: {controller.hw_id}
                       </Typography>
                       <ArrowForward color="primary" fontSize="small" />
@@ -206,7 +206,7 @@ const Controllers: React.FC = () => {
       <Fab
         color="secondary"
         aria-label="add"
-        sx={{ position: 'fixed', bottom: { xs: 92, md: 28 }, right: 24 }}
+        sx={{ position: 'fixed', bottom: { xs: 'calc(76px + env(safe-area-inset-bottom))', md: 28 }, right: { xs: 16, md: 24 }, width: { xs: 50, md: 56 }, height: { xs: 50, md: 56 } }}
         onClick={() => navigate('/controllers/pair')}
       >
         <Add />
