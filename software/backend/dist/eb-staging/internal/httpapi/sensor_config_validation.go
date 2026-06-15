@@ -1536,6 +1536,18 @@ func validateAndFinalizeConfig(sensorType string, purpose string, ctx *models.Se
 	)
 	supportedRawMetrics := supportedRawMetricsForSensor(sensorType)
 	derivedMetrics := derivedMetricsForUseCase(sensorType, finalUseCase)
+	observableMetrics := []string{}
+	if config.Interpretation != nil {
+		seenObservableMetrics := map[string]bool{}
+		for _, metricKey := range config.Interpretation.ObservableMetrics {
+			metricKey = strings.TrimSpace(metricKey)
+			if metricKey == "" || seenObservableMetrics[metricKey] {
+				continue
+			}
+			seenObservableMetrics[metricKey] = true
+			observableMetrics = append(observableMetrics, metricKey)
+		}
+	}
 	settingsAlerts := buildSettingsAlerts(
 		sensorType,
 		finalPresentationProfile,
@@ -1612,15 +1624,16 @@ func validateAndFinalizeConfig(sensorType string, purpose string, ctx *models.Se
 					SupportedRawMetrics: supportedRawMetrics,
 				},
 				Interpretation: &models.SensorInterpretationLayer{
-					FriendlyName:     strings.TrimSpace(config.FriendlyName),
-					Purpose:          strings.TrimSpace(purpose),
-					UseCase:          finalUseCase,
-					PrimaryMetric:    finalPrimaryMetric,
-					DisplayUnit:      displayUnitForMetric(finalPrimaryMetric),
-					DerivedMetrics:   derivedMetrics,
-					Thresholds:       finalThresholds,
-					MetricThresholds: models.CloneThresholdMap(metricThresholds),
-					Context:          models.CloneSensorContext(normalizedContext),
+					FriendlyName:      strings.TrimSpace(config.FriendlyName),
+					Purpose:           strings.TrimSpace(purpose),
+					UseCase:           finalUseCase,
+					PrimaryMetric:     finalPrimaryMetric,
+					DisplayUnit:       displayUnitForMetric(finalPrimaryMetric),
+					ObservableMetrics: observableMetrics,
+					DerivedMetrics:    derivedMetrics,
+					Thresholds:        finalThresholds,
+					MetricThresholds:  models.CloneThresholdMap(metricThresholds),
+					Context:           models.CloneSensorContext(normalizedContext),
 				},
 				Presentation: &models.SensorPresentationLayer{
 					Profile:          finalPresentationProfile,

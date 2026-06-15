@@ -191,6 +191,30 @@ func TestThresholdAlertMessageIncludesSensorValueAndTime(t *testing.T) {
 	}
 }
 
+func TestNormalizeVL53L0XMillimetersToCentimeters(t *testing.T) {
+	value, converted := normalizeReadingValue("vl53l0x", 2131)
+	if !converted {
+		t.Fatal("expected VL53L0X value to be converted")
+	}
+	if math.Abs(value-213.1) > 0.0001 {
+		t.Fatalf("expected 213.1 cm, got %f", value)
+	}
+}
+
+func TestNormalizeDistanceAliasMillimetersToCentimeters(t *testing.T) {
+	value, converted := normalizeReadingValue("distance", 850)
+	if !converted || value != 85 {
+		t.Fatalf("expected distance alias to normalize to 85 cm, got value=%f converted=%v", value, converted)
+	}
+}
+
+func TestNormalizeReadingLeavesOtherSensorsUnchanged(t *testing.T) {
+	value, converted := normalizeReadingValue("ultrasonic", 125)
+	if converted || value != 125 {
+		t.Fatalf("expected ultrasonic reading to remain unchanged, got value=%f converted=%v", value, converted)
+	}
+}
+
 func TestDistanceAttendanceCountsSpikeThenRequiresClearDoor(t *testing.T) {
 	config := distanceAttendanceConfig{
 		BaselineCM: 300,
