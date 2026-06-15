@@ -292,6 +292,72 @@ const deriveAttendanceTrend = (
   }, []);
 };
 
+const deriveFillLevelTrend = (
+  readings: SensorReading[],
+  sensor: Sensor,
+  config?: SensorConfig
+): SensorPoint[] => {
+  const hardwareConfig = config?.hardware?.config || config?.hardware_config || {};
+  const fullScaleDistance =
+    numericConfigValue(hardwareConfig, 'fullScaleDistanceCm') ??
+    numericConfigValue(hardwareConfig, 'tankDepthCm');
+
+  if (fullScaleDistance === null || fullScaleDistance <= 0) {
+    return [];
+  }
+
+  return readings.reduce<SensorPoint[]>((points, reading) => {
+    const distance = toReadingValue(reading, 'distance', sensor.type);
+    if (distance === null || distance < 0) {
+      return points;
+    }
+
+    const fillLevel = Math.max(0, Math.min(100, ((fullScaleDistance - distance) / fullScaleDistance) * 100));
+    points.push({
+      label: formatTimeLabel(reading.time),
+      shortLabel: formatTimeLabel(reading.time),
+      value: fillLevel,
+      time: reading.time,
+    });
+    return points;
+  }, []);
+};
+
+const deriveFillMetricTrend = (
+  metricKey: string,
+  readings: SensorReading[],
+  sensor: Sensor,
+  config?: SensorConfig
+): SensorPoint[] => {
+  const fillLevelTrend = deriveFillLevelTrend(readings, sensor, config);
+  if (metricKey === 'fill_level') {
+    return fillLevelTrend;
+  }
+  if (metricKey === 'remaining_capacity_percent') {
+    return fillLevelTrend.map((point) => ({ ...point, value: 100 - point.value }));
+  }
+  if (metricKey !== 'fill_rate') {
+    return [];
+  }
+
+  return fillLevelTrend.reduce<SensorPoint[]>((points, point, index) => {
+    if (index === 0) {
+      return points;
+    }
+    const previous = fillLevelTrend[index - 1];
+    const elapsedDays =
+      (new Date(point.time).getTime() - new Date(previous.time).getTime()) / (24 * 60 * 60 * 1000);
+    if (!Number.isFinite(elapsedDays) || elapsedDays <= 0) {
+      return points;
+    }
+    points.push({
+      ...point,
+      value: (point.value - previous.value) / elapsedDays,
+    });
+    return points;
+  }, []);
+};
+
 const toReadingValue = (reading: SensorReading, metricKey?: string, sensorType?: string): number | null => {
   if (metricKey) {
     if (typeof (reading as any)[metricKey] === 'number') {
@@ -1579,6 +1645,12 @@ const Monitoring: React.FC = () => {
 
                 if (trend.length === 0 && metricKey === 'attendance_count') {
                   trend = deriveAttendanceTrend(metricReadings, sensor, activeConfig);
+                }
+                if (
+                  trend.length === 0 &&
+                  ['fill_level', 'remaining_capacity_percent', 'fill_rate'].includes(metricKey)
+                ) {
+                  trend = deriveFillMetricTrend(metricKey, metricReadings, sensor, activeConfig);
                 }
                 if (metricKey === 'attendance_count' && attendanceState?.session_started_at) {
                   const latestCount = attendanceState.attendance_count;

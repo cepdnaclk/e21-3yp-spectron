@@ -2454,8 +2454,32 @@ export const getUseCaseForDerivedMetric = (sensorType: string, metricKey?: strin
 export const getRecommendedProfileForDerivedMetric = (sensorType: string, metricKey?: string) =>
   getConfigurableDerivedMetric(sensorType, metricKey)?.recommended_profile;
 
-export const getSupportedProfilesForDerivedMetric = (sensorType: string, metricKey?: string) =>
-  getConfigurableDerivedMetric(sensorType, metricKey)?.supported_profiles || ['single_trend'];
+const suitableProfileAdditionsByMetric: Record<string, PresentationProfileKey[]> = {
+  fill_level: ['level_monitoring', 'gauge_status', 'single_trend'],
+  remaining_capacity_percent: ['gauge_status', 'level_monitoring', 'single_trend'],
+  fill_rate: ['single_trend', 'gauge_status', 'event_timeline'],
+  weight: ['gauge_status', 'single_trend'],
+  utilization_percent: ['gauge_status', 'single_trend'],
+  overload_risk: ['gauge_status', 'event_timeline', 'single_trend'],
+  load_change_rate: ['single_trend', 'gauge_status', 'event_timeline'],
+  depletion_rate: ['single_trend', 'gauge_status', 'event_timeline'],
+  gas_level: ['gauge_status', 'single_trend', 'event_timeline'],
+  risk_score: ['gauge_status', 'single_trend', 'event_timeline'],
+  unsafe_duration: ['single_trend', 'gauge_status', 'event_timeline'],
+  pressure: ['single_trend', 'gauge_status'],
+  aqi: ['gauge_status', 'single_trend', 'event_timeline'],
+};
+
+export const getSupportedProfilesForDerivedMetric = (
+  sensorType: string,
+  metricKey?: string
+): PresentationProfileKey[] => {
+  const metric = getConfigurableDerivedMetric(sensorType, metricKey);
+  const configuredProfiles = metric?.supported_profiles || ['single_trend'];
+  const normalizedMetric = normalizedMetricKey(metric?.runtime_metric_key || metricKey);
+  const suitableAdditions = suitableProfileAdditionsByMetric[normalizedMetric] || [];
+  return Array.from(new Set([...configuredProfiles, ...suitableAdditions]));
+};
 
 const metricDescriptor = (metricKey: string): SensorMetric => ({
   key: metricKey,

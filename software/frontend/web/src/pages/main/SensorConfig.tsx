@@ -1957,23 +1957,61 @@ const SensorConfig: React.FC = () => {
         setReportsPerDay(getConfigReportsPerDay(activeConfig)?.toString() || '24');
         setUseCase(configuredUseCase);
         
-        const hwConfigProfiles = (existingHardwareConfig as any)?.metric_profiles || {};
-
-        if (Object.keys(hwConfigProfiles).length > 0) {
-            setMetricPresentationProfiles(hwConfigProfiles as any);
-        } else {
-            setPresentationProfile(configuredProfile);
+        const savedObservableMetrics =
+          activeConfig?.interpretation?.observable_metrics?.filter(Boolean) || [];
+        const savedDerivedMetrics =
+          activeConfig?.interpretation?.derived_metrics?.map((metric) => metric.key).filter(Boolean) || [];
+        const hwConfigProfiles =
+          (existingHardwareConfig.metric_profiles as Record<string, PresentationProfileOption> | undefined) || {};
+        const savedMetricPresentationConfigs =
+          (existingHardwareConfig.metric_presentation_configs as Record<string, PresentationConfigValue> | undefined) || {};
+        const savedProfileMetricKeys = Object.keys(hwConfigProfiles);
+        const savedMetricKeys =
+          savedObservableMetrics.length > 0
+            ? savedObservableMetrics
+            : savedProfileMetricKeys.length > 0
+              ? savedProfileMetricKeys
+              : savedDerivedMetrics.length > 0
+                ? savedDerivedMetrics
+                : metrics.map((metric) => metric.key).filter(Boolean);
+        const hydratedMetricKeys = Array.from(new Set(savedMetricKeys.filter(Boolean)));
+        if (hydratedMetricKeys.length === 0 && configuredMetric?.key) {
+          hydratedMetricKeys.push(configuredMetric.key);
         }
-
-        setPresentationConfig(
-          normalizePresentationConfig(sensorData.type || '', configuredMetric?.key, configuredProfile, {
+        const hydratedProfiles = hydratedMetricKeys.reduce<Record<string, PresentationProfileOption>>(
+          (profiles, metricKey) => {
+            const savedProfile = hwConfigProfiles[metricKey];
+            const allowedProfiles = getSupportedProfilesForDerivedMetric(sensorData.type || '', metricKey);
+            profiles[metricKey] =
+              savedProfile && allowedProfiles.includes(savedProfile)
+                ? savedProfile
+                : metricKey === configuredMetric?.key
+                  ? configuredProfile
+                  : (allowedProfiles[0] as PresentationProfileOption) || 'single_trend';
+            return profiles;
+          },
+          {}
+        );
+        const primaryMetricKey = hydratedMetricKeys[0] || configuredMetric?.key || '';
+        const primaryProfile = hydratedProfiles[primaryMetricKey] || configuredProfile;
+        const primaryPresentationConfig = normalizePresentationConfig(
+          sensorData.type || '',
+          primaryMetricKey,
+          primaryProfile,
+          savedMetricPresentationConfigs[primaryMetricKey] || {
             headline_metric: activeConfig?.presentation?.headline_metric,
             status_mode: activeConfig?.presentation?.status_mode,
             comparison_mode: activeConfig?.presentation?.comparison_mode,
             detail_mode: activeConfig?.presentation?.detail_mode,
-          })
+          }
         );
-        setPrimaryMetric(configuredMetric?.key || '');
+
+        setSelectedMetrics(hydratedMetricKeys);
+        setMetricPresentationProfiles(hydratedProfiles);
+        setMetricPresentationConfigs({
+          ...savedMetricPresentationConfigs,
+          [primaryMetricKey]: primaryPresentationConfig,
+        });
 
         const baseThresholds = { ...(getConfigMetricThresholds(activeConfig) || {}) };
         if (metrics.length === 1 && metrics[0]?.key && !baseThresholds[metrics[0].key]) {
@@ -1982,10 +2020,7 @@ const SensorConfig: React.FC = () => {
             baseThresholds[metrics[0].key] = primaryThreshold;
           }
         }
-        
-        if (metrics.length > 0) {
-            setSelectedMetrics(metrics.map(m => m.key).filter(Boolean));
-        } else {
+        if (hydratedMetricKeys.length === 0) {
             const configuredKeys = Object.keys(baseThresholds);
             if (configuredKeys.length > 0) {
                 const keys = Array.from(new Set([configuredMetric?.key || '', ...configuredKeys])).filter(Boolean);
@@ -2529,16 +2564,27 @@ const SensorConfig: React.FC = () => {
       const primaryMetricThreshold: MetricThresholdPayload = primaryMetricKey
         ? metricThresholdPayload[primaryMetricKey] || {}
         : {};
-      // Ensure ALL selected metrics have a presentation profile assigned before saving
+      // Ensure every selected metric has a profile and its profile-specific settings persisted.
       const finalMetricProfiles = { ...metricPresentationProfiles };
+      const finalMetricPresentationConfigs = { ...metricPresentationConfigs };
       selectedMetrics.forEach(metricKey => {
         if (!finalMetricProfiles[metricKey]) {
           const allowedProfiles = getSupportedProfilesForDerivedMetric(sensor?.type || navigationState?.sensorType || '', metricKey);
           finalMetricProfiles[metricKey] = (allowedProfiles[0] as PresentationProfileOption) || 'single_trend';
         }
+        finalMetricPresentationConfigs[metricKey] = normalizePresentationConfig(
+          sensor?.type || navigationState?.sensorType || '',
+          metricKey,
+          finalMetricProfiles[metricKey],
+          finalMetricPresentationConfigs[metricKey] || {}
+        );
       });
 
-      const presentationMetadata = getPresentationMetadata(presentationProfile, useCase);
+      const primaryPresentationProfile =
+        finalMetricProfiles[primaryMetricKey || primaryMetric] || presentationProfile;
+      const primaryPresentationConfig =
+        finalMetricPresentationConfigs[primaryMetricKey || primaryMetric] || presentationConfig;
+      const presentationMetadata = getPresentationMetadata(primaryPresentationProfile, useCase);
       const fullScaleDistance = toPositiveIntOrUndefined(fullScaleDistanceCm);
       const sustainedWindow = toPositiveIntOrUndefined(sustainedWindowMinutes);
       const existingHardwareConfig = getConfigHardware(sensor.active_config);
@@ -2547,7 +2593,8 @@ const SensorConfig: React.FC = () => {
         readingFlowType,
         reportsPerDay: reports,
         estimatedBatteryLifeDays,
-        metric_profiles: metricPresentationProfiles,
+        metric_profiles: finalMetricProfiles,
+        metric_presentation_configs: finalMetricPresentationConfigs,
       };
 
       if (fullScaleDistance !== undefined) {
@@ -2568,7 +2615,7 @@ const SensorConfig: React.FC = () => {
       const config: SensorConfigPayload = {
         friendly_name: friendlyName.trim(),
         use_case: useCase,
-        presentation_profile: presentationProfile,
+        presentation_profile: primaryPresentationProfile,
         primary_metric: primaryMetric || primaryMetricKey || undefined,
         thresholds: {
           min: primaryMetricThreshold.min,
@@ -2618,14 +2665,14 @@ const SensorConfig: React.FC = () => {
           context: contextPayload,
         },
         presentation: {
-          profile: presentationProfile,
+          profile: primaryPresentationProfile,
           primary_widget: presentationMetadata.primary_widget,
           secondary_widgets: presentationMetadata.secondary_widgets,
           chart_style: presentationMetadata.chart_style,
-          headline_metric: presentationConfig.headline_metric,
-          status_mode: presentationConfig.status_mode,
-          comparison_mode: presentationConfig.comparison_mode,
-          detail_mode: presentationConfig.detail_mode,
+          headline_metric: primaryPresentationConfig.headline_metric,
+          status_mode: primaryPresentationConfig.status_mode,
+          comparison_mode: primaryPresentationConfig.comparison_mode,
+          detail_mode: primaryPresentationConfig.detail_mode,
         },
         settings: {
           alerts: alertSettingPayload,
@@ -2696,8 +2743,8 @@ const SensorConfig: React.FC = () => {
           sensorName: friendlyName.trim(),
           usedFor: purpose.trim(),
           dashboardView:
-            presentationProfiles.find((profile) => profile.value === presentationProfile)?.label ||
-            presentationProfile,
+            presentationProfiles.find((profile) => profile.value === primaryPresentationProfile)?.label ||
+            primaryPresentationProfile,
           config: hardwareConfig,
           appConfig,
         });
