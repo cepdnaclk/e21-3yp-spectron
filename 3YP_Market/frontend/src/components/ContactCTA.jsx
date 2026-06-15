@@ -105,9 +105,9 @@ export default function ContactCTA({ selectedRecommendation }) {
             </p>
 
             <div className="mt-8 grid gap-4">
-              <ContactLine icon={Mail} label="Email" value="hello@spectron.example" />
-              <ContactLine icon={Phone} label="Phone" value="+94 00 000 0000" />
-              <ContactLine icon={MapPin} label="Location" value="IoT lab and deployment pilots" />
+              <ContactLine icon={Mail} label="Email" value="spectron@gmail.com" />
+              <ContactLine icon={Phone} label="Phone" value="+94 76 205 7402" />
+              <ContactLine icon={MapPin} label="Location" value="Faculty Of Engineering, UOP" />
             </div>
           </div>
 
