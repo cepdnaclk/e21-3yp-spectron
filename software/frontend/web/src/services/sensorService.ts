@@ -83,6 +83,8 @@ export interface SensorInterpretationLayer {
   use_case?: string;
   primary_metric?: string;
   display_unit?: string;
+  /** Metric keys explicitly selected in the "What to Measure" step. Used by the monitoring dashboard to decide which metric cards to show. */
+  observable_metrics?: string[];
   derived_metrics?: SensorDerivedMetric[];
   thresholds?: {
     min?: number;

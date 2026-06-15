@@ -1271,6 +1271,95 @@ const buildPdfReport = async (
   doc.save(`spectron-monitoring-report-${reportDateStamp()}.pdf`);
 };
 
+const getPhysicalSensorBaseId = (sensor: Sensor) => {
+  const rawId = sensor.hw_id || sensor.id;
+  return rawId.replace(/-(temp|temperature|humidity|hum|press|pressure|dist|distance|fill|level|weight|gas|gas_level|aqi)$/i, '');
+};
+
+type GroupedSensorCard = {
+  baseId: string;
+  name: string;
+  purpose?: string;
+  location?: string;
+  status: string;
+  health: SensorHealth;
+  healthLabel: string;
+  primarySensor: Sensor;
+  metrics: SensorCardData[];
+  config_active: boolean;
+};
+
+const groupSensors = (sensors: SensorCardData[]) => {
+  const groups: Record<string, GroupedSensorCard> = {};
+
+  sensors.forEach((item) => {
+    const baseId = getPhysicalSensorBaseId(item.sensor);
+    if (!groups[baseId]) {
+      let groupName = '';
+      const groupType = item.sensor.type;
+      
+      if (groupType === 'temperature_humidity') {
+        groupName = 'SHT30 Climate Sensor';
+      } else if (groupType === 'bme280') {
+        groupName = 'BME280 Environmental Sensor';
+      } else if (groupType === 'bmp280') {
+        groupName = 'BMP280 Environmental Sensor';
+      } else if (groupType === 'vl53l0x') {
+        groupName = 'VL53L0X ToF Distance Sensor';
+      } else {
+        groupName = item.sensor.name || `${groupType.toUpperCase()} Sensor`;
+      }
+
+      groups[baseId] = {
+        baseId,
+        name: groupName,
+        purpose: item.sensor.purpose,
+        status: item.controllerStatus,
+        health: 'normal',
+        healthLabel: 'All calm',
+        primarySensor: item.sensor,
+        metrics: [],
+        config_active: false,
+      };
+    }
+
+    groups[baseId].metrics.push(item);
+  });
+
+  return Object.values(groups).map((group) => {
+    const hasCritical = group.metrics.some(m => m.health === 'critical');
+    const hasWarning = group.metrics.some(m => m.health === 'warning');
+    const hasNormal = group.metrics.some(m => m.health === 'normal');
+    
+    if (hasCritical) {
+      group.health = 'critical';
+      group.healthLabel = 'Critical';
+    } else if (hasWarning) {
+      group.health = 'warning';
+      group.healthLabel = 'To review';
+    } else if (hasNormal) {
+      group.health = 'normal';
+      group.healthLabel = 'All calm';
+    } else {
+      group.health = 'inactive';
+      group.healthLabel = 'No readings';
+    }
+
+    const customNamed = group.metrics.find(m => m.sensor.name && m.sensor.name !== `${m.sensor.type} Sensor` && m.sensor.name !== m.sensor.type);
+    if (customNamed) {
+      group.name = customNamed.sensor.name || '';
+    }
+    const purpose = group.metrics.map(m => m.sensor.purpose).find(p => p && p.trim() !== '');
+    if (purpose) {
+      group.purpose = purpose;
+    }
+    
+    group.config_active = group.metrics.some(m => m.sensor.config_active);
+
+    return group;
+  });
+};
+
 const Monitoring: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -1328,14 +1417,25 @@ const Monitoring: React.FC = () => {
               const activeConfig = sensor.active_config as SensorConfig | undefined;
               const metricThresholds = getConfigMetricThresholds(activeConfig);
               
+              // Determine which metrics to show on the dashboard.
+              // Priority: observable_metrics (explicit "What to Measure" user selection)
+              //           → derived_metrics (older config format)
+              //           → metric_thresholds keys (fallback for pre-v2 configs)
+              //           → single primary metric (last resort)
+              const observableMetrics: string[] = activeConfig?.interpretation?.observable_metrics?.filter(Boolean) ?? [];
               const derivedMetrics = activeConfig?.interpretation?.derived_metrics || [];
-              const configuredMetricKeys = derivedMetrics.map((m: any) => m.key);
+              const configuredMetricKeys = derivedMetrics.map((m) => m.key).filter(Boolean);
               const fallbackMetrics = metricThresholds ? Object.keys(metricThresholds) : [];
               const primaryMetricKey = getPrimaryMetricKey(sensor);
-              
-              const metricsToRender = configuredMetricKeys.length > 0 
-                ? configuredMetricKeys 
-                : (fallbackMetrics.length > 0 ? fallbackMetrics : [primaryMetricKey]);
+
+              const metricsToRender =
+                observableMetrics.length > 0
+                  ? observableMetrics
+                  : configuredMetricKeys.length > 0
+                    ? configuredMetricKeys
+                    : fallbackMetrics.length > 0
+                      ? fallbackMetrics
+                      : [primaryMetricKey];
 
               return metricsToRender.map(metricKey => {
                 const trend = sorted
@@ -1811,42 +1911,13 @@ const Monitoring: React.FC = () => {
                 </Stack>
               </Box>
 
-              <CardContent sx={{ p: { xs: 1.25, sm: 2, md: 3 } }}>
                 <Grid container spacing={{ xs: 1.25, sm: 2 }}>
-                  {controller.sensors.map((item) => {
-                    const styles = getHealthStyles(theme, item.health);
-                    const SensorIcon = getSensorIcon(item.sensor.type);
-                    const trendDelta = getTrendDelta(item.trend);
-                    const thresholdSummary = item.threshold
-                      ? [
-                          item.threshold.min !== undefined ? `Min ${item.threshold.min}` : null,
-                          item.threshold.max !== undefined ? `Max ${item.threshold.max}` : null,
-                        ]
-                          .filter(Boolean)
-                          .join(' • ')
-                      : item.sensor.config_active
-                        ? 'Thresholds active'
-                        : 'Thresholds not configured';
-
-                    const visualizationMode = getVisualizationMode(
-                      item.useCase,
-                      item.presentationProfile,
-                      item.sensor.type
-                    );
-                    const usesGauge = visualizationMode === 'gauge';
-                    const chartTitle = getChartTitle(
-                      item.presentationProfile,
-                      item.presentationState.detailMode,
-                      usesGauge
-                    );
-                    const displayMetricLabel = getMetricLabel(item.presentationState.headlineMetric);
-                    const displayUnit = getSensorUnit(
-                      item.sensor,
-                      item.presentationState.headlineMetric || item.presentationState.primaryMetric
-                    );
+                  {groupSensors(controller.sensors).map((group) => {
+                    const styles = getHealthStyles(theme, group.health);
+                    const SensorIcon = getSensorIcon(group.primarySensor.type);
 
                     return (
-                      <Grid item xs={12} lg={6} key={item.sensor.id}>
+                      <Grid item xs={12} key={group.baseId}>
                         <Card
                           sx={{
                             height: '100%',
@@ -1854,11 +1925,11 @@ const Monitoring: React.FC = () => {
                             border: '1px solid',
                             borderColor: styles.borderColor,
                             boxShadow:
-                              item.health === 'critical'
+                              group.health === 'critical'
                                 ? `0 0 0 1px ${alpha(theme.palette.error.main, 0.18)}, 0 14px 28px rgba(60, 57, 17, 0.06)`
                                 : '0 14px 28px rgba(60, 57, 17, 0.06)',
                             animation:
-                              item.health === 'critical'
+                              group.health === 'critical'
                                 ? 'monitorCriticalPulse 1.6s ease-in-out infinite'
                                 : 'none',
                             '@keyframes monitorCriticalPulse': {
@@ -1894,6 +1965,7 @@ const Monitoring: React.FC = () => {
                               justifyContent="space-between"
                               alignItems="flex-start"
                               spacing={1}
+                              sx={{ mb: 2 }}
                             >
                               <Stack direction="row" spacing={1.4} alignItems="center" sx={{ minWidth: 0 }}>
                                 <Box
@@ -1907,300 +1979,354 @@ const Monitoring: React.FC = () => {
                                   <SensorIcon />
                                 </Box>
                                 <Box sx={{ minWidth: 0 }}>
-                                  <Typography variant="h6" sx={{ lineHeight: 1.2, overflowWrap: 'anywhere' }}>
-                                    {item.sensor.name || `${item.sensor.type} Sensor`}
+                                  <Typography variant="h6" sx={{ lineHeight: 1.2, overflowWrap: 'anywhere', fontWeight: 700 }}>
+                                    {group.name}
                                   </Typography>
                                   <Typography variant="body2" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>
-                                    {item.sensor.purpose ||
-                                      item.sensor.context?.location?.label ||
-                                      item.sensor.hw_id}
+                                    {group.purpose || group.baseId}
                                   </Typography>
                                 </Box>
                               </Stack>
                               <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap" justifyContent="flex-end">
-                                {!isMobile && !item.hasLiveReadings && (
-                                  <Chip size="small" variant="outlined" color="info" label="No readings" />
-                                )}
-                                <Chip size="small" label={item.healthLabel} color={styles.chipColor} />
+                                <Chip size="small" label={group.healthLabel} color={styles.chipColor} />
                               </Stack>
                             </Stack>
 
-                            <Stack
-                              direction="row"
-                              spacing={2}
-                              justifyContent="space-between"
-                              alignItems="flex-end"
-                              sx={{ mt: { xs: 1.25, sm: 2 } }}
-                            >
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  {displayMetricLabel}
-                                </Typography>
-                                <Typography
-                                  variant="h4"
-                                  sx={{
-                                    mt: 0.4,
-                                    color: styles.readingColor,
-                                  }}
-                                >
-                                  {formatSensorValue(item.displayValue, displayUnit)}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25, display: 'block' }}>
-                                  {item.latestTime
-                                    ? `Seen at ${formatDateTime(item.latestTime)}`
-                                    : 'Waiting for live readings'}
-                                </Typography>
-                              </Box>
-                              <Stack spacing={0.75} sx={{ minWidth: { sm: 220 }, display: { xs: 'none', sm: 'flex' } }}>
-                                <Chip
-                                  size="small"
-                                  variant="outlined"
-                                  label={getProfileBadgeLabel(
-                                    item.presentationProfile,
-                                    item.presentationState.statusMode
-                                  )}
-                                  sx={{ alignSelf: 'flex-start' }}
-                                />
-                                <Typography variant="caption" color="text.secondary">
-                                  {item.isSampleData
-                                    ? 'Waiting for readings'
-                                    : trendDelta || 'Needs more readings to show direction'} •{' '}
-                                  {thresholdSummary}
-                                </Typography>
-                              </Stack>
-                            </Stack>
+                            <Grid container spacing={2}>
+                              {group.metrics.map((item) => {
+                                const metricStyles = getHealthStyles(theme, item.health);
+                                const trendDelta = getTrendDelta(item.trend);
+                                const thresholdSummary = item.threshold
+                                  ? [
+                                      item.threshold.min !== undefined ? `Min ${item.threshold.min}` : null,
+                                      item.threshold.max !== undefined ? `Max ${item.threshold.max}` : null,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(' • ')
+                                  : item.sensor.config_active
+                                    ? 'Thresholds active'
+                                    : 'Thresholds not configured';
+
+                                const visualizationMode = getVisualizationMode(
+                                  item.useCase,
+                                  item.presentationProfile,
+                                  item.sensor.type
+                                );
+                                const usesGauge = visualizationMode === 'gauge';
+                                const chartTitle = getChartTitle(
+                                  item.presentationProfile,
+                                  item.presentationState.detailMode,
+                                  usesGauge
+                                );
+                                const displayMetricLabel = getMetricLabel(item.presentationState.headlineMetric);
+                                const displayUnit = getSensorUnit(
+                                  item.sensor,
+                                  item.presentationState.headlineMetric || item.presentationState.primaryMetric
+                                );
+
+                                return (
+                                  <Grid item xs={12} md={group.metrics.length > 1 ? 6 : 12} key={item.sensor.id}>
+                                    <Box
+                                      sx={{
+                                        p: 2,
+                                        borderRadius: 2,
+                                        bgcolor: 'rgba(255, 253, 248, 0.4)',
+                                        border: '1px solid',
+                                        borderColor: 'divider',
+                                        height: '100%',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        justifyContent: 'space-between',
+                                      }}
+                                    >
+                                      <Box>
+                                        <Stack
+                                          direction="row"
+                                          justifyContent="space-between"
+                                          alignItems="flex-start"
+                                          spacing={1}
+                                        >
+                                          <Box>
+                                            <Typography variant="caption" color="text.secondary">
+                                              {displayMetricLabel}
+                                            </Typography>
+                                            <Typography
+                                              variant="h4"
+                                              sx={{
+                                                mt: 0.4,
+                                                color: metricStyles.readingColor,
+                                                fontWeight: 800,
+                                              }}
+                                            >
+                                              {formatSensorValue(item.displayValue, displayUnit)}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25, display: 'block' }}>
+                                              {item.latestTime
+                                                ? `Seen at ${formatDateTime(item.latestTime)}`
+                                                : 'Waiting for live readings'}
+                                            </Typography>
+                                          </Box>
+                                          <Stack spacing={0.75} sx={{ minWidth: { sm: 140 }, display: { xs: 'none', sm: 'flex' } }}>
+                                            <Chip
+                                              size="small"
+                                              variant="outlined"
+                                              label={getProfileBadgeLabel(
+                                                item.presentationProfile,
+                                                item.presentationState.statusMode
+                                              )}
+                                              sx={{ alignSelf: 'flex-end' }}
+                                            />
+                                            {!isMobile && !item.hasLiveReadings && (
+                                              <Chip size="small" variant="outlined" color="info" label="No readings" />
+                                            )}
+                                          </Stack>
+                                        </Stack>
+
+                                        <Box sx={{ mt: 1.5, mb: 2 }}>
+                                          <Typography variant="caption" color="text.secondary">
+                                            {item.isSampleData
+                                              ? 'Waiting for readings'
+                                              : trendDelta || 'Needs more readings to show direction'} •{' '}
+                                            {thresholdSummary}
+                                          </Typography>
+                                        </Box>
+                                      </Box>
+
+                                      {usesGauge ? (
+                                        <Box>
+                                          <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
+                                            <Typography variant="subtitle2">{chartTitle}</Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                              {Math.round(
+                                                getGaugeValue(
+                                                  item.displayValue,
+                                                  item.threshold,
+                                                  item.trend,
+                                                  item.presentationState
+                                                )
+                                              )}
+                                              %
+                                            </Typography>
+                                          </Stack>
+                                          <LinearProgress
+                                            variant="determinate"
+                                            value={getGaugeValue(
+                                              item.displayValue,
+                                              item.threshold,
+                                              item.trend,
+                                              item.presentationState
+                                            )}
+                                            sx={{
+                                              height: 12,
+                                              borderRadius: 999,
+                                              bgcolor: alpha(metricStyles.accent, 0.12),
+                                              '& .MuiLinearProgress-bar': {
+                                                borderRadius: 999,
+                                                bgcolor: metricStyles.accent,
+                                              },
+                                            }}
+                                          />
+                                        </Box>
+                                      ) : (
+                                        <Box sx={{ width: '100%', height: { xs: 118, sm: 184 } }}>
+                                          <Stack
+                                            direction="row"
+                                            justifyContent="space-between"
+                                            alignItems="center"
+                                            sx={{ mb: 1 }}
+                                          >
+                                            <Typography variant="subtitle2" sx={{ display: { xs: 'none', sm: 'block' } }}>{chartTitle}</Typography>
+                                            <Stack direction="row" spacing={1} alignItems="center">
+                                              <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>
+                                                {formatUseCaseLabel(item.useCase)}
+                                              </Typography>
+                                              <Button
+                                                size="small"
+                                                variant="text"
+                                                startIcon={<Fullscreen />}
+                                                onClick={() => {
+                                                  setExpandedChartSensorId(item.sensor.id);
+                                                  setExpandedChartData({ controller, sensorCard: item });
+                                                }}
+                                                sx={{
+                                                  minWidth: 'unset',
+                                                  p: 0.5,
+                                                  color: 'text.secondary',
+                                                  '&:hover': { color: 'primary.main' },
+                                                }}
+                                              />
+                                            </Stack>
+                                          </Stack>
+                                          <ResponsiveContainer>
+                                            {visualizationMode === 'area' ? (
+                                              <AreaChart data={item.trend} margin={compactChartMargin}>
+                                                <defs>
+                                                  <linearGradient
+                                                    id={`humidity-fill-${item.sensor.id}`}
+                                                    x1="0"
+                                                    y1="0"
+                                                    x2="0"
+                                                    y2="1"
+                                                  >
+                                                    <stop offset="0%" stopColor="#337a85" stopOpacity={0.32} />
+                                                    <stop offset="100%" stopColor="#337a85" stopOpacity={0.02} />
+                                                  </linearGradient>
+                                                </defs>
+                                                <XAxis
+                                                  dataKey="shortLabel"
+                                                  height={compactChartXAxisHeight}
+                                                  tickLine={false}
+                                                  axisLine={false}
+                                                  interval={0}
+                                                  tick={{ fontSize: 11, fill: '#6a624f' }}
+                                                  tickFormatter={(value, index) =>
+                                                    shouldRenderTick(index, item.trend.length) ? value : ''
+                                                  }
+                                                  minTickGap={24}
+                                                />
+                                                <YAxis
+                                                  width={32}
+                                                  domain={['auto', 'auto']}
+                                                  axisLine={false}
+                                                  tickLine={false}
+                                                  tick={{ fontSize: 11, fill: '#8a806d' }}
+                                                  tickFormatter={formatYAxisTick}
+                                                />
+                                                <Tooltip />
+                                                <Area
+                                                  type="monotone"
+                                                  dataKey="value"
+                                                  stroke="#337a85"
+                                                  strokeWidth={2}
+                                                  fill={`url(#humidity-fill-${item.sensor.id})`}
+                                                />
+                                              </AreaChart>
+                                            ) : visualizationMode === 'bar' ? (
+                                              <BarChart data={item.trend} margin={compactChartMargin}>
+                                                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke={alpha(metricStyles.accent, 0.12)} />
+                                                <XAxis
+                                                  dataKey="shortLabel"
+                                                  height={compactChartXAxisHeight}
+                                                  tickLine={false}
+                                                  axisLine={false}
+                                                  interval={0}
+                                                  tick={{ fontSize: 11, fill: '#6a624f' }}
+                                                  tickFormatter={(value, index) =>
+                                                    shouldRenderTick(index, item.trend.length) ? value : ''
+                                                  }
+                                                  minTickGap={24}
+                                                />
+                                                <YAxis
+                                                  width={32}
+                                                  domain={['auto', 'auto']}
+                                                  axisLine={false}
+                                                  tickLine={false}
+                                                  tick={{ fontSize: 11, fill: '#8a806d' }}
+                                                  tickFormatter={formatYAxisTick}
+                                                />
+                                                <Tooltip />
+                                                <Bar
+                                                  dataKey="value"
+                                                  fill={alpha(metricStyles.accent, 0.78)}
+                                                  radius={[6, 6, 0, 0]}
+                                                />
+                                              </BarChart>
+                                            ) : visualizationMode === 'timeline' ? (
+                                              <LineChart data={item.trend} margin={compactChartMargin}>
+                                                <CartesianGrid vertical={false} strokeDasharray="4 4" stroke={alpha(metricStyles.accent, 0.16)} />
+                                                <XAxis
+                                                  dataKey="shortLabel"
+                                                  height={compactChartXAxisHeight}
+                                                  tickLine={false}
+                                                  axisLine={false}
+                                                  interval={0}
+                                                  tick={{ fontSize: 11, fill: '#6a624f' }}
+                                                  tickFormatter={(value, index) =>
+                                                    shouldRenderTick(index, item.trend.length) ? value : ''
+                                                  }
+                                                  minTickGap={24}
+                                                />
+                                                <YAxis
+                                                  width={32}
+                                                  domain={['auto', 'auto']}
+                                                  axisLine={false}
+                                                  tickLine={false}
+                                                  tick={{ fontSize: 11, fill: '#8a806d' }}
+                                                  tickFormatter={formatYAxisTick}
+                                                />
+                                                <Tooltip />
+                                                <Line
+                                                  type="stepAfter"
+                                                  dataKey="value"
+                                                  stroke={metricStyles.accent}
+                                                  strokeWidth={2.5}
+                                                  dot={{ r: 2.5, fill: metricStyles.accent }}
+                                                  activeDot={{ r: 4 }}
+                                                />
+                                              </LineChart>
+                                            ) : (
+                                              <LineChart data={item.trend} margin={compactChartMargin}>
+                                                <XAxis
+                                                  dataKey="shortLabel"
+                                                  height={compactChartXAxisHeight}
+                                                  tickLine={false}
+                                                  axisLine={false}
+                                                  interval={0}
+                                                  tick={{ fontSize: 11, fill: '#6a624f' }}
+                                                  tickFormatter={(value, index) =>
+                                                    shouldRenderTick(index, item.trend.length) ? value : ''
+                                                  }
+                                                  minTickGap={24}
+                                                />
+                                                <YAxis
+                                                  width={32}
+                                                  domain={['auto', 'auto']}
+                                                  axisLine={false}
+                                                  tickLine={false}
+                                                  tick={{ fontSize: 11, fill: '#8a806d' }}
+                                                  tickFormatter={formatYAxisTick}
+                                                />
+                                                <Tooltip />
+                                                <Line
+                                                  type="monotone"
+                                                  dataKey="value"
+                                                  stroke={metricStyles.accent}
+                                                  strokeWidth={2.5}
+                                                  dot={false}
+                                                  activeDot={{ r: 4 }}
+                                                />
+                                              </LineChart>
+                                            )}
+                                          </ResponsiveContainer>
+                                        </Box>
+                                      )}
+                                    </Box>
+                                  </Grid>
+                                );
+                              })}
+                            </Grid>
 
                             <Divider sx={{ my: { xs: 1.25, sm: 2 } }} />
-
-                            {usesGauge ? (
-                              <Box>
-                                <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
-                                  <Typography variant="subtitle2">{chartTitle}</Typography>
-                                  <Typography variant="body2" color="text.secondary">
-                                    {Math.round(
-                                      getGaugeValue(
-                                        item.displayValue,
-                                        item.threshold,
-                                        item.trend,
-                                        item.presentationState
-                                      )
-                                    )}
-                                    %
-                                  </Typography>
-                                </Stack>
-                                <LinearProgress
-                                  variant="determinate"
-                                  value={getGaugeValue(
-                                    item.displayValue,
-                                    item.threshold,
-                                    item.trend,
-                                    item.presentationState
-                                  )}
-                                  sx={{
-                                    height: 12,
-                                    borderRadius: 999,
-                                    bgcolor: alpha(styles.accent, 0.12),
-                                    '& .MuiLinearProgress-bar': {
-                                      borderRadius: 999,
-                                      bgcolor: styles.accent,
-                                    },
-                                  }}
-                                />
-                              </Box>
-                            ) : (
-                              <Box sx={{ width: '100%', height: { xs: 118, sm: 184 } }}>
-                                <Stack
-                                  direction="row"
-                                  justifyContent="space-between"
-                                  alignItems="center"
-                                  sx={{ mb: 1 }}
-                                >
-                                  <Typography variant="subtitle2" sx={{ display: { xs: 'none', sm: 'block' } }}>{chartTitle}</Typography>
-                                  <Stack direction="row" spacing={1} alignItems="center">
-                                    <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>
-                                      {formatUseCaseLabel(item.useCase)}
-                                    </Typography>
-                                    <Button
-                                      size="small"
-                                      variant="text"
-                                      startIcon={<Fullscreen />}
-                                      onClick={() => {
-                                        setExpandedChartSensorId(item.sensor.id);
-                                        setExpandedChartData({ controller, sensorCard: item });
-                                      }}
-                                      sx={{
-                                        minWidth: 'unset',
-                                        p: 0.5,
-                                        color: 'text.secondary',
-                                        '&:hover': { color: 'primary.main' },
-                                      }}
-                                    />
-                                  </Stack>
-                                </Stack>
-                                <ResponsiveContainer>
-                                  {visualizationMode === 'area' ? (
-                                    <AreaChart data={item.trend} margin={compactChartMargin}>
-                                      <defs>
-                                        <linearGradient
-                                          id={`humidity-fill-${item.sensor.id}`}
-                                          x1="0"
-                                          y1="0"
-                                          x2="0"
-                                          y2="1"
-                                        >
-                                          <stop offset="0%" stopColor="#337a85" stopOpacity={0.32} />
-                                          <stop offset="100%" stopColor="#337a85" stopOpacity={0.02} />
-                                        </linearGradient>
-                                      </defs>
-                                      <XAxis
-                                        dataKey="shortLabel"
-                                        height={compactChartXAxisHeight}
-                                        tickLine={false}
-                                        axisLine={false}
-                                        interval={0}
-                                        tick={{ fontSize: 11, fill: '#6a624f' }}
-                                        tickFormatter={(value, index) =>
-                                          shouldRenderTick(index, item.trend.length) ? value : ''
-                                        }
-                                        minTickGap={24}
-                                      />
-                                      <YAxis
-                                        width={32}
-                                        domain={['auto', 'auto']}
-                                        axisLine={false}
-                                        tickLine={false}
-                                        tick={{ fontSize: 11, fill: '#8a806d' }}
-                                        tickFormatter={formatYAxisTick}
-                                      />
-                                      <Tooltip />
-                                      <Area
-                                        type="monotone"
-                                        dataKey="value"
-                                        stroke="#337a85"
-                                        strokeWidth={2}
-                                        fill={`url(#humidity-fill-${item.sensor.id})`}
-                                      />
-                                    </AreaChart>
-                                  ) : visualizationMode === 'bar' ? (
-                                    <BarChart data={item.trend} margin={compactChartMargin}>
-                                      <CartesianGrid vertical={false} strokeDasharray="3 3" stroke={alpha(styles.accent, 0.12)} />
-                                      <XAxis
-                                        dataKey="shortLabel"
-                                        height={compactChartXAxisHeight}
-                                        tickLine={false}
-                                        axisLine={false}
-                                        interval={0}
-                                        tick={{ fontSize: 11, fill: '#6a624f' }}
-                                        tickFormatter={(value, index) =>
-                                          shouldRenderTick(index, item.trend.length) ? value : ''
-                                        }
-                                        minTickGap={24}
-                                      />
-                                      <YAxis
-                                        width={32}
-                                        domain={['auto', 'auto']}
-                                        axisLine={false}
-                                        tickLine={false}
-                                        tick={{ fontSize: 11, fill: '#8a806d' }}
-                                        tickFormatter={formatYAxisTick}
-                                      />
-                                      <Tooltip />
-                                      <Bar
-                                        dataKey="value"
-                                        fill={alpha(styles.accent, 0.78)}
-                                        radius={[6, 6, 0, 0]}
-                                      />
-                                    </BarChart>
-                                  ) : visualizationMode === 'timeline' ? (
-                                    <LineChart data={item.trend} margin={compactChartMargin}>
-                                      <CartesianGrid vertical={false} strokeDasharray="4 4" stroke={alpha(styles.accent, 0.16)} />
-                                      <XAxis
-                                        dataKey="shortLabel"
-                                        height={compactChartXAxisHeight}
-                                        tickLine={false}
-                                        axisLine={false}
-                                        interval={0}
-                                        tick={{ fontSize: 11, fill: '#6a624f' }}
-                                        tickFormatter={(value, index) =>
-                                          shouldRenderTick(index, item.trend.length) ? value : ''
-                                        }
-                                        minTickGap={24}
-                                      />
-                                      <YAxis
-                                        width={32}
-                                        domain={['auto', 'auto']}
-                                        axisLine={false}
-                                        tickLine={false}
-                                        tick={{ fontSize: 11, fill: '#8a806d' }}
-                                        tickFormatter={formatYAxisTick}
-                                      />
-                                      <Tooltip />
-                                      <Line
-                                        type="stepAfter"
-                                        dataKey="value"
-                                        stroke={styles.accent}
-                                        strokeWidth={2.5}
-                                        dot={{ r: 2.5, fill: styles.accent }}
-                                        activeDot={{ r: 4 }}
-                                      />
-                                    </LineChart>
-                                  ) : (
-                                    <LineChart data={item.trend} margin={compactChartMargin}>
-                                      <XAxis
-                                        dataKey="shortLabel"
-                                        height={compactChartXAxisHeight}
-                                        tickLine={false}
-                                        axisLine={false}
-                                        interval={0}
-                                        tick={{ fontSize: 11, fill: '#6a624f' }}
-                                        tickFormatter={(value, index) =>
-                                          shouldRenderTick(index, item.trend.length) ? value : ''
-                                        }
-                                        minTickGap={24}
-                                      />
-                                      <YAxis
-                                        width={32}
-                                        domain={['auto', 'auto']}
-                                        axisLine={false}
-                                        tickLine={false}
-                                        tick={{ fontSize: 11, fill: '#8a806d' }}
-                                        tickFormatter={formatYAxisTick}
-                                      />
-                                      <Tooltip />
-                                      <Line
-                                        type="monotone"
-                                        dataKey="value"
-                                        stroke={styles.accent}
-                                        strokeWidth={2.5}
-                                        dot={false}
-                                        activeDot={{ r: 4 }}
-                                      />
-                                    </LineChart>
-                                  )}
-                                </ResponsiveContainer>
-                              </Box>
-                            )}
 
                             <Stack
                               direction="row"
                               spacing={1}
                               justifyContent="flex-end"
                               alignItems={{ xs: 'stretch', sm: 'center' }}
-                              sx={{ mt: { xs: 1.25, sm: 2.5 }, pt: { xs: 1.25, sm: 2 }, borderTop: '1px solid', borderColor: 'divider' }}
                             >
                               <Button
                                 variant="outlined"
                                 size="small"
                                 startIcon={<Tune />}
                                 onClick={() =>
-                                  navigate(`/hardware/${controller.id}/sensors/${item.sensor.id}/configure`, {
+                                  navigate(`/hardware/${controller.id}/sensors/${group.primarySensor.id}/configure`, {
                                     state: {
                                       preferredSetupMode: 'manual',
                                       controllerId: controller.id,
-                                      sensorId: item.sensor.id,
-                                      sensorType: item.sensor.type,
-                                      sensorName: item.sensor.name || `${item.sensor.type} Sensor`,
-                                      configured: Boolean(item.sensor.config_active),
+                                      sensorId: group.primarySensor.id,
+                                      sensorType: group.primarySensor.type,
+                                      sensorName: group.name,
+                                      configured: Boolean(group.config_active),
                                       returnTo: '/monitoring',
                                     },
                                   })
@@ -2216,7 +2342,6 @@ const Monitoring: React.FC = () => {
                     );
                   })}
                 </Grid>
-              </CardContent>
             </Card>
           );
         })}

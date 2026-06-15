@@ -1632,25 +1632,50 @@ const SensorConfig: React.FC = () => {
       const isSelected = prev.includes(metric.key);
       const next = isSelected ? prev.filter((k) => k !== metric.key) : [...prev, metric.key];
       
-      // If we just selected the very first metric, set up defaults for it
-      if (!isSelected && next.length === 1) {
-        const nextProfile = metric.recommended_profile as PresentationProfileOption;
-        setUseCase(metric.use_case);
-        setPresentationProfile(nextProfile);
-        setPresentationConfig(
-          normalizePresentationConfig(
-            sensor?.type || navigationState?.sensorType || '',
-            metric.key,
-            nextProfile,
-            {}
-          )
-        );
-        if (!metric.purposes.some((option) => option.label === purpose)) {
-          setPurpose(metric.purposes[0]?.label || '');
+      if (!isSelected) {
+        // Set recommended profile for this metric if not already set
+        if (!metricPresentationProfiles[metric.key]) {
+          setMetricPresentationProfiles((current) => ({
+            ...current,
+            [metric.key]: metric.recommended_profile as PresentationProfileOption,
+          }));
+        }
+
+        // If we just selected the very first metric, set up defaults for it
+        if (next.length === 1) {
+          const nextProfile = metric.recommended_profile as PresentationProfileOption;
+          setUseCase(metric.use_case);
+          setPresentationConfig(
+            normalizePresentationConfig(
+              sensor?.type || navigationState?.sensorType || '',
+              metric.key,
+              nextProfile,
+              {}
+            )
+          );
+          if (!metric.purposes.some((option) => option.label === purpose)) {
+            setPurpose(metric.purposes[0]?.label || '');
+          }
         }
       }
       return next;
     });
+  };
+
+  const applyPresentationProfileSelectionForMetric = (metricKey: string, profile: PresentationProfileOption) => {
+    setMetricPresentationProfiles((prev) => ({ ...prev, [metricKey]: profile }));
+    
+    // If it's the primary metric, sync the presentation configuration as well
+    if (metricKey === primaryMetric) {
+      setPresentationConfig(
+        normalizePresentationConfig(
+          sensor?.type || navigationState?.sensorType || '',
+          metricKey,
+          profile,
+          {}
+        )
+      );
+    }
   };
 
   const applyPresentationProfileSelection = (profile: PresentationProfileOption) => {
@@ -1663,6 +1688,80 @@ const SensorConfig: React.FC = () => {
         {}
       )
     );
+  };
+
+  const renderProfilePreview = (visualizationMethod: string, visualizationLabel: string) => {
+    switch (visualizationMethod) {
+      case 'line_trend':
+        return (
+          <Box sx={{ mt: 1.5 }}>
+            <svg width="100%" height="45" viewBox="0 0 200 45" role="img" aria-label={`${visualizationLabel} preview`}>
+              <path d="M10,38 Q50,26 90,18 T170,12" fill="none" stroke="#337a85" strokeWidth="2" strokeLinejoin="round" />
+              {[10, 50, 90, 130, 170].map((x, i) => (
+                <circle key={i} cx={x} cy={[38, 26, 18, 15, 12][i]} r="2" fill={i === 4 ? '#337a85' : '#c9c2b3'} />
+              ))}
+            </svg>
+          </Box>
+        );
+      case 'area_trend':
+        return (
+          <Box sx={{ mt: 1.5 }}>
+            <svg width="100%" height="45" viewBox="0 0 200 45" role="img" aria-label={`${visualizationLabel} preview`}>
+              <defs>
+                <linearGradient id="areaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stopColor="rgba(51, 122, 133, 0.3)" />
+                  <stop offset="100%" stopColor="rgba(51, 122, 133, 0.05)" />
+                </linearGradient>
+              </defs>
+              <path d="M10,32 Q50,20 90,12 T170,8 L170,42 L10,42 Z" fill="url(#areaGrad)" stroke="none" />
+              <path d="M10,32 Q50,20 90,12 T170,8" fill="none" stroke="#337a85" strokeWidth="2" strokeLinejoin="round" />
+            </svg>
+          </Box>
+        );
+      case 'gauge_band':
+        return (
+          <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="60" height="45" viewBox="0 0 100 80" role="img" aria-label={`${visualizationLabel} preview`}>
+              <path d="M20,60 A40,40 0 0,1 80,60" fill="none" stroke="#e0e0e0" strokeWidth="6" />
+              <path d="M20,60 A40,40 0 0,1 70,20" fill="none" stroke="#6c8930" strokeWidth="6" strokeLinecap="round" />
+              <circle cx="50" cy="60" r="3" fill="#333" />
+              <text x="50" y="75" textAnchor="middle" fontSize="10" fill="#666">68%</text>
+            </svg>
+          </Box>
+        );
+      case 'counter_bars':
+        return (
+          <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', height: 45, gap: 0.5 }}>
+            <svg width="100%" height="45" viewBox="0 0 200 45" role="img" aria-label={`${visualizationLabel} preview`}>
+              {[10, 20, 30, 40, 35].map((height, i) => (
+                <rect key={i} x={i * 35 + 20} y={45 - height} width="20" height={height} fill="#6c8930" rx="2" />
+              ))}
+            </svg>
+          </Box>
+        );
+      case 'event_timeline':
+        return (
+          <Box sx={{ mt: 1.5 }}>
+            <svg width="100%" height="40" viewBox="0 0 200 40" role="img" aria-label={`${visualizationLabel} preview`}>
+              <line x1="10" y1="20" x2="190" y2="20" stroke="#e0e0e0" strokeWidth="1" />
+              {[30, 60, 90, 120, 150].map((x, i) => {
+                const y = [25, 12, 25, 10, 25][i];
+                return (
+                  <g key={i}>
+                    <circle cx={x} cy={y} r="2.5" fill={i === 4 ? '#c37b2a' : '#999'} />
+                  </g>
+                );
+              })}
+            </svg>
+          </Box>
+        );
+      default:
+        return (
+          <Box sx={{ mt: 1.5, p: 1, textAlign: 'center', color: 'text.secondary' }}>
+            <Typography variant="caption">Preview</Typography>
+          </Box>
+        );
+    }
   };
 
   useEffect(() => {
@@ -2423,6 +2522,10 @@ const SensorConfig: React.FC = () => {
           use_case: useCase,
           primary_metric: primaryMetric || primaryMetricKey || undefined,
           display_unit: selectedDerivedMetric.unit || undefined,
+          // observable_metrics records every metric key the user explicitly selected
+          // in the "What to Measure" step. The monitoring dashboard reads this field
+          // to decide which metric cards to render. This is the source of truth.
+          observable_metrics: selectedMetrics.filter(Boolean),
           derived_metrics: configurableDerivedMetrics
             .filter((metric) => selectedMetrics.includes(metric.key))
             .map((metric) => ({
@@ -2914,39 +3017,102 @@ const SensorConfig: React.FC = () => {
           <Grid container spacing={2}>
             {observableMetricCatalog.map((metric) => {
               const selected = selectedMetrics.includes(metric.key);
+              const metricProfiles = getPresentationProfileDefinitions(
+                sensor?.type || navigationState?.sensorType || '',
+                metric.key
+              );
+              const activeProfile =
+                metricPresentationProfiles[metric.key] ||
+                (metric.recommended_profile as PresentationProfileOption) ||
+                'single_trend';
+
               return (
-                <Grid item xs={12} md={6} key={metric.key}>
+                <Grid item xs={12} key={metric.key}>
                   <Box
                     onClick={() => toggleMetricSelection(metric)}
                     sx={{
-                      p: 2,
-                      borderRadius: 2,
+                      p: 2.5,
+                      borderRadius: 3,
                       border: '2px solid',
                       borderColor: selected ? 'primary.main' : 'rgba(60, 57, 17, 0.12)',
-                      bgcolor: selected ? 'rgba(108, 137, 48, 0.08)' : '#fff',
+                      bgcolor: selected ? 'rgba(108, 137, 48, 0.04)' : '#fff',
                       cursor: 'pointer',
-                      boxShadow: selected ? '0 8px 16px rgba(108, 137, 48, 0.12)' : 'none',
+                      boxShadow: selected ? '0 8px 20px rgba(108, 137, 48, 0.08)' : 'none',
+                      transition: 'all 0.2s ease',
                       display: 'flex',
-                      alignItems: 'center',
-                      gap: 1
+                      flexDirection: 'column',
+                      gap: 2,
                     }}
                   >
-                    <Checkbox
-                      checked={selected}
-                      sx={{ p: 0, '& .MuiSvgIcon-root': { fontSize: 24 }, pointerEvents: 'none' }}
-                      color="primary"
-                    />
-                    <Box>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                      {metric.label}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                      {metric.description}
-                    </Typography>
-                    {selected && (
-                      <Chip size="small" color="primary" label="Selected" sx={{ mt: 1 }} />
-                    )}
+                    <Box display="flex" alignItems="flex-start" gap={2}>
+                      <Checkbox
+                        checked={selected}
+                        sx={{ p: 0, '& .MuiSvgIcon-root': { fontSize: 26 }, pointerEvents: 'none' }}
+                        color="primary"
+                      />
+                      <Box sx={{ flexGrow: 1 }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: 'text.primary' }}>
+                          {metric.label}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, lineHeight: 1.55 }}>
+                          {metric.description}
+                        </Typography>
+                      </Box>
                     </Box>
+
+                    {selected && metricProfiles.length > 0 && (
+                      <Box 
+                        onClick={(e) => e.stopPropagation()} 
+                        sx={{ 
+                          mt: 1, 
+                          p: 2, 
+                          borderRadius: 2.5, 
+                          bgcolor: '#fffdf8', 
+                          border: '1px solid rgba(108, 137, 48, 0.2)',
+                          cursor: 'default'
+                        }}
+                      >
+                        <Typography variant="caption" sx={{ fontWeight: 800, color: 'primary.main', display: 'block', mb: 1.5, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                          Choose Graph / Visualization
+                        </Typography>
+                        <Grid container spacing={2}>
+                          {metricProfiles.map((profile) => {
+                            const isProfileActive = activeProfile === profile.value;
+                            return (
+                              <Grid item xs={12} sm={6} key={profile.value}>
+                                <Box
+                                  onClick={() => applyPresentationProfileSelectionForMetric(metric.key, profile.value as PresentationProfileOption)}
+                                  sx={{
+                                    p: 2,
+                                    borderRadius: 2,
+                                    border: '2px solid',
+                                    borderColor: isProfileActive ? 'primary.main' : 'rgba(60, 57, 17, 0.12)',
+                                    bgcolor: isProfileActive ? 'rgba(108, 137, 48, 0.08)' : '#fff',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    height: '100%',
+                                    '&:hover': {
+                                      borderColor: 'primary.main',
+                                      bgcolor: 'rgba(108, 137, 48, 0.04)',
+                                    }
+                                  }}
+                                >
+                                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.primary' }}>
+                                    {profile.label}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, mb: 1.5, flexGrow: 1 }}>
+                                    {profile.description}
+                                  </Typography>
+                                  {renderProfilePreview(profile.visualization_method, profile.visualization_label)}
+                                </Box>
+                              </Grid>
+                            );
+                          })}
+                        </Grid>
+                      </Box>
+                    )}
                   </Box>
                 </Grid>
               );
@@ -3008,136 +3174,7 @@ const SensorConfig: React.FC = () => {
           </Box>
         )}
 
-        {/* HOW - DASHBOARD VIEW */}
-        {selectedDerivedMetric && (
-          <Box>
-            <Stack
-              direction="row"
-              spacing={1}
-              alignItems="center"
-              justifyContent="space-between"
-              sx={{ mb: 1.5 }}
-            >
-              <Typography variant="subtitle2" sx={{ ...fieldGroupTitleSx, mb: 0 }}>
-                Dashboard View
-              </Typography>
-              <InfoButton tooltip="Visualization guidance">
-                Choose the view that makes the sensor easiest to understand at a glance. Different chart styles work better for trends, ranges, occupancy, or fill-level tracking.
-              </InfoButton>
-            </Stack>
-            <Grid container spacing={2}>
-              {presentationProfiles
-                .filter((profile) => allowedPresentationProfiles.includes(profile.value))
-                .map((profile) => {
-                  const active = presentationProfile === profile.value;
-                  
-                  // Render preview visualization for each dashboard view
-                  const renderProfilePreview = () => {
-                    switch (profile.visualization_method) {
-                      case 'line_trend':
-                        return (
-                          <Box sx={{ mt: 1.5 }}>
-                            <svg width="100%" height="60" viewBox="0 0 200 60" role="img" aria-label={`${profile.visualization_label} preview`}>
-                              <path d="M10,50 Q50,35 90,25 T170,15" fill="none" stroke="#337a85" strokeWidth="2.5" strokeLinejoin="round" />
-                              {[10, 50, 90, 130, 170].map((x, i) => (
-                                <circle key={i} cx={x} cy={[50, 35, 25, 20, 15][i]} r="2.5" fill={i === 4 ? '#337a85' : '#c9c2b3'} />
-                              ))}
-                            </svg>
-                          </Box>
-                        );
-                      case 'area_trend':
-                        return (
-                          <Box sx={{ mt: 1.5 }}>
-                            <svg width="100%" height="60" viewBox="0 0 200 60" role="img" aria-label={`${profile.visualization_label} preview`}>
-                              <defs>
-                                <linearGradient id="areaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                                  <stop offset="0%" stopColor="rgba(51, 122, 133, 0.3)" />
-                                  <stop offset="100%" stopColor="rgba(51, 122, 133, 0.05)" />
-                                </linearGradient>
-                              </defs>
-                              <path d="M10,45 Q50,28 90,18 T170,12 L170,58 Q130,50 90,55 Q50,60 10,58 Z" fill="url(#areaGrad)" stroke="none" />
-                              <path d="M10,45 Q50,28 90,18 T170,12" fill="none" stroke="#337a85" strokeWidth="2.5" strokeLinejoin="round" />
-                            </svg>
-                          </Box>
-                        );
-                      case 'gauge_band':
-                        return (
-                          <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <svg width="80" height="60" viewBox="0 0 100 80" role="img" aria-label={`${profile.visualization_label} preview`}>
-                              <path d="M20,60 A40,40 0 0,1 80,60" fill="none" stroke="#e0e0e0" strokeWidth="6" />
-                              <path d="M20,60 A40,40 0 0,1 70,20" fill="none" stroke="#6c8930" strokeWidth="6" strokeLinecap="round" />
-                              <circle cx="50" cy="60" r="3" fill="#333" />
-                              <text x="50" y="75" textAnchor="middle" fontSize="10" fill="#666">68%</text>
-                            </svg>
-                          </Box>
-                        );
-                      case 'counter_bars':
-                        return (
-                          <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', height: 60, gap: 0.5 }}>
-                            <svg width="100%" height="60" viewBox="0 0 200 60" role="img" aria-label={`${profile.visualization_label} preview`}>
-                              {[14, 28, 42, 56, 70].map((height, i) => (
-                                <rect key={i} x={i * 35 + 10} y={60 - height} width="28" height={height} fill="#6c8930" rx="3" />
-                              ))}
-                            </svg>
-                          </Box>
-                        );
-                      case 'event_timeline':
-                        return (
-                          <Box sx={{ mt: 1.5 }}>
-                            <svg width="100%" height="50" viewBox="0 0 200 50" role="img" aria-label={`${profile.visualization_label} preview`}>
-                              <line x1="10" y1="30" x2="190" y2="30" stroke="#e0e0e0" strokeWidth="1" />
-                              {[30, 60, 90, 120, 150].map((x, i) => {
-                                const y = [35, 20, 35, 15, 35][i];
-                                return (
-                                  <g key={i}>
-                                    <circle cx={x} cy={y} r="3.5" fill={i === 4 ? '#c37b2a' : '#999'} />
-                                  </g>
-                                );
-                              })}
-                            </svg>
-                          </Box>
-                        );
-                      default:
-                        return (
-                          <Box sx={{ mt: 1.5, p: 1, textAlign: 'center', color: 'text.secondary' }}>
-                            <Typography variant="caption">Preview</Typography>
-                          </Box>
-                        );
-                    }
-                  };
-                  
-                  return (
-                    <Grid item xs={12} md={6} key={profile.value}>
-                      <Box
-                        onClick={() => applyPresentationProfileSelection(profile.value)}
-                        sx={{
-                          p: 2,
-                          borderRadius: 2,
-                          border: '2px solid',
-                          borderColor: active ? 'primary.main' : 'rgba(60, 57, 17, 0.12)',
-                          bgcolor: active ? 'rgba(108, 137, 48, 0.08)' : '#fff',
-                          cursor: 'pointer',
-                          boxShadow: active ? '0 8px 16px rgba(108, 137, 48, 0.12)' : 'none',
-                          transition: 'all 200ms ease',
-                        }}
-                      >
-                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                          {profile.visualization_label}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                          {profile.description}
-                        </Typography>
-                        {renderProfilePreview()}
-                        {active && (
-                          <Chip size="small" color="primary" label="Selected" sx={{ mt: 1 }} />
-                        )}
-                      </Box>
-                    </Grid>
-                  );
-                })}
-            </Grid>
-          </Box>
-        )}
+
       </Stack>
     </Box>
   );
