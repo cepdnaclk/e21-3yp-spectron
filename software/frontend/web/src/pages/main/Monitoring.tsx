@@ -189,7 +189,15 @@ const compactChartMargin = {
 
 const compactChartXAxisHeight = 36;
 
-const toReadingValue = (reading: SensorReading): number | null => {
+const toReadingValue = (reading: SensorReading, metricKey?: string): number | null => {
+  if (metricKey) {
+    if (typeof (reading as any)[metricKey] === 'number') {
+      return (reading as any)[metricKey];
+    }
+    if (reading.meta && typeof reading.meta[metricKey] === 'number') {
+      return reading.meta[metricKey] as number;
+    }
+  }
   if (typeof reading.value === 'number') return reading.value;
   if (typeof reading.avg_value === 'number') return reading.avg_value;
   return null;
@@ -1231,7 +1239,7 @@ const buildPdfReport = async (
       const readings = sortReadingsAscending(sensorData.readings);
       const latest = readings.length > 0 ? readings[readings.length - 1] : undefined;
       const latestValue = latest ? toReadingValue(latest) : null;
-      const values = readings.map(toReadingValue).filter((value): value is number => value !== null);
+      const values = readings.map(r => toReadingValue(r)).filter((value): value is number => value !== null);
       const minValue = values.length ? Math.min(...values) : null;
       const maxValue = values.length ? Math.max(...values) : null;
       const avgValue = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
@@ -1308,7 +1316,7 @@ const Monitoring: React.FC = () => {
           // Include all sensors regardless of status to show historical readings even when disconnected
           const { from, to } = getDateRangeForTimeRange(range);
 
-          const sensorCards = await Promise.all(
+          const sensorCardsMatrix = await Promise.all(
             sensors.map(async (sensor) => {
               const readings = await getSensorReadings(sensor.id, {
                 from: from.toISOString(),
@@ -1316,61 +1324,87 @@ const Monitoring: React.FC = () => {
               }).catch(() => []);
 
               const sorted = sortReadingsAscending(readings);
-              const trend = sorted
-                .map((reading) => {
-                  const value = toReadingValue(reading);
-                  if (value === null) {
-                    return null;
-                  }
+              
+              const activeConfig = sensor.active_config as SensorConfig | undefined;
+              const metricThresholds = getConfigMetricThresholds(activeConfig);
+              
+              const derivedMetrics = activeConfig?.interpretation?.derived_metrics || [];
+              const configuredMetricKeys = derivedMetrics.map((m: any) => m.key);
+              const fallbackMetrics = metricThresholds ? Object.keys(metricThresholds) : [];
+              const primaryMetricKey = getPrimaryMetricKey(sensor);
+              
+              const metricsToRender = configuredMetricKeys.length > 0 
+                ? configuredMetricKeys 
+                : (fallbackMetrics.length > 0 ? fallbackMetrics : [primaryMetricKey]);
 
-                  return {
-                    label: formatTimeLabel(reading.time),
-                    shortLabel: formatTimeLabel(reading.time),
-                    value,
-                    time: reading.time,
-                  };
-                })
-                .filter((point): point is SensorPoint => point !== null);
+              return metricsToRender.map(metricKey => {
+                const trend = sorted
+                  .map((reading) => {
+                    const value = toReadingValue(reading, metricKey);
+                    if (value === null) {
+                      return null;
+                    }
 
-              const presentationProfile = getPresentationProfile(sensor);
-              const useCase = getUseCase(sensor);
-              const presentationState = getPresentationState(sensor);
-              const latestPoint = trend[trend.length - 1];
-              const threshold = getPrimaryThreshold(sensor);
-              const displayValue = getDisplayValue(
-                latestPoint?.value ?? null,
-                trend,
-                threshold,
-                presentationState
-              );
-              const evaluated = evaluateHealth(
-                sensor,
-                latestPoint?.value ?? null,
-                threshold,
-                presentationState
-              );
+                    return {
+                      label: formatTimeLabel(reading.time),
+                      shortLabel: formatTimeLabel(reading.time),
+                      value,
+                      time: reading.time,
+                    };
+                  })
+                  .filter((point): point is SensorPoint => point !== null);
 
-              return {
-                controllerName: controller.name || controller.hw_id || 'Controller',
-                controllerLocation: controller.location,
-                controllerStatus: controller.status,
-                sensor,
-                trend,
-                latestValue: latestPoint?.value ?? null,
-                displayValue,
-                latestTime: latestPoint?.time,
-                hasLiveReadings: trend.length > 0,
-                isSampleData: false,
-                threshold,
-                health: evaluated.health,
-                healthLabel: evaluated.label,
-                insight: evaluated.insight,
-                presentationProfile,
-                useCase,
-                presentationState,
-              } satisfies SensorCardData;
+                // Re-evaluate state specifically for THIS metric key
+                const hardwareConfigLayer = activeConfig?.hardware?.config || activeConfig?.hardware_config || {};
+                const hwConfigProfiles = (hardwareConfigLayer as any)?.metric_profiles || {};
+                const specificProfile = hwConfigProfiles[metricKey];
+                const globalProfile = getPresentationProfile(sensor);
+                const presentationProfile = specificProfile || globalProfile;
+                const useCase = getUseCase(sensor);
+                const presentationState = {
+                  ...getPresentationState(sensor),
+                  primaryMetric: metricKey,
+                  headlineMetric: metricKey,
+                };
+                
+                const threshold = metricThresholds?.[metricKey] || getPrimaryThreshold(sensor);
+                const latestPoint = trend[trend.length - 1];
+                const displayValue = getDisplayValue(
+                  latestPoint?.value ?? null,
+                  trend,
+                  threshold,
+                  presentationState
+                );
+                const evaluated = evaluateHealth(
+                  sensor,
+                  latestPoint?.value ?? null,
+                  threshold,
+                  presentationState
+                );
+
+                return {
+                  controllerName: controller.name || controller.hw_id || 'Controller',
+                  controllerLocation: controller.location,
+                  controllerStatus: controller.status,
+                  sensor,
+                  trend,
+                  latestValue: latestPoint?.value ?? null,
+                  displayValue,
+                  latestTime: latestPoint?.time,
+                  hasLiveReadings: trend.length > 0,
+                  isSampleData: false,
+                  threshold,
+                  health: evaluated.health,
+                  healthLabel: evaluated.label,
+                  insight: evaluated.insight,
+                  presentationProfile,
+                  useCase,
+                  presentationState,
+                } satisfies SensorCardData;
+              });
             })
           );
+          const sensorCards = sensorCardsMatrix.flat();
 
           return {
             id: controller.id,
@@ -1515,7 +1549,7 @@ const Monitoring: React.FC = () => {
   };
 
   if (loading) {
-    return <MonitoringSkeleton />;
+    return <div><MonitoringSkeleton /></div>;
   }
 
   return (

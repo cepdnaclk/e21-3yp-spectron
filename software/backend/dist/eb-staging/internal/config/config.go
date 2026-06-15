@@ -14,6 +14,17 @@ import (
 
 const DefaultDevJWTSecret = "dev-only-change-me"
 
+var defaultAllowedOrigins = []string{
+	"http://localhost:3000",
+	"http://localhost:3001",
+	"http://localhost:3002",
+	"http://127.0.0.1:3000",
+	"http://127.0.0.1:3001",
+	"http://127.0.0.1:3002",
+	"https://localhost",
+	"capacitor://localhost",
+}
+
 type Config struct {
 	HTTPPort       string
 	DatabaseURL    string
@@ -201,14 +212,7 @@ func buildDBURL() string {
 
 func parseAllowedOrigins(raw string) []string {
 	if strings.TrimSpace(raw) == "" {
-		return []string{
-			"http://localhost:3000",
-			"http://localhost:3001",
-			"http://localhost:3002",
-			"http://127.0.0.1:3000",
-			"http://127.0.0.1:3001",
-			"http://127.0.0.1:3002",
-		}
+		return append([]string(nil), defaultAllowedOrigins...)
 	}
 
 	parts := strings.Split(raw, ",")
@@ -222,14 +226,7 @@ func parseAllowedOrigins(raw string) []string {
 	}
 
 	if len(origins) == 0 {
-		return []string{
-			"http://localhost:3000",
-			"http://localhost:3001",
-			"http://localhost:3002",
-			"http://127.0.0.1:3000",
-			"http://127.0.0.1:3001",
-			"http://127.0.0.1:3002",
-		}
+		return append([]string(nil), defaultAllowedOrigins...)
 	}
 
 	return origins

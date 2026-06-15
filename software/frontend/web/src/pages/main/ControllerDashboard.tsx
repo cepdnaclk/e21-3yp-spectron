@@ -643,32 +643,84 @@ const ControllerDashboard: React.FC = () => {
                 ? sensor.active_config.hardware.supported_raw_metrics
                 : getSensorHardwareCapabilities(sensor.type);
 
+            const isConfigured = Boolean(sensor.config_active);
+            const isConnected = sensor.status === 'OK';
+
+            // Match the previous page's clean solid background
+            const cardBg = '#fffdf8';
+            
+            const cardBorder = isConfigured
+              ? isConnected ? 'rgba(108, 137, 48, 0.2)' : 'rgba(218, 54, 8, 0.2)'
+              : 'rgba(219, 160, 72, 0.3)';
+            const hoverBorder = isConfigured
+              ? isConnected ? 'rgba(108, 137, 48, 0.4)' : 'rgba(218, 54, 8, 0.4)'
+              : 'rgba(219, 160, 72, 0.6)';
+            
+            const isNewlySaved = saveNotice?.configuredSensorId === sensor.id;
+
             return (
-              <Grid item xs={12} sm={6} key={sensor.id}>
+              <Grid item xs={12} sm={6} md={6} lg={4} key={sensor.id}>
                 <Card
-                  sx={
-                    saveNotice?.configuredSensorId === sensor.id
-                      ? {
-                          border: '1.5px solid',
-                          borderColor: 'success.main',
-                          boxShadow: 'none',
-                        }
-                      : undefined
-                  }
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: '100%',
+                    bgcolor: cardBg,
+                    border: '1px solid',
+                    borderColor: isNewlySaved ? '#6c8930' : cardBorder,
+                    transition: 'box-shadow 0.2s ease-in-out, border-color 0.2s ease-in-out',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    ...(isNewlySaved && {
+                      boxShadow: '0 0 0 1px #6c8930 inset',
+                    }),
+                    '@media (hover: hover)': {
+                      '&:hover': {
+                        boxShadow: '0 8px 20px rgba(60, 57, 17, 0.08)',
+                        borderColor: hoverBorder,
+                      },
+                    },
+                  }}
                 >
-                  <CardContent sx={{ p: 2.5 }}>
+                  {/* Decorative background accent */}
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: 0,
+                      right: 0,
+                      width: 120,
+                      height: 120,
+                      opacity: 0.5,
+                      background: isConfigured 
+                        ? (isConnected ? 'radial-gradient(circle at top right, rgba(108, 137, 48, 0.12), transparent 70%)' : 'radial-gradient(circle at top right, rgba(218, 54, 8, 0.1), transparent 70%)')
+                        : 'radial-gradient(circle at top right, rgba(235, 79, 18, 0.12), transparent 70%)',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                  
+                  <CardContent sx={{ p: { xs: 2.5, md: 3 }, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                     <Box
                       display="flex"
                       flexDirection={{ xs: 'column', sm: 'row' }}
                       justifyContent="space-between"
-                      alignItems={{ xs: 'stretch', sm: 'center' }}
-                      gap={1.25}
-                      mb={1}
+                      alignItems={{ xs: 'stretch', sm: 'flex-start' }}
+                      gap={1.5}
+                      mb={2}
+                      sx={{ position: 'relative', zIndex: 1 }}
                     >
-                      <Box display="flex" alignItems="center" gap={1} minWidth={0}>
-                        <Box sx={{ p: 1, borderRadius: '50%', bgcolor: 'rgba(108, 137, 48, 0.12)' }}>
-                          <DeviceThermostat color="primary" />
+                      <Box display="flex" alignItems="center" gap={1.5} minWidth={0}>
+                        <Box sx={{ 
+                          p: 1.25, 
+                          borderRadius: 2, 
+                          bgcolor: isConfigured ? 'rgba(108, 137, 48, 0.12)' : 'rgba(219, 160, 72, 0.15)',
+                          color: isConfigured ? '#6c8930' : '#dba048',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}>
+                          <DeviceThermostat fontSize="small" color="inherit" />
                         </Box>
+                        
                         {editingSensorId === sensor.id ? (
                           <Stack
                             direction={{ xs: 'column', sm: 'row' }}
@@ -679,6 +731,7 @@ const ControllerDashboard: React.FC = () => {
                               event.preventDefault();
                               saveSensorName(sensor);
                             }}
+                            sx={{ flexGrow: 1 }}
                           >
                             <TextField
                               size="small"
@@ -687,57 +740,72 @@ const ControllerDashboard: React.FC = () => {
                               autoFocus
                               label="Sensor name"
                               fullWidth
-                              sx={{ minWidth: 0 }}
+                              sx={{ minWidth: 0, bgcolor: '#fffdf8' }}
                             />
-                            <IconButton
-                              aria-label="Save sensor name"
-                              type="submit"
-                              size="small"
-                              disabled={renamingSensorId === sensor.id || !sensorNameDraft.trim()}
-                            >
-                              <Check fontSize="small" />
-                            </IconButton>
-                            <IconButton
-                              aria-label="Cancel sensor name edit"
-                              onClick={cancelSensorRename}
-                              size="small"
-                              disabled={renamingSensorId === sensor.id}
-                            >
-                              <Close fontSize="small" />
-                            </IconButton>
+                            <Stack direction="row">
+                              <IconButton
+                                aria-label="Save sensor name"
+                                type="submit"
+                                size="small"
+                                color="primary"
+                                disabled={renamingSensorId === sensor.id || !sensorNameDraft.trim()}
+                              >
+                                <Check />
+                              </IconButton>
+                              <IconButton
+                                aria-label="Cancel sensor name edit"
+                                onClick={cancelSensorRename}
+                                size="small"
+                                disabled={renamingSensorId === sensor.id}
+                              >
+                                <Close />
+                              </IconButton>
+                            </Stack>
                           </Stack>
                         ) : (
-                          <Stack direction="row" spacing={0.5} alignItems="center">
-                            <Typography variant="h6">
-                              {sensor.name || `${sensor.type} Sensor`}
+                          <Box sx={{ minWidth: 0, pt: 0.5 }}>
+                            <Stack direction="row" spacing={0.5} alignItems="center">
+                              <Typography variant="h6" sx={{ 
+                                fontWeight: 800, 
+                                lineHeight: 1.2,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}>
+                                {sensor.name || `${sensor.type} Sensor`}
+                              </Typography>
+                              {canManageControllers && (
+                                <IconButton
+                                  aria-label="Edit sensor name"
+                                  size="small"
+                                  onClick={() => startSensorRename(sensor)}
+                                  sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
+                                >
+                                  <Edit fontSize="inherit" />
+                                </IconButton>
+                              )}
+                            </Stack>
+                            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600, mt: 0.25 }}>
+                              {sensor.type.toUpperCase()}
                             </Typography>
-                            {canManageControllers && (
-                              <IconButton
-                                aria-label="Edit sensor name"
-                                size="small"
-                                onClick={() => startSensorRename(sensor)}
-                              >
-                                <Edit fontSize="small" />
-                              </IconButton>
-                            )}
-                          </Stack>
+                          </Box>
                         )}
                       </Box>
+                    </Box>
+                    
+                    <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap', gap: '8px 0' }}>
                       <Chip
                         label={connectionChip.label}
                         color={connectionChip.color}
                         size="small"
+                        sx={{ fontWeight: 700 }}
                       />
-                    </Box>
-                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                      {sensor.type}
-                    </Typography>
-                    <Stack direction="row" spacing={1} sx={{ mb: 1.5, flexWrap: 'wrap' }}>
                       {readinessChip && (
                         <Chip
                           size="small"
                           label={readinessChip.label}
                           color={readinessChip.color}
+                          sx={{ fontWeight: 700 }}
                         />
                       )}
                       {observationChip && (
@@ -745,33 +813,46 @@ const ControllerDashboard: React.FC = () => {
                           size="small"
                           label={observationChip.label}
                           color={observationChip.color}
+                          sx={{ fontWeight: 700 }}
                         />
                       )}
                     </Stack>
-                    {readableRanges.length > 0 && (
-                      <Box sx={{ mt: 1.5, mb: 1.5, p: 1.5, borderRadius: 2, bgcolor: '#fffaf0', border: '1px solid rgba(60, 57, 17, 0.08)' }}>
-                        <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
-                          Physical readable range
-                        </Typography>
-                        {readableRanges.map((metric) => (
-                          <Typography key={`${sensor.id}-${metric.key}`} variant="body2" color="text.secondary">
-                            {metric.label}: {formatHardwareMetricRange(metric)}
+
+                    <Box sx={{ flexGrow: 1 }}>
+                      {readableRanges.length > 0 && (
+                        <Box sx={{ 
+                          mb: 2, 
+                          p: 1.5, 
+                          borderRadius: 2, 
+                          bgcolor: 'rgba(255, 253, 248, 0.6)', 
+                          border: '1px solid rgba(60, 57, 17, 0.08)',
+                          backdropFilter: 'blur(8px)',
+                        }}>
+                          <Typography variant="caption" sx={{ display: 'block', mb: 0.5, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            Physical Range
                           </Typography>
-                        ))}
-                      </Box>
-                    )}
-                    {sensor.purpose && (
-                      <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
-                        <Typography variant="body2" color="text.secondary">
-                          {sensor.purpose}
+                          <Stack spacing={0.5}>
+                            {readableRanges.map((metric) => (
+                              <Typography key={`${sensor.id}-${metric.key}`} variant="body2" sx={{ fontWeight: 500, color: '#3c3911' }}>
+                                {metric.label}: {formatHardwareMetricRange(metric)}
+                              </Typography>
+                            ))}
+                          </Stack>
+                        </Box>
+                      )}
+                      
+                      {sensor.purpose && (
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontStyle: 'italic' }}>
+                          "{sensor.purpose}"
                         </Typography>
-                      </Box>
-                    )}
-                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2 }}>
+                      )}
+                    </Box>
+
+                    <Stack direction="row" spacing={1.5} sx={{ mt: 'auto', pt: 2, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
                         <Button
-                          variant="outlined"
+                          variant={sensor.config_active ? "outlined" : "contained"}
+                          color={sensor.config_active ? "inherit" : "primary"}
                           startIcon={sensor.config_active ? <Tune /> : <Settings />}
-                          size="small"
                           onClick={() =>
                             navigate(
                               isHardwareContext
@@ -791,20 +872,24 @@ const ControllerDashboard: React.FC = () => {
                               }
                             )
                           }
+                          sx={sensor.config_active ? { flexGrow: 1, borderColor: 'rgba(60, 57, 17, 0.2)' } : { flexGrow: 1 }}
                         >
-                          {sensor.config_active ? 'Review Configuration' : 'Configure'}
+                          {sensor.config_active ? 'Review Config' : 'Configure Now'}
                         </Button>
                         {canManageControllers && (
-                          <Button
-                            variant="outlined"
+                          <IconButton
                             color="error"
-                            startIcon={<DeleteOutline />}
-                            size="small"
                             disabled={removingSensorId === sensor.id}
                             onClick={() => removeSensorFromWorkspace(sensor)}
+                            sx={{ 
+                              border: '1px solid rgba(218, 54, 8, 0.2)', 
+                              borderRadius: 2,
+                              '&:hover': { bgcolor: 'rgba(218, 54, 8, 0.04)' }
+                            }}
+                            title="Remove Sensor"
                           >
-                            {removingSensorId === sensor.id ? 'Removing...' : 'Remove'}
-                          </Button>
+                            <DeleteOutline />
+                          </IconButton>
                         )}
                     </Stack>
                   </CardContent>
