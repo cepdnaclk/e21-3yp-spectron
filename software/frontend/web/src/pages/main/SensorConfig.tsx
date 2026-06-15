@@ -1354,6 +1354,10 @@ const SensorConfig: React.FC = () => {
   const [systemName, setSystemName] = useState('');
   const [fullScaleDistanceCm, setFullScaleDistanceCm] = useState('');
   const [sustainedWindowMinutes, setSustainedWindowMinutes] = useState('15');
+  const [attendanceBaselineDistanceCm, setAttendanceBaselineDistanceCm] = useState('');
+  const [attendanceTriggerDeltaCm, setAttendanceTriggerDeltaCm] = useState('50');
+  const [attendanceResetHysteresisCm, setAttendanceResetHysteresisCm] = useState('10');
+  const [attendanceCooldownSeconds, setAttendanceCooldownSeconds] = useState('2');
   const [useCase, setUseCase] = useState<UseCaseOption>('generic_monitoring');
   // Multi-metric support: Keep primaryMetric as a derived value for backward compatibility with preview/AI logic
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>([]);
@@ -1516,6 +1520,10 @@ const SensorConfig: React.FC = () => {
       presentationProfile,
       fullScaleDistanceCm,
       sustainedWindowMinutes,
+      attendanceBaselineDistanceCm,
+      attendanceTriggerDeltaCm,
+      attendanceResetHysteresisCm,
+      attendanceCooldownSeconds,
     };
     try {
       localStorage.setItem(key, JSON.stringify(draft));
@@ -1531,6 +1539,10 @@ const SensorConfig: React.FC = () => {
     alertSettings,
     friendlyName,
     fullScaleDistanceCm,
+    attendanceBaselineDistanceCm,
+    attendanceTriggerDeltaCm,
+    attendanceResetHysteresisCm,
+    attendanceCooldownSeconds,
     learningPhaseDay,
     presentationConfig,
     presentationProfile,
@@ -1574,6 +1586,18 @@ const SensorConfig: React.FC = () => {
       }
       if (typeof draft.fullScaleDistanceCm === 'string') setFullScaleDistanceCm(draft.fullScaleDistanceCm);
       if (typeof draft.sustainedWindowMinutes === 'string') setSustainedWindowMinutes(draft.sustainedWindowMinutes);
+      if (typeof draft.attendanceBaselineDistanceCm === 'string') {
+        setAttendanceBaselineDistanceCm(draft.attendanceBaselineDistanceCm);
+      }
+      if (typeof draft.attendanceTriggerDeltaCm === 'string') {
+        setAttendanceTriggerDeltaCm(draft.attendanceTriggerDeltaCm);
+      }
+      if (typeof draft.attendanceResetHysteresisCm === 'string') {
+        setAttendanceResetHysteresisCm(draft.attendanceResetHysteresisCm);
+      }
+      if (typeof draft.attendanceCooldownSeconds === 'string') {
+        setAttendanceCooldownSeconds(draft.attendanceCooldownSeconds);
+      }
     } catch (e) {
       // ignore parse errors
     }
@@ -1909,6 +1933,26 @@ const SensorConfig: React.FC = () => {
           typeof existingHardwareConfig.sustainedWindowMinutes === 'number'
             ? existingHardwareConfig.sustainedWindowMinutes.toString()
             : '15'
+        );
+        setAttendanceBaselineDistanceCm(
+          typeof existingHardwareConfig.attendanceBaselineDistanceCm === 'number'
+            ? existingHardwareConfig.attendanceBaselineDistanceCm.toString()
+            : ''
+        );
+        setAttendanceTriggerDeltaCm(
+          typeof existingHardwareConfig.attendanceTriggerDeltaCm === 'number'
+            ? existingHardwareConfig.attendanceTriggerDeltaCm.toString()
+            : '50'
+        );
+        setAttendanceResetHysteresisCm(
+          typeof existingHardwareConfig.attendanceResetHysteresisCm === 'number'
+            ? existingHardwareConfig.attendanceResetHysteresisCm.toString()
+            : '10'
+        );
+        setAttendanceCooldownSeconds(
+          typeof existingHardwareConfig.attendanceCooldownSeconds === 'number'
+            ? existingHardwareConfig.attendanceCooldownSeconds.toString()
+            : '2'
         );
         setReportsPerDay(getConfigReportsPerDay(activeConfig)?.toString() || '24');
         setUseCase(configuredUseCase);
@@ -2417,6 +2461,29 @@ const SensorConfig: React.FC = () => {
       return;
     }
 
+    if (selectedMetrics.includes('attendance_count')) {
+      const baseline = Number(attendanceBaselineDistanceCm);
+      const trigger = Number(attendanceTriggerDeltaCm);
+      const hysteresis = Number(attendanceResetHysteresisCm);
+      const cooldown = Number(attendanceCooldownSeconds);
+      if (!Number.isFinite(baseline) || baseline <= 0) {
+        setPageError('Enter the normal clear-door distance before activating attendance counting.');
+        return;
+      }
+      if (!Number.isFinite(trigger) || trigger <= 0) {
+        setPageError('Enter a positive distance change that should count as a passage.');
+        return;
+      }
+      if (!Number.isFinite(hysteresis) || hysteresis < 0 || hysteresis >= trigger) {
+        setPageError('The reset margin must be zero or more and smaller than the trigger distance change.');
+        return;
+      }
+      if (!Number.isFinite(cooldown) || cooldown <= 0) {
+        setPageError('Enter a positive attendance cooldown duration.');
+        return;
+      }
+    }
+
     if (isHardwareContext) {
       const missingAlert = alertSettings.find((alert) => !alert.warningThreshold.trim());
 
@@ -2490,6 +2557,12 @@ const SensorConfig: React.FC = () => {
 
       if (sustainedWindow !== undefined) {
         conversationalHardwareConfig.sustainedWindowMinutes = sustainedWindow;
+      }
+      if (selectedMetrics.includes('attendance_count')) {
+        conversationalHardwareConfig.attendanceBaselineDistanceCm = Number(attendanceBaselineDistanceCm);
+        conversationalHardwareConfig.attendanceTriggerDeltaCm = Number(attendanceTriggerDeltaCm);
+        conversationalHardwareConfig.attendanceResetHysteresisCm = Number(attendanceResetHysteresisCm);
+        conversationalHardwareConfig.attendanceCooldownSeconds = Number(attendanceCooldownSeconds);
       }
 
       const config: SensorConfigPayload = {
@@ -3628,6 +3701,80 @@ const SensorConfig: React.FC = () => {
               </Grid>
             ))}
           </Grid>
+        </Box>
+      )}
+
+      {selectedMetrics.includes('attendance_count') && (
+        <Box
+          sx={{
+            mt: 3,
+            p: 2.25,
+            borderRadius: 2,
+            bgcolor: '#fffdf8',
+            border: '1px solid rgba(60, 57, 17, 0.08)',
+          }}
+        >
+          <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+            Door passage detection
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+            Measure the empty doorway first. A reading that changes from that baseline by the trigger
+            distance counts once, then the detector waits for the doorway to clear and for the cooldown
+            to finish.
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                required
+                type="number"
+                label="Normal clear-door distance"
+                value={attendanceBaselineDistanceCm}
+                onChange={(event) => setAttendanceBaselineDistanceCm(event.target.value)}
+                inputProps={{ min: 0, step: 'any' }}
+                helperText="The stable distance recorded when nobody is in the doorway (cm)."
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                required
+                type="number"
+                label="Passage trigger distance change"
+                value={attendanceTriggerDeltaCm}
+                onChange={(event) => setAttendanceTriggerDeltaCm(event.target.value)}
+                inputProps={{ min: 0, step: 'any' }}
+                helperText="Count when the distance moves up or down by at least this amount (cm)."
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                type="number"
+                label="Reset margin"
+                value={attendanceResetHysteresisCm}
+                onChange={(event) => setAttendanceResetHysteresisCm(event.target.value)}
+                inputProps={{ min: 0, step: 'any' }}
+                helperText="Prevents noisy readings near the trigger from counting repeatedly (cm)."
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                required
+                type="number"
+                label="Cooldown after each count"
+                value={attendanceCooldownSeconds}
+                onChange={(event) => setAttendanceCooldownSeconds(event.target.value)}
+                inputProps={{ min: 0.1, step: 0.1 }}
+                helperText="Defaults to 2 seconds before another passage can count."
+              />
+            </Grid>
+          </Grid>
+          <Alert severity="info" sx={{ mt: 2 }}>
+            The sensor must send readings frequently enough to capture a person crossing the doorway.
+            One reading per second or faster is recommended for testing.
+          </Alert>
         </Box>
       )}
 

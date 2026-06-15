@@ -96,6 +96,8 @@ describe('Paired hardware sensors dashboard', () => {
     expect(screen.getByText(/load sensor/i)).toBeInTheDocument();
     expect(screen.getByText(/temperature & humidity sensor/i)).toBeInTheDocument();
     expect(screen.getByText(/ultrasonic sensor/i)).toBeInTheDocument();
+    expect(screen.getByText(/hardware: sht30/i)).toBeInTheDocument();
+    expect(screen.getByText(/hardware: gy-vl53l0x/i)).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^configure$/i })).toHaveLength(2);
     expect(screen.getByRole('button', { name: /review configuration/i })).toBeInTheDocument();
   });

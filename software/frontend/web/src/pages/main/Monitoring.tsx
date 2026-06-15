@@ -43,6 +43,7 @@ import {
   Fullscreen,
   FullscreenExit,
   Info,
+  RestartAlt,
 } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import type { jsPDF as JsPDFDocument } from 'jspdf';
@@ -60,7 +61,9 @@ import {
   YAxis,
 } from 'recharts';
 import {
+  getAttendanceState,
   getSensorReadings,
+  resetAttendanceCount,
   Sensor,
   SensorReading,
   SensorConfig,
@@ -74,10 +77,17 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   getMetricLabel,
   getMetricUnit,
+  getObservableMetricDefinition,
   getSensorMetrics,
   normalizePresentationConfig,
   ThresholdRange,
 } from '../../utils/sensorConfig';
+import {
+  getOriginalSensorName,
+  getPhysicalSensorGroupKey,
+  isDefaultSensorName,
+  resolvePhysicalSensorType,
+} from '../../utils/physicalSensor';
 
 type SensorPoint = {
   label: string;
@@ -189,13 +199,109 @@ const compactChartMargin = {
 
 const compactChartXAxisHeight = 36;
 
-const toReadingValue = (reading: SensorReading, metricKey?: string): number | null => {
+const getRawMetricForSensor = (sensorType?: string) => {
+  switch ((sensorType || '').trim().toLowerCase()) {
+    case 'temperature_humidity':
+    case 'temp_humidity':
+    case 'sht30':
+    case 'sht31':
+    case 'sht35':
+    case 'dht11':
+    case 'dht22':
+    case 'temperature':
+    case 'bme280':
+    case 'bmp280':
+      return 'temperature';
+    case 'humidity':
+      return 'humidity';
+    case 'pressure':
+      return 'pressure';
+    case 'vl53l0x':
+    case 'distance':
+      return 'distance';
+    case 'ultrasonic':
+      return 'fill_level';
+    case 'load':
+    case 'load_cell':
+    case 'weight':
+      return 'weight';
+    case 'gas':
+    case 'gas_sensor':
+      return 'gas_level';
+    case 'air_quality':
+      return 'aqi';
+    default:
+      return 'value';
+  }
+};
+
+const isMetricSupportedBySensor = (sensorType: string, metricKey: string) =>
+  Boolean(getObservableMetricDefinition(sensorType, metricKey));
+
+const numericConfigValue = (config: Record<string, unknown>, key: string) => {
+  const value = config[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+};
+
+const deriveAttendanceTrend = (
+  readings: SensorReading[],
+  sensor: Sensor,
+  config?: SensorConfig
+): SensorPoint[] => {
+  const hardwareConfig = config?.hardware?.config || config?.hardware_config || {};
+  const baseline = numericConfigValue(hardwareConfig, 'attendanceBaselineDistanceCm');
+  const trigger = numericConfigValue(hardwareConfig, 'attendanceTriggerDeltaCm');
+  const resetMargin = numericConfigValue(hardwareConfig, 'attendanceResetHysteresisCm') ?? 10;
+  const cooldownSeconds = numericConfigValue(hardwareConfig, 'attendanceCooldownSeconds') ?? 2;
+
+  if (baseline === null || baseline <= 0 || trigger === null || trigger <= 0) {
+    return [];
+  }
+
+  const resetThreshold = Math.max(0, trigger - Math.min(resetMargin, trigger * 0.9));
+  const cooldownMs = cooldownSeconds * 1000;
+  let attendanceCount = 0;
+  let passageActive = false;
+  let lastCountedAt = Number.NEGATIVE_INFINITY;
+
+  return readings.reduce<SensorPoint[]>((points, reading) => {
+    const distance = toReadingValue(reading, getRawMetricForSensor(sensor.type), sensor.type);
+    const readingTime = new Date(reading.time).getTime();
+    if (distance === null || distance <= 0 || !Number.isFinite(readingTime)) {
+      return points;
+    }
+
+    const deviation = Math.abs(distance - baseline);
+    if (passageActive) {
+      if (deviation <= resetThreshold) {
+        passageActive = false;
+      }
+    } else if (deviation >= trigger && readingTime - lastCountedAt >= cooldownMs) {
+      attendanceCount += 1;
+      passageActive = true;
+      lastCountedAt = readingTime;
+    }
+
+    points.push({
+      label: formatTimeLabel(reading.time),
+      shortLabel: formatTimeLabel(reading.time),
+      value: attendanceCount,
+      time: reading.time,
+    });
+    return points;
+  }, []);
+};
+
+const toReadingValue = (reading: SensorReading, metricKey?: string, sensorType?: string): number | null => {
   if (metricKey) {
     if (typeof (reading as any)[metricKey] === 'number') {
       return (reading as any)[metricKey];
     }
     if (reading.meta && typeof reading.meta[metricKey] === 'number') {
       return reading.meta[metricKey] as number;
+    }
+    if (metricKey !== getRawMetricForSensor(sensorType)) {
+      return null;
     }
   }
   if (typeof reading.value === 'number') return reading.value;
@@ -1271,14 +1377,10 @@ const buildPdfReport = async (
   doc.save(`spectron-monitoring-report-${reportDateStamp()}.pdf`);
 };
 
-const getPhysicalSensorBaseId = (sensor: Sensor) => {
-  const rawId = sensor.hw_id || sensor.id;
-  return rawId.replace(/-(temp|temperature|humidity|hum|press|pressure|dist|distance|fill|level|weight|gas|gas_level|aqi)$/i, '');
-};
-
 type GroupedSensorCard = {
   baseId: string;
   name: string;
+  originalName: string;
   purpose?: string;
   location?: string;
   status: string;
@@ -1293,26 +1395,12 @@ const groupSensors = (sensors: SensorCardData[]) => {
   const groups: Record<string, GroupedSensorCard> = {};
 
   sensors.forEach((item) => {
-    const baseId = getPhysicalSensorBaseId(item.sensor);
+    const baseId = getPhysicalSensorGroupKey(item.sensor, sensors.map((entry) => entry.sensor));
     if (!groups[baseId]) {
-      let groupName = '';
-      const groupType = item.sensor.type;
-      
-      if (groupType === 'temperature_humidity') {
-        groupName = 'SHT30 Climate Sensor';
-      } else if (groupType === 'bme280') {
-        groupName = 'BME280 Environmental Sensor';
-      } else if (groupType === 'bmp280') {
-        groupName = 'BMP280 Environmental Sensor';
-      } else if (groupType === 'vl53l0x') {
-        groupName = 'VL53L0X ToF Distance Sensor';
-      } else {
-        groupName = item.sensor.name || `${groupType.toUpperCase()} Sensor`;
-      }
-
       groups[baseId] = {
         baseId,
-        name: groupName,
+        name: item.sensor.name || getOriginalSensorName(item.sensor.type),
+        originalName: getOriginalSensorName(item.sensor.type),
         purpose: item.sensor.purpose,
         status: item.controllerStatus,
         health: 'normal',
@@ -1327,6 +1415,19 @@ const groupSensors = (sensors: SensorCardData[]) => {
   });
 
   return Object.values(groups).map((group) => {
+    const metricsByKey = new Map<string, SensorCardData>();
+    group.metrics.forEach((metric) => {
+      const metricKey = metric.presentationState.primaryMetric;
+      const current = metricsByKey.get(metricKey);
+      if (!current || (!current.hasLiveReadings && metric.hasLiveReadings)) {
+        metricsByKey.set(metricKey, metric);
+      }
+    });
+    group.metrics = Array.from(metricsByKey.values());
+
+    const physicalSensors = group.metrics.map((metric) => metric.sensor);
+    const physicalType = resolvePhysicalSensorType(physicalSensors);
+    group.originalName = getOriginalSensorName(physicalType);
     const hasCritical = group.metrics.some(m => m.health === 'critical');
     const hasWarning = group.metrics.some(m => m.health === 'warning');
     const hasNormal = group.metrics.some(m => m.health === 'normal');
@@ -1345,9 +1446,11 @@ const groupSensors = (sensors: SensorCardData[]) => {
       group.healthLabel = 'No readings';
     }
 
-    const customNamed = group.metrics.find(m => m.sensor.name && m.sensor.name !== `${m.sensor.type} Sensor` && m.sensor.name !== m.sensor.type);
+    const customNamed = group.metrics.find((metric) => !isDefaultSensorName(metric.sensor));
     if (customNamed) {
       group.name = customNamed.sensor.name || '';
+    } else {
+      group.name = group.originalName;
     }
     const purpose = group.metrics.map(m => m.sensor.purpose).find(p => p && p.trim() !== '');
     if (purpose) {
@@ -1365,6 +1468,9 @@ const Monitoring: React.FC = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const navigate = useNavigate();
   const { user } = useAuth();
+  const canManageAttendance =
+    user?.account_type === 'ADMIN' ||
+    Boolean(user?.accounts.some((account) => account.role === 'OWNER' || account.role === 'ADMIN'));
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
@@ -1379,6 +1485,7 @@ const Monitoring: React.FC = () => {
   const [expandedChartData, setExpandedChartData] = useState<{ controller: ControllerMonitoringGroup; sensorCard: SensorCardData } | null>(null);
   const [timeRange, setTimeRange] = useState<'24h' | '7d' | '30d'>('24h');
   const [monitoringInfoAnchor, setMonitoringInfoAnchor] = useState<HTMLElement | null>(null);
+  const [resettingAttendanceSensorId, setResettingAttendanceSensorId] = useState<string | null>(null);
 
   const getDateRangeForTimeRange = (range: '24h' | '7d' | '30d') => {
     const to = new Date();
@@ -1428,7 +1535,7 @@ const Monitoring: React.FC = () => {
               const fallbackMetrics = metricThresholds ? Object.keys(metricThresholds) : [];
               const primaryMetricKey = getPrimaryMetricKey(sensor);
 
-              const metricsToRender =
+              const configuredMetrics =
                 observableMetrics.length > 0
                   ? observableMetrics
                   : configuredMetricKeys.length > 0
@@ -1436,11 +1543,27 @@ const Monitoring: React.FC = () => {
                     : fallbackMetrics.length > 0
                       ? fallbackMetrics
                       : [primaryMetricKey];
+              const nativeMetric = getRawMetricForSensor(sensor.type);
+              const metricsToRender = Array.from(new Set([
+                ...configuredMetrics,
+                nativeMetric,
+              ].filter(Boolean)));
+              const attendanceState = metricsToRender.includes('attendance_count')
+                ? await getAttendanceState(sensor.id).catch(() => null)
+                : null;
 
               return metricsToRender.map(metricKey => {
-                const trend = sorted
+                const metricReadings =
+                  metricKey === 'attendance_count' && attendanceState?.session_started_at
+                    ? sorted.filter(
+                        (reading) =>
+                          new Date(reading.time).getTime() >=
+                          new Date(attendanceState.session_started_at as string).getTime()
+                      )
+                    : sorted;
+                let trend = metricReadings
                   .map((reading) => {
-                    const value = toReadingValue(reading, metricKey);
+                    const value = toReadingValue(reading, metricKey, sensor.type);
                     if (value === null) {
                       return null;
                     }
@@ -1454,20 +1577,59 @@ const Monitoring: React.FC = () => {
                   })
                   .filter((point): point is SensorPoint => point !== null);
 
+                if (trend.length === 0 && metricKey === 'attendance_count') {
+                  trend = deriveAttendanceTrend(metricReadings, sensor, activeConfig);
+                }
+                if (metricKey === 'attendance_count' && attendanceState?.session_started_at) {
+                  const latestCount = attendanceState.attendance_count;
+                  if (trend[trend.length - 1]?.value !== latestCount) {
+                    trend.push({
+                      label: formatTimeLabel(attendanceState.session_started_at),
+                      shortLabel: formatTimeLabel(attendanceState.session_started_at),
+                      value: latestCount,
+                      time: attendanceState.session_started_at,
+                    });
+                  }
+                }
+
+                // Keep valid configured/derived metrics visible while awaiting data.
+                // Suppress only metrics that do not belong to this physical channel.
+                if (
+                  trend.length === 0 &&
+                  metricKey !== getRawMetricForSensor(sensor.type) &&
+                  !isMetricSupportedBySensor(sensor.type, metricKey)
+                ) {
+                  return null;
+                }
+
                 // Re-evaluate state specifically for THIS metric key
                 const hardwareConfigLayer = activeConfig?.hardware?.config || activeConfig?.hardware_config || {};
                 const hwConfigProfiles = (hardwareConfigLayer as any)?.metric_profiles || {};
                 const specificProfile = hwConfigProfiles[metricKey];
                 const globalProfile = getPresentationProfile(sensor);
-                const presentationProfile = specificProfile || globalProfile;
-                const useCase = getUseCase(sensor);
-                const presentationState = {
-                  ...getPresentationState(sensor),
-                  primaryMetric: metricKey,
-                  headlineMetric: metricKey,
-                };
+                const isAddedNativeDiagnostic =
+                  metricKey === nativeMetric && !configuredMetrics.includes(nativeMetric);
+                const presentationProfile = isAddedNativeDiagnostic
+                  ? 'single_trend'
+                  : specificProfile || globalProfile;
+                const useCase = isAddedNativeDiagnostic ? 'generic_monitoring' : getUseCase(sensor);
+                const presentationState = isAddedNativeDiagnostic
+                  ? {
+                      primaryMetric: metricKey,
+                      headlineMetric: metricKey,
+                      statusMode: 'distance_limit',
+                      comparisonMode: 'threshold_band',
+                      detailMode: 'trend_first',
+                    }
+                  : {
+                      ...getPresentationState(sensor),
+                      primaryMetric: metricKey,
+                      headlineMetric: metricKey,
+                    };
                 
-                const threshold = metricThresholds?.[metricKey] || getPrimaryThreshold(sensor);
+                const threshold = isAddedNativeDiagnostic
+                  ? metricThresholds?.[metricKey]
+                  : metricThresholds?.[metricKey] || getPrimaryThreshold(sensor);
                 const latestPoint = trend[trend.length - 1];
                 const displayValue = getDisplayValue(
                   latestPoint?.value ?? null,
@@ -1482,7 +1644,7 @@ const Monitoring: React.FC = () => {
                   presentationState
                 );
 
-                return {
+                const sensorCard: SensorCardData = {
                   controllerName: controller.name || controller.hw_id || 'Controller',
                   controllerLocation: controller.location,
                   controllerStatus: controller.status,
@@ -1500,8 +1662,9 @@ const Monitoring: React.FC = () => {
                   presentationProfile,
                   useCase,
                   presentationState,
-                } satisfies SensorCardData;
-              });
+                };
+                return sensorCard;
+              }).filter((item): item is SensorCardData => item !== null);
             })
           );
           const sensorCards = sensorCardsMatrix.flat();
@@ -1533,6 +1696,24 @@ const Monitoring: React.FC = () => {
       setRefreshing(false);
     }
   }, [timeRange]);
+
+  const handleResetAttendance = useCallback(async (sensorId: string) => {
+    if (!window.confirm('Reset this attendance count to 0? Raw distance history will be kept.')) {
+      return;
+    }
+
+    try {
+      setResettingAttendanceSensorId(sensorId);
+      setErrorMessage(null);
+      await resetAttendanceCount(sensorId);
+      await loadMonitoringData({ showSkeleton: false });
+    } catch (error) {
+      console.error('Failed to reset attendance count:', error);
+      setErrorMessage('Failed to reset attendance count. Please try again.');
+    } finally {
+      setResettingAttendanceSensorId(null);
+    }
+  }, [loadMonitoringData]);
 
   useEffect(() => {
     loadMonitoringData({ showSkeleton: true });
@@ -1985,6 +2166,12 @@ const Monitoring: React.FC = () => {
                                   <Typography variant="body2" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>
                                     {group.purpose || group.baseId}
                                   </Typography>
+                                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                                    Hardware: {group.originalName}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                    Sensor ID: {group.baseId}
+                                  </Typography>
                                 </Box>
                               </Stack>
                               <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap" justifyContent="flex-end">
@@ -2025,7 +2212,12 @@ const Monitoring: React.FC = () => {
                                 );
 
                                 return (
-                                  <Grid item xs={12} md={group.metrics.length > 1 ? 6 : 12} key={item.sensor.id}>
+                                  <Grid
+                                    item
+                                    xs={12}
+                                    md={group.metrics.length > 1 ? 6 : 12}
+                                    key={`${item.sensor.id}-${item.presentationState.primaryMetric}`}
+                                  >
                                     <Box
                                       sx={{
                                         p: 2,
@@ -2140,6 +2332,23 @@ const Monitoring: React.FC = () => {
                                               <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>
                                                 {formatUseCaseLabel(item.useCase)}
                                               </Typography>
+                                              {canManageAttendance &&
+                                                item.presentationState.primaryMetric === 'attendance_count' && (
+                                                  <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    color="warning"
+                                                    startIcon={
+                                                      resettingAttendanceSensorId === item.sensor.id
+                                                        ? <CircularProgress size={14} color="inherit" />
+                                                        : <RestartAlt />
+                                                    }
+                                                    disabled={resettingAttendanceSensorId === item.sensor.id}
+                                                    onClick={() => handleResetAttendance(item.sensor.id)}
+                                                  >
+                                                    Reset
+                                                  </Button>
+                                                )}
                                               <Button
                                                 size="small"
                                                 variant="text"

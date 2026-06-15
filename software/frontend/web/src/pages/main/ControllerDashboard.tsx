@@ -28,6 +28,12 @@ import {
   releaseHardwareController,
 } from '../../services/hardwarePairingService';
 import { formatHardwareMetricRange, getSensorHardwareCapabilities, SensorHardwareMetric } from '../../utils/sensorConfig';
+import {
+  getOriginalSensorName,
+  getPhysicalSensorGroupKey,
+  isDefaultSensorName,
+  resolvePhysicalSensorType,
+} from '../../utils/physicalSensor';
 import { ControllerDashboardSkeleton } from '../../components/LoadingSkeletons';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { useAuth } from '../../contexts/AuthContext';
@@ -45,11 +51,6 @@ type DashboardNavigationState = {
 const REMOVED_SENSOR_STORAGE_PREFIX = 'spectron_removed_sensors';
 
 const getSensorIdentity = (sensor: Sensor) => sensor.hw_id || sensor.id;
-
-const getPhysicalSensorBaseId = (sensor: Sensor) => {
-  const rawId = sensor.hw_id || sensor.id;
-  return rawId.replace(/-(temp|temperature|humidity|hum|press|pressure|dist|distance|fill|level|weight|gas|gas_level|aqi)$/i, '');
-};
 
 const getRemovedSensorStorageKey = (controllerId: string) =>
   `${REMOVED_SENSOR_STORAGE_PREFIX}:${controllerId}`;
@@ -120,7 +121,7 @@ const ControllerDashboard: React.FC = () => {
   const groupedSensors = useMemo(() => {
     const groups: Record<string, Sensor[]> = {};
     sensors.forEach((sensor) => {
-      const baseId = getPhysicalSensorBaseId(sensor);
+      const baseId = getPhysicalSensorGroupKey(sensor, sensors);
       if (!groups[baseId]) {
         groups[baseId] = [];
       }
@@ -130,34 +131,15 @@ const ControllerDashboard: React.FC = () => {
     return Object.entries(groups).map(([baseId, groupSensors]) => {
       const primarySensor = groupSensors.find((s) => s.config_active) || groupSensors[0];
 
-      let groupType = primarySensor.type;
-      const allTypes = groupSensors.map(s => s.type.toLowerCase());
-      if (allTypes.includes('bme280')) {
-        groupType = 'bme280';
-      } else if (allTypes.includes('bmp280')) {
-        groupType = 'bmp280';
-      } else if (allTypes.includes('sht30') || allTypes.includes('temp_humidity') || allTypes.includes('temperature_humidity')) {
-        groupType = 'temperature_humidity';
-      } else if (allTypes.includes('vl53l0x') || allTypes.includes('distance') || allTypes.includes('ultrasonic')) {
-        groupType = 'vl53l0x';
-      }
+      const groupType = resolvePhysicalSensorType(groupSensors);
+      const originalName = getOriginalSensorName(groupType);
 
       let groupName = '';
-      const customNamed = groupSensors.find(s => s.name && s.name !== `${s.type} Sensor` && s.name !== s.type);
+      const customNamed = groupSensors.find((sensor) => !isDefaultSensorName(sensor));
       if (customNamed) {
         groupName = customNamed.name || '';
       } else {
-        if (groupType === 'temperature_humidity') {
-          groupName = 'SHT30 Climate Sensor';
-        } else if (groupType === 'bme280') {
-          groupName = 'BME280 Environmental Sensor';
-        } else if (groupType === 'bmp280') {
-          groupName = 'BMP280 Environmental Sensor';
-        } else if (groupType === 'vl53l0x') {
-          groupName = 'VL53L0X ToF Distance Sensor';
-        } else {
-          groupName = primarySensor.name || `${groupType.toUpperCase()} Sensor`;
-        }
+        groupName = originalName;
       }
 
       const hasError = groupSensors.some(s => s.status === 'ERROR');
@@ -198,6 +180,7 @@ const ControllerDashboard: React.FC = () => {
         id: primarySensor.id,
         hw_id: baseId,
         name: groupName,
+        originalName,
         type: groupType,
         status: groupStatus,
         config_active: isConfigured,
@@ -961,6 +944,12 @@ const ControllerDashboard: React.FC = () => {
                             </Stack>
                             <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600, mt: 0.25 }}>
                               {group.type.toUpperCase()}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                              Hardware: {group.originalName}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                              Sensor ID: {group.hw_id}
                             </Typography>
                           </Box>
                         )}
