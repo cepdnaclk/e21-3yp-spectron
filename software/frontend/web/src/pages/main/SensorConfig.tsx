@@ -25,6 +25,11 @@ import {
   AccordionDetails,
   Switch,
   FormControlLabel,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Checkbox,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import {
@@ -1350,9 +1355,32 @@ const SensorConfig: React.FC = () => {
   const [fullScaleDistanceCm, setFullScaleDistanceCm] = useState('');
   const [sustainedWindowMinutes, setSustainedWindowMinutes] = useState('15');
   const [useCase, setUseCase] = useState<UseCaseOption>('generic_monitoring');
-  const [presentationProfile, setPresentationProfile] = useState<PresentationProfileOption>('single_trend');
-  const [presentationConfig, setPresentationConfig] = useState<PresentationConfigValue>({});
-  const [primaryMetric, setPrimaryMetric] = useState('');
+  // Multi-metric support: Keep primaryMetric as a derived value for backward compatibility with preview/AI logic
+  const [selectedMetrics, setSelectedMetrics] = useState<string[]>([]);
+  const primaryMetric = selectedMetrics[0] || '';
+  const setPrimaryMetric = (val: string) => {
+    if (!val) setSelectedMetrics([]);
+    else setSelectedMetrics((prev) => (prev.includes(val) ? prev : [val, ...prev.filter(m => m !== val)]));
+  };
+
+  const [metricPresentationProfiles, setMetricPresentationProfiles] = useState<Record<string, PresentationProfileOption>>({});
+  const [metricPresentationConfigs, setMetricPresentationConfigs] = useState<Record<string, PresentationConfigValue>>({});
+  
+  // Maintain backward compatibility for AI/primary metric logic
+  const presentationProfile = metricPresentationProfiles[primaryMetric] || 'single_trend';
+  const presentationConfig = metricPresentationConfigs[primaryMetric] || {};
+
+  const setPresentationProfile = (profile: PresentationProfileOption) => {
+    setMetricPresentationProfiles(prev => ({ ...prev, [primaryMetric]: profile }));
+  };
+  const setPresentationConfig = (updater: PresentationConfigValue | ((current: PresentationConfigValue) => PresentationConfigValue)) => {
+    setMetricPresentationConfigs(prev => {
+      const current = prev[primaryMetric] || {};
+      const next = typeof updater === 'function' ? updater(current) : updater;
+      return { ...prev, [primaryMetric]: next };
+    });
+  };
+  
   const [alertSettings, setAlertSettings] = useState<AlertSettingInput[]>([]);
   const [, setMetricThresholds] = useState<Record<string, MetricThresholdInput>>({});
   const [reportsPerDay, setReportsPerDay] = useState('24');
@@ -1469,18 +1497,23 @@ const SensorConfig: React.FC = () => {
     const key = `sensorConfigDraft-${activeSensorId}`;
     const draft = {
       friendlyName,
+      systemName,
       primaryMetric,
-      presentationProfile,
+      selectedMetrics,
+      purpose,
+      useCase,
+      metricPresentationProfiles,
+      metricPresentationConfigs,
       presentationConfig,
       alertSettings,
       reportsPerDay,
       readingFlowType,
-      purpose,
       aiPrompt,
       learningPhaseDay,
       aiSuggestions,
       aiFollowUpQuestions,
       aiFollowUpAnswers,
+      presentationProfile,
       fullScaleDistanceCm,
       sustainedWindowMinutes,
     };
@@ -1506,6 +1539,9 @@ const SensorConfig: React.FC = () => {
     readingFlowType,
     reportsPerDay,
     sustainedWindowMinutes,
+    selectedMetrics,
+    systemName,
+    useCase,
   ]);
 
   useEffect(() => {
@@ -1516,8 +1552,15 @@ const SensorConfig: React.FC = () => {
       if (!raw) return;
       const draft = JSON.parse(raw);
       if (draft.friendlyName) setFriendlyName(draft.friendlyName);
-      if (draft.primaryMetric) setPrimaryMetric(draft.primaryMetric);
+      if (draft.systemName) setSystemName(draft.systemName);
+      if (draft.selectedMetrics && Array.isArray(draft.selectedMetrics)) {
+        setSelectedMetrics(draft.selectedMetrics);
+      } else if (draft.primaryMetric) {
+        setPrimaryMetric(draft.primaryMetric);
+      }
       if (draft.presentationProfile) setPresentationProfile(draft.presentationProfile);
+      if (draft.metricPresentationProfiles) setMetricPresentationProfiles(draft.metricPresentationProfiles);
+      if (draft.metricPresentationConfigs) setMetricPresentationConfigs(draft.metricPresentationConfigs);
       if (draft.presentationConfig) setPresentationConfig(draft.presentationConfig);
       if (Array.isArray(draft.alertSettings)) setAlertSettings(draft.alertSettings);
       if (draft.reportsPerDay) setReportsPerDay(draft.reportsPerDay);
@@ -1584,22 +1627,30 @@ const SensorConfig: React.FC = () => {
     }));
   };
 
-  const applyMetricSelection = (metric: ObservableMetricDefinition) => {
-    const nextProfile = metric.recommended_profile as PresentationProfileOption;
-    setPrimaryMetric(metric.key);
-    setUseCase(metric.use_case);
-    setPresentationProfile(nextProfile);
-    setPresentationConfig(
-      normalizePresentationConfig(
-        sensor?.type || navigationState?.sensorType || '',
-        metric.key,
-        nextProfile,
-        {}
-      )
-    );
-    if (!metric.purposes.some((option) => option.label === purpose)) {
-      setPurpose(metric.purposes[0]?.label || '');
-    }
+  const toggleMetricSelection = (metric: ObservableMetricDefinition) => {
+    setSelectedMetrics((prev) => {
+      const isSelected = prev.includes(metric.key);
+      const next = isSelected ? prev.filter((k) => k !== metric.key) : [...prev, metric.key];
+      
+      // If we just selected the very first metric, set up defaults for it
+      if (!isSelected && next.length === 1) {
+        const nextProfile = metric.recommended_profile as PresentationProfileOption;
+        setUseCase(metric.use_case);
+        setPresentationProfile(nextProfile);
+        setPresentationConfig(
+          normalizePresentationConfig(
+            sensor?.type || navigationState?.sensorType || '',
+            metric.key,
+            nextProfile,
+            {}
+          )
+        );
+        if (!metric.purposes.some((option) => option.label === purpose)) {
+          setPurpose(metric.purposes[0]?.label || '');
+        }
+      }
+      return next;
+    });
   };
 
   const applyPresentationProfileSelection = (profile: PresentationProfileOption) => {
@@ -1631,18 +1682,20 @@ const SensorConfig: React.FC = () => {
         warning_threshold: toNumberOrUndefined(alert.warningThreshold),
         critical_threshold: toNumberOrUndefined(alert.criticalThreshold),
       }));
-      const nextAlerts = buildPresentationAlertSettings(
-        sensorType,
-        primaryMetric,
-        presentationProfile,
-        currentAlerts,
-        metricThresholdsFromAlertSettings(currentAlerts)
-      ).map(toAlertSettingInput);
+      const nextAlerts = selectedMetrics.flatMap(metricKey =>
+        buildPresentationAlertSettings(
+          sensorType,
+          metricKey,
+          presentationProfile,
+          currentAlerts,
+          metricThresholdsFromAlertSettings(currentAlerts)
+        ).map(toAlertSettingInput)
+      );
 
       setMetricThresholds(alertInputsToMetricThresholds(nextAlerts));
       return nextAlerts;
     });
-  }, [navigationState?.sensorType, presentationProfile, primaryMetric, selectedDerivedMetric, sensor?.type]);
+  }, [navigationState?.sensorType, presentationProfile, primaryMetric, selectedDerivedMetric, selectedMetrics, sensor?.type]);
 
   useEffect(() => {
     const sensorType = sensor?.type || navigationState?.sensorType || '';
@@ -1760,7 +1813,15 @@ const SensorConfig: React.FC = () => {
         );
         setReportsPerDay(getConfigReportsPerDay(activeConfig)?.toString() || '24');
         setUseCase(configuredUseCase);
-        setPresentationProfile(configuredProfile);
+        
+        const hwConfigProfiles = (existingHardwareConfig as any)?.metric_profiles || {};
+
+        if (Object.keys(hwConfigProfiles).length > 0) {
+            setMetricPresentationProfiles(hwConfigProfiles as any);
+        } else {
+            setPresentationProfile(configuredProfile);
+        }
+
         setPresentationConfig(
           normalizePresentationConfig(sensorData.type || '', configuredMetric?.key, configuredProfile, {
             headline_metric: activeConfig?.presentation?.headline_metric,
@@ -1777,6 +1838,18 @@ const SensorConfig: React.FC = () => {
           if (primaryThreshold) {
             baseThresholds[metrics[0].key] = primaryThreshold;
           }
+        }
+        
+        if (metrics.length > 0) {
+            setSelectedMetrics(metrics.map(m => m.key).filter(Boolean));
+        } else {
+            const configuredKeys = Object.keys(baseThresholds);
+            if (configuredKeys.length > 0) {
+                const keys = Array.from(new Set([configuredMetric?.key || '', ...configuredKeys])).filter(Boolean);
+                setSelectedMetrics(keys);
+            } else {
+                setPrimaryMetric(configuredMetric?.key || '');
+            }
         }
         const nextAlertSettings = buildPresentationAlertSettings(
           sensorData.type || '',
@@ -1814,17 +1887,22 @@ const SensorConfig: React.FC = () => {
     if (observableMetricCatalog.length === 0) {
       return;
     }
-
-    if (!observableMetricCatalog.some((metric) => metric.key === primaryMetric)) {
-      const fallbackMetric = supportedObservableMetrics[0] || observableMetricCatalog[0];
-      setPrimaryMetric(fallbackMetric.key);
-      setUseCase(fallbackMetric.use_case);
-      setPresentationProfile(fallbackMetric.recommended_profile);
-      if (!purpose.trim()) {
-        setPurpose(fallbackMetric.purposes[0]?.label || '');
-      }
+    
+    // Only auto-select a fallback if NO metrics are selected at all.
+    // Do NOT reset if selectedMetrics has valid values already (e.g. user selected 2nd metric).
+    if (selectedMetrics.length > 0) {
+      return;
     }
-  }, [observableMetricCatalog, primaryMetric, purpose, supportedObservableMetrics]);
+
+    const fallbackMetric = supportedObservableMetrics[0] || observableMetricCatalog[0];
+    if (!fallbackMetric) return;
+    setPrimaryMetric(fallbackMetric.key);
+    setUseCase(fallbackMetric.use_case);
+    setPresentationProfile(fallbackMetric.recommended_profile);
+    if (!purpose.trim()) {
+      setPurpose(fallbackMetric.purposes[0]?.label || '');
+    }
+  }, [observableMetricCatalog, selectedMetrics, purpose, supportedObservableMetrics]);
 
   useEffect(() => {
     if (!selectedDerivedMetric) {
@@ -2285,6 +2363,14 @@ const SensorConfig: React.FC = () => {
       const primaryMetricThreshold: MetricThresholdPayload = primaryMetricKey
         ? metricThresholdPayload[primaryMetricKey] || {}
         : {};
+      // Ensure ALL selected metrics have a presentation profile assigned before saving
+      const finalMetricProfiles = { ...metricPresentationProfiles };
+      selectedMetrics.forEach(metricKey => {
+        if (!finalMetricProfiles[metricKey]) {
+          const allowedProfiles = getSupportedProfilesForDerivedMetric(sensor?.type || navigationState?.sensorType || '', metricKey);
+          finalMetricProfiles[metricKey] = (allowedProfiles[0] as PresentationProfileOption) || 'single_trend';
+        }
+      });
 
       const presentationMetadata = getPresentationMetadata(presentationProfile, useCase);
       const fullScaleDistance = toPositiveIntOrUndefined(fullScaleDistanceCm);
@@ -2295,6 +2381,7 @@ const SensorConfig: React.FC = () => {
         readingFlowType,
         reportsPerDay: reports,
         estimatedBatteryLifeDays,
+        metric_profiles: metricPresentationProfiles,
       };
 
       if (fullScaleDistance !== undefined) {
@@ -2336,7 +2423,9 @@ const SensorConfig: React.FC = () => {
           use_case: useCase,
           primary_metric: primaryMetric || primaryMetricKey || undefined,
           display_unit: selectedDerivedMetric.unit || undefined,
-          derived_metrics: configurableDerivedMetrics.map((metric) => ({
+          derived_metrics: configurableDerivedMetrics
+            .filter((metric) => selectedMetrics.includes(metric.key))
+            .map((metric) => ({
             key: metric.key,
             label: metric.label,
             unit: metric.unit,
@@ -2404,6 +2493,14 @@ const SensorConfig: React.FC = () => {
           ...conversationalHardwareConfig,
           ...flattenedMetricConfig,
         };
+
+        // Remove any null or empty string values from the hardware config 
+        // to prevent backend numeric validation errors for legacy/stale keys.
+        Object.keys(hardwareConfig).forEach((key) => {
+          if (hardwareConfig[key] === null || hardwareConfig[key] === '') {
+            delete hardwareConfig[key];
+          }
+        });
         const appConfig = {
           ...config,
           hardware_config: hardwareConfig,
@@ -2487,8 +2584,7 @@ const SensorConfig: React.FC = () => {
   const renderSetupStep = () => (
     <Box sx={{ ...sectionSx, position: 'relative' }}>
       {/* AI ASSISTANCE BUTTON - TOP RIGHT */}
-      {!showAiAssistance && (
-        <Box sx={{ position: 'absolute', top: -50, right: 0 }}>
+      <Box sx={{ position: 'absolute', top: -50, right: 0 }}>
           <Button
             variant="outlined"
             onClick={() => setShowAiAssistance(true)}
@@ -2508,8 +2604,7 @@ const SensorConfig: React.FC = () => {
           >
             AI Assistance
           </Button>
-        </Box>
-      )}
+      </Box>
 
       <Stack spacing={3}>
         {/* LEARNING PHASE INDICATOR */}
@@ -2574,27 +2669,48 @@ const SensorConfig: React.FC = () => {
           </Alert>
         )}
 
-        {/* AI PROMPT INPUT */}
-        {showAiAssistance && (
-          <Box sx={{ p: 2.5, borderRadius: 2, bgcolor: '#f0f7f0', border: '2px solid rgba(108, 137, 48, 0.2)', position: 'relative' }}>
+        {/* AI ASSISTANCE DIALOG */}
+        <Dialog
+          open={showAiAssistance}
+          onClose={() => setShowAiAssistance(false)}
+          fullWidth
+          maxWidth="sm"
+          PaperProps={{
+            sx: {
+              m: { xs: 1.5, sm: 3 },
+              width: { xs: 'calc(100% - 24px)', sm: '100%' },
+              maxHeight: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' },
+              borderRadius: { xs: 2, sm: 3 },
+            },
+          }}
+        >
+          <DialogTitle
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 1,
+              pb: 1,
+            }}
+          >
+            <Typography component="span" variant="h6" sx={{ fontWeight: 700 }}>
+              AI Assistance
+            </Typography>
             <IconButton
-              size="small"
+              aria-label="Close AI assistance"
               onClick={() => setShowAiAssistance(false)}
-              sx={{
-                position: 'absolute',
-                top: 8,
-                right: 8,
-                color: '#6c8930',
-              }}
+              edge="end"
             >
               <Close />
             </IconButton>
+          </DialogTitle>
+          <DialogContent dividers sx={{ bgcolor: '#f7faf4', p: { xs: 2, sm: 2.5 } }}>
             <Stack
-              direction={{ xs: 'column', sm: 'row' }}
+              direction="row"
               spacing={1}
               justifyContent="space-between"
-              alignItems={{ xs: 'flex-start', sm: 'center' }}
-              sx={{ mb: 1 }}
+              alignItems="center"
+              sx={{ mb: 1.5 }}
             >
               <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
                 Describe Your Setup
@@ -2724,18 +2840,15 @@ const SensorConfig: React.FC = () => {
               </Stack>
             </Alert>
           )}
-          <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+          </DialogContent>
+          <DialogActions sx={{ px: { xs: 2, sm: 2.5 }, py: 1.5 }}>
             <Button
-              size="small"
-              variant="outlined"
               onClick={() => setShowAiAssistance(false)}
-              fullWidth
             >
-              Close AI Assistance
+              Close
             </Button>
-          </Stack>
-        </Box>
-        )}
+          </DialogActions>
+        </Dialog>
 
         {/* SENSOR NAME */}
         <Box>
@@ -2800,11 +2913,11 @@ const SensorConfig: React.FC = () => {
           </Stack>
           <Grid container spacing={2}>
             {observableMetricCatalog.map((metric) => {
-              const selected = metric.key === primaryMetric;
+              const selected = selectedMetrics.includes(metric.key);
               return (
                 <Grid item xs={12} md={6} key={metric.key}>
                   <Box
-                    onClick={() => applyMetricSelection(metric)}
+                    onClick={() => toggleMetricSelection(metric)}
                     sx={{
                       p: 2,
                       borderRadius: 2,
@@ -2813,9 +2926,18 @@ const SensorConfig: React.FC = () => {
                       bgcolor: selected ? 'rgba(108, 137, 48, 0.08)' : '#fff',
                       cursor: 'pointer',
                       boxShadow: selected ? '0 8px 16px rgba(108, 137, 48, 0.12)' : 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1
                     }}
                   >
-                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                    <Checkbox
+                      checked={selected}
+                      sx={{ p: 0, '& .MuiSvgIcon-root': { fontSize: 24 }, pointerEvents: 'none' }}
+                      color="primary"
+                    />
+                    <Box>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
                       {metric.label}
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -2824,6 +2946,7 @@ const SensorConfig: React.FC = () => {
                     {selected && (
                       <Chip size="small" color="primary" label="Selected" sx={{ mt: 1 }} />
                     )}
+                    </Box>
                   </Box>
                 </Grid>
               );
@@ -3033,13 +3156,13 @@ const SensorConfig: React.FC = () => {
 
       <Grid container spacing={2} sx={{ mt: 1 }}>
         {observableMetricCatalog.map((metric) => {
-          const selected = metric.key === primaryMetric;
+          const selected = selectedMetrics.includes(metric.key);
           const availableNow = metric.availability === 'supported_now';
 
           return (
             <Grid item xs={12} md={6} lg={4} key={metric.key}>
               <Box
-                onClick={() => applyMetricSelection(metric)}
+                onClick={() => toggleMetricSelection(metric)}
                 sx={{
                   p: 2.25,
                   borderRadius: 2,
@@ -3052,23 +3175,27 @@ const SensorConfig: React.FC = () => {
                 }}
               >
                 <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="flex-start">
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                    {metric.label}
-                    {metric.unit ? ` (${metric.unit})` : ''}
-                  </Typography>
-                  <Stack direction="row" spacing={1}>
-                    <Chip
-                      size="small"
-                      color={availableNow ? 'primary' : 'default'}
-                      label={availableNow ? 'Available now' : 'Preview only'}
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Checkbox
+                      checked={selected}
+                      sx={{ p: 0, '& .MuiSvgIcon-root': { fontSize: 24 }, pointerEvents: 'none' }}
+                      color="primary"
                     />
-                    {selected && <Chip size="small" color="secondary" label="Selected" />}
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                      {metric.label}
+                      {metric.unit ? ` (${metric.unit})` : ''}
+                    </Typography>
                   </Stack>
+                  <Chip
+                    size="small"
+                    color={availableNow ? 'primary' : 'default'}
+                    label={availableNow ? 'Available now' : 'Preview only'}
+                  />
                 </Stack>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1, ml: 4 }}>
                   {metric.description}
                 </Typography>
-                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.25 }}>
+                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.25, ml: 4 }}>
                   {metric.purposes.slice(0, 3).map((option) => (
                     <Chip key={option.key} size="small" variant="outlined" label={option.label} />
                   ))}
@@ -3255,68 +3382,84 @@ const SensorConfig: React.FC = () => {
   const renderVisualizationStep = () => (
     <Box sx={sectionSx}>
       <Typography variant="subtitle1" sx={sectionTitleSx}>
-        Step 3: Visualization
+        Step 3: Dashboard View
       </Typography>
       <InfoButton tooltip="Help">
-        Choose how to display this metric on the dashboard.
+        Choose how to display your metrics on the dashboard.
       </InfoButton>
 
-      <Grid container spacing={2} sx={{ mt: 2 }}>
-        {presentationProfiles
-          .filter((profile) => allowedPresentationProfiles.includes(profile.value))
-          .map((profile) => {
-            const active = presentationProfile === profile.value;
-            const VisualizationIcon = visualizationMethodIcon(profile.visualization_method);
-            return (
-              <Grid item xs={12} md={6} lg={4} key={profile.value}>
-                <Box
-                  onClick={() => applyPresentationProfileSelection(profile.value)}
-                  sx={{
-                    p: 2.25,
-                    borderRadius: 2,
-                    border: '1px solid',
-                    borderColor: active ? 'primary.main' : 'rgba(60, 57, 17, 0.12)',
-                    bgcolor: active ? 'rgba(108, 137, 48, 0.08)' : '#fffdf8',
-                    boxShadow: active ? '0 12px 22px rgba(108, 137, 48, 0.14)' : 'none',
-                    cursor: 'pointer',
-                    height: '100%',
-                  }}
-                >
-                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1.5}>
-                    <Stack direction="row" spacing={1.1} alignItems="center">
+      {selectedMetrics.map((metricKey, index) => {
+        const metricDef = observableMetricCatalog.find(m => m.key === metricKey);
+        const allowedProfilesForMetric = getSupportedProfilesForDerivedMetric(sensor?.type || navigationState?.sensorType || '', metricKey);
+        const profile = metricPresentationProfiles[metricKey] || (allowedProfilesForMetric[0] as PresentationProfileOption) || 'single_trend';
+
+        return (
+          <Box key={metricKey} sx={{ mt: index > 0 ? 4 : 2 }}>
+            {selectedMetrics.length > 1 && (
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'primary.main' }} />
+                View for {metricDef?.label || metricKey}
+              </Typography>
+            )}
+            <Grid container spacing={2}>
+              {presentationProfiles
+                .filter((p) => allowedProfilesForMetric.includes(p.value))
+                .map((p) => {
+                  const active = profile === p.value;
+                  const VisualizationIcon = visualizationMethodIcon(p.visualization_method);
+                  return (
+                    <Grid item xs={12} md={6} lg={4} key={p.value}>
                       <Box
+                        onClick={() => {
+                          setMetricPresentationProfiles(prev => ({ ...prev, [metricKey]: p.value as PresentationProfileOption }));
+                        }}
                         sx={{
-                          p: 1,
+                          p: 2.25,
                           borderRadius: 2,
-                          bgcolor: active ? 'rgba(108, 137, 48, 0.14)' : 'rgba(60, 57, 17, 0.08)',
-                          color: active ? 'primary.main' : 'text.secondary',
-                          display: 'inline-flex',
+                          border: '1px solid',
+                          borderColor: active ? 'primary.main' : 'rgba(60, 57, 17, 0.12)',
+                          bgcolor: active ? 'rgba(108, 137, 48, 0.08)' : '#fffdf8',
+                          boxShadow: active ? '0 12px 22px rgba(108, 137, 48, 0.14)' : 'none',
+                          cursor: 'pointer',
+                          height: '100%',
                         }}
                       >
-                        <VisualizationIcon fontSize="small" />
-                      </Box>
-                      <Box>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                          {profile.visualization_label}
+                        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1.5}>
+                          <Stack direction="row" spacing={1.1} alignItems="center">
+                            <Box
+                              sx={{
+                                p: 1,
+                                borderRadius: 2,
+                                bgcolor: active ? 'rgba(108, 137, 48, 0.14)' : 'rgba(60, 57, 17, 0.08)',
+                                color: active ? 'primary.main' : 'text.secondary',
+                                display: 'inline-flex',
+                              }}
+                            >
+                              <VisualizationIcon fontSize="small" />
+                            </Box>
+                            <Box>
+                              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                                {p.visualization_label}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                {p.label}
+                              </Typography>
+                            </Box>
+                          </Stack>
+                          {active && <Chip size="small" color="primary" label="Selected" />}
+                        </Stack>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                          {p.description}
                         </Typography>
-                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                          {profile.label}
-                        </Typography>
+                        {renderVisualizationMethodPreview(p.visualization_method, active)}
                       </Box>
-                    </Stack>
-                    {active && <Chip size="small" color="primary" label="Selected" />}
-                  </Stack>
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    {profile.description}
-                  </Typography>
-                  {renderVisualizationMethodPreview(profile.visualization_method, active)}
-                </Box>
-              </Grid>
-            );
-          })}
-      </Grid>
-
-
+                    </Grid>
+                  );
+                })}
+            </Grid>
+          </Box>
+        );
+      })}
     </Box>
   );
 
@@ -3355,9 +3498,12 @@ const SensorConfig: React.FC = () => {
         <Box sx={{ mt: 2 }}>
           {(purpose || primaryMetric) && (
             <Box sx={{ mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-              {primaryMetric && (
-                <Chip label={`Metric: ${selectedDerivedMetric?.label}`} size="small" variant="outlined" />
-              )}
+              {selectedMetrics.map(metric => {
+                const metricDef = observableMetricCatalog.find(m => m.key === metric);
+                return metricDef ? (
+                  <Chip key={metric} label={`Metric: ${metricDef.label}`} size="small" variant="outlined" />
+                ) : null;
+              })}
               {purpose && (
                 <Chip label={`Purpose: ${purpose}`} size="small" variant="outlined" />
               )}
@@ -3368,7 +3514,7 @@ const SensorConfig: React.FC = () => {
               <Grid item xs={12} md={6} key={alert.key}>
                 <Box sx={{ p: 2.25, borderRadius: 2, bgcolor: '#fffdf8', border: '1px solid rgba(60, 57, 17, 0.08)', height: '100%' }}>
                   <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.75 }}>
-                    {alert.label}
+                    {selectedMetrics.length > 1 ? `${observableMetricCatalog.find(m => m.key === alert.metricKey)?.label || alert.metricKey}: ` : ''}{alert.label}
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
                     {alert.condition === 'below' ? 'Alert when below' : 'Alert when above'}
@@ -3782,9 +3928,6 @@ const SensorConfig: React.FC = () => {
         </Box>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} sx={{ mb: 2 }}>
           <Box>
-            <Typography variant="overline" sx={{ ...pageKickerSx, display: { xs: 'none', sm: 'block' } }}>
-              Sensor setup
-            </Typography>
             <Typography variant="h4" sx={{ ...pageTitleSx, fontSize: { xs: '1.45rem', sm: '2rem' } }}>
               Configure {sensor.type} Sensor
             </Typography>
@@ -3823,12 +3966,6 @@ const SensorConfig: React.FC = () => {
 
         <Box sx={{ mt: 0.5 }}>
           {renderActiveStep()}
-
-          {activeStepMeta.key === 'alerts' && (
-            <Alert severity="info" sx={{ mt: 3 }}>
-              Once you save, this configuration activates immediately and your sensor will start reporting with these settings.
-            </Alert>
-          )}
 
           <AutoDismissAlert
             open={Boolean(pageError)}

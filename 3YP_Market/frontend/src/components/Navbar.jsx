@@ -10,9 +10,12 @@ export default function Navbar() {
     <header className="fixed inset-x-0 top-0 z-50 border-b border-white/50 bg-[#f7f4ec]/85 backdrop-blur-xl">
       <nav className="section-shell flex h-[4.5rem] items-center justify-between">
         <a href="#top" className="flex items-center gap-3" aria-label="SPECTRON home">
-          <span className="grid h-10 w-10 place-items-center rounded-lg bg-slate-950 text-sm font-bold text-white">
-            S
-          </span>
+          <img
+            src="/assets/spectron-logo.svg"
+            alt=""
+            className="h-10 w-10 shrink-0 object-contain"
+            aria-hidden="true"
+          />
           <span>
             <span className="block text-sm font-bold uppercase text-slate-950">SPECTRON</span>
             <span className="block text-xs font-medium text-slate-500">Modular IoT Adapter Kit</span>

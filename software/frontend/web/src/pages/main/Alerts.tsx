@@ -101,9 +101,6 @@ const Alerts: React.FC = () => {
       </AutoDismissAlert>
 
       <Box sx={{ mb: 3 }}>
-        <Typography variant="overline" color="secondary" fontWeight={800}>
-          Attention center
-        </Typography>
         <Typography variant="h4">Alerts</Typography>
         <Typography color="text.secondary" sx={{ mt: 0.5, display: { xs: 'none', sm: 'block' } }}>
           Review critical events and clear resolved notifications.

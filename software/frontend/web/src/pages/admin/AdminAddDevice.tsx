@@ -46,7 +46,7 @@ const AdminAddDevice: React.FC = () => {
   const navigate = useNavigate();
   const [controllerId, setControllerId] = useState('');
   const [name, setName] = useState('');
-  const [location, setLocation] = useState('');
+
   const [createDefaultSensors, setCreateDefaultSensors] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -78,7 +78,7 @@ const AdminAddDevice: React.FC = () => {
       const response = await createAdminDevice({
         controllerId: controllerId.trim() || undefined,
         name: name.trim(),
-        location: location.trim() || undefined,
+
         createDefaultSensors,
       });
       setCreated(response);
@@ -171,9 +171,9 @@ const AdminAddDevice: React.FC = () => {
           className="spectron-print-label"
           sx={{
             display: 'none',
-            width: '86mm',
-            minHeight: '54mm',
-            p: '6mm',
+            width: '70mm',
+            minHeight: '46mm',
+            p: '4mm',
             boxSizing: 'border-box',
             bgcolor: '#ffffff',
             color: '#262411',
@@ -181,34 +181,34 @@ const AdminAddDevice: React.FC = () => {
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '3mm',
+            gap: '2mm',
             textAlign: 'center',
           }}
         >
-          <Typography sx={{ fontSize: '18pt', fontWeight: 900, lineHeight: 1 }}>
-            Spectron
-          </Typography>
-          <Typography sx={{ fontSize: '8pt', color: '#4f4a39', lineHeight: 1 }}>
-            Smart monitoring
-          </Typography>
+          <Box
+            component="img"
+            src="/assets/spectron-logo-full.svg"
+            alt="Spectron"
+            sx={{ height: '8mm', width: 'auto', display: 'block' }}
+          />
           <QRCodeSVG
             value={qrPayload}
-            size={132}
+            size={120}
             bgColor="#ffffff"
             fgColor="#262411"
             includeMargin
+            imageSettings={{
+              src: '/assets/spectron-logo.svg',
+              height: 24,
+              width: 24,
+              excavate: true,
+            }}
           />
-          <Typography sx={{ fontSize: '13pt', fontWeight: 900, letterSpacing: 0.5, lineHeight: 1.1 }}>
+          <Typography sx={{ fontSize: '11pt', fontWeight: 900, letterSpacing: 0.5, lineHeight: 1.1 }}>
             {created.device.controllerId}
-          </Typography>
-          <Typography sx={{ fontSize: '8pt', color: '#4f4a39', lineHeight: 1.1 }}>
-            {created.device.name}
           </Typography>
         </Box>
 
-        <Typography variant="overline" color="secondary" fontWeight={800}>
-          Device Registry
-        </Typography>
         <Typography variant="h4" sx={{ mb: 1 }}>
           Device Created
         </Typography>
@@ -262,6 +262,12 @@ const AdminAddDevice: React.FC = () => {
                     bgColor="#fffaf4"
                     fgColor="#262411"
                     includeMargin
+                    imageSettings={{
+                      src: '/assets/spectron-logo.svg',
+                      height: 44,
+                      width: 44,
+                      excavate: true,
+                    }}
                   />
                 </Box>
 
@@ -362,9 +368,6 @@ const AdminAddDevice: React.FC = () => {
   return (
     <Box>
       {backButton}
-      <Typography variant="overline" color="secondary" fontWeight={800}>
-        Device Registry
-      </Typography>
       <Typography variant="h4" sx={{ mb: 1 }}>
         Add Controller
       </Typography>
@@ -397,14 +400,7 @@ const AdminAddDevice: React.FC = () => {
               margin="normal"
               required
             />
-            <TextField
-              fullWidth
-              label="Location"
-              placeholder="Boiler Room"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              margin="normal"
-            />
+
             <FormControlLabel
               control={
                 <Checkbox

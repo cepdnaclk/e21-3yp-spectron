@@ -94,9 +94,9 @@ const AdminDevices: React.FC = () => {
           className="spectron-existing-device-print"
           sx={{
             display: 'none',
-            width: '86mm',
-            minHeight: '54mm',
-            p: '6mm',
+            width: '70mm',
+            minHeight: '46mm',
+            p: '4mm',
             boxSizing: 'border-box',
             bgcolor: '#ffffff',
             color: '#262411',
@@ -104,16 +104,32 @@ const AdminDevices: React.FC = () => {
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '3mm',
+            gap: '2mm',
             textAlign: 'center',
           }}
         >
-          <Typography sx={{ fontSize: '18pt', fontWeight: 900, lineHeight: 1 }}>Spectron</Typography>
-          <QRCodeSVG value={printDevice.controllerId} size={132} bgColor="#ffffff" fgColor="#262411" includeMargin />
-          <Typography sx={{ fontSize: '13pt', fontWeight: 900, letterSpacing: 0.5 }}>
+          <Box
+            component="img"
+            src="/assets/spectron-logo-full.svg"
+            alt="Spectron"
+            sx={{ height: '8mm', width: 'auto', display: 'block' }}
+          />
+          <QRCodeSVG
+            value={printDevice.controllerId}
+            size={120}
+            bgColor="#ffffff"
+            fgColor="#262411"
+            includeMargin
+            imageSettings={{
+              src: '/assets/spectron-logo.svg',
+              height: 24,
+              width: 24,
+              excavate: true,
+            }}
+          />
+          <Typography sx={{ fontSize: '11pt', fontWeight: 900, letterSpacing: 0.5, lineHeight: 1.1 }}>
             {printDevice.controllerId}
           </Typography>
-          <Typography sx={{ fontSize: '8pt', color: '#4f4a39' }}>{printDevice.name}</Typography>
         </Box>
       )}
       <Stack
@@ -124,9 +140,6 @@ const AdminDevices: React.FC = () => {
         sx={{ mb: 3 }}
       >
         <Box>
-          <Typography variant="overline" color="secondary" fontWeight={800}>
-            Device Registry
-          </Typography>
           <Typography variant="h4">Controllers</Typography>
           <Typography color="text.secondary" sx={{ mt: 0.75, display: { xs: 'none', sm: 'block' } }}>
             Register physical controller IDs and review which account owns each device.

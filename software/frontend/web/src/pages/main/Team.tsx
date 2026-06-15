@@ -179,9 +179,6 @@ const Team: React.FC = () => {
         sx={{ mb: 3 }}
       >
         <Box>
-          <Typography variant="overline" color="secondary" fontWeight={800}>
-            Team
-          </Typography>
           <Typography variant="h4" sx={{ mb: 1 }}>
             Viewer accounts
           </Typography>

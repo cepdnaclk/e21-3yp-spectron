@@ -7,9 +7,12 @@ export default function Footer() {
       <div className="section-shell">
         <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
-            <span className="grid h-11 w-11 place-items-center rounded-lg bg-slate-950 text-sm font-bold text-white">
-              S
-            </span>
+            <img
+              src="/assets/spectron-logo.svg"
+              alt=""
+              className="h-11 w-11 shrink-0 object-contain"
+              aria-hidden="true"
+            />
             <div>
               <p className="font-bold uppercase text-slate-950">SPECTRON</p>
               <p className="text-sm text-slate-600">A standardized modular IoT adapter kit.</p>

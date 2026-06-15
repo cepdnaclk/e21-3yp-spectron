@@ -21,7 +21,7 @@ import {
   Logout,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
-import SpectronLogo from './SpectronLogo';
+
 
 const baseRoutes = [
   { label: 'Controllers', path: '/controllers', icon: <ChipIcon /> },
@@ -121,17 +121,14 @@ const Layout: React.FC = () => {
               flexDirection: 'column',
             }}
           >
-            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 4 }}>
-              <SpectronLogo size={42} />
-              <Box>
-                <Typography variant="h6" sx={{ lineHeight: 1 }}>
-                  Spectron
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Smart monitoring
-                </Typography>
-              </Box>
-            </Stack>
+            <Box sx={{ mb: 4 }}>
+              <Box
+                component="img"
+                src="/assets/spectron-logo-full.svg"
+                alt="Spectron"
+                sx={{ height: 28, width: 'auto', display: 'block' }}
+              />
+            </Box>
 
             <Stack spacing={1}>
               {routes.map((item, index) => (
@@ -239,19 +236,21 @@ const Layout: React.FC = () => {
         <Box
           component="header"
           sx={{
-            px: { xs: 2, md: 4 },
-            pt: { xs: 1.5, md: 3 },
-            pb: { xs: 1, md: 0 },
+            px: { xs: 2.5, md: 4 },
+            pt: { xs: 'calc(16px + env(safe-area-inset-top))', md: 3 },
+            pb: { xs: 1.25, md: 0 },
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
           }}
         >
           {!isDesktop && (
-            <Stack direction="row" spacing={1.2} alignItems="center">
-              <SpectronLogo size={38} />
-              <Typography variant="h6">Spectron</Typography>
-            </Stack>
+            <Box
+              component="img"
+              src="/assets/spectron-logo-full.svg"
+              alt="Spectron"
+              sx={{ height: 26, width: 'auto', display: 'block' }}
+            />
           )}
         </Box>
         <Outlet />

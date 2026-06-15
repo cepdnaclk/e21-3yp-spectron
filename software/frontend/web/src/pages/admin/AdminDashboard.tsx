@@ -43,9 +43,6 @@ const AdminDashboard: React.FC = () => {
         sx={{ mb: 3 }}
       >
         <Box>
-          <Typography variant="overline" color="secondary" fontWeight={800}>
-            Admin Dashboard
-          </Typography>
           <Typography variant="h4">Device operations overview</Typography>
           <Typography color="text.secondary" sx={{ mt: 0.75, maxWidth: 760, display: { xs: 'none', sm: 'block' } }}>
             Register hardware IDs, print controller QR labels, and keep ownership visible after users claim controllers.

@@ -710,6 +710,86 @@ func (h *AuthHandler) CreateViewer(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *AuthHandler) DeleteViewer(w http.ResponseWriter, r *http.Request) {
+	accountID := GetAccountID(r).(uuid.UUID)
+	viewerIDParam := strings.TrimSpace(chi.URLParam(r, "userId"))
+	viewerID, err := uuid.Parse(viewerIDParam)
+	if err != nil {
+		http.Error(w, "invalid viewer id", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := h.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	var role string
+	err = tx.QueryRow(r.Context(), `
+		SELECT am.role
+		FROM account_memberships am
+		WHERE am.account_id = $1 AND am.user_id = $2
+	`, accountID, viewerID).Scan(&role)
+	if err == pgx.ErrNoRows {
+		http.Error(w, "viewer not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	if role != "VIEWER" {
+		http.Error(w, "only viewer accounts can be removed", http.StatusBadRequest)
+		return
+	}
+
+	command, err := tx.Exec(r.Context(), `
+		DELETE FROM account_memberships
+		WHERE account_id = $1 AND user_id = $2 AND role = 'VIEWER'
+	`, accountID, viewerID)
+	if err != nil {
+		log.Printf("Failed to remove viewer membership: %v", err)
+		http.Error(w, "failed to remove viewer", http.StatusInternalServerError)
+		return
+	}
+	if command.RowsAffected() == 0 {
+		http.Error(w, "viewer not found", http.StatusNotFound)
+		return
+	}
+
+	var remainingMemberships int
+	if err := tx.QueryRow(r.Context(), `
+		SELECT COUNT(*)::int
+		FROM account_memberships
+		WHERE user_id = $1
+	`, viewerID).Scan(&remainingMemberships); err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	if remainingMemberships == 0 {
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM users
+			WHERE id = $1 AND account_type = 'USER'
+		`, viewerID); err != nil {
+			log.Printf("Failed to delete viewer user: %v", err)
+			http.Error(w, "failed to remove viewer", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to remove viewer", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "viewer_removed",
+	})
+}
+
 func (h *AuthHandler) AdminListOwners(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(r.Context(), `
 		SELECT
