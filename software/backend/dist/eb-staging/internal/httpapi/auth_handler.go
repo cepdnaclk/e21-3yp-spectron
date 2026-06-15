@@ -850,6 +850,7 @@ func (h *AuthHandler) AdminListOwners(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) AdminCreateOwner(w http.ResponseWriter, r *http.Request) {
+	actorUserID := GetUserID(r).(uuid.UUID)
 	var req CreateOwnerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
@@ -909,6 +910,21 @@ func (h *AuthHandler) AdminCreateOwner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := recordAdminAuditEvent(r.Context(), tx, r, actorUserID, adminAuditEventInput{
+		Action:      "OWNER_CREATED",
+		TargetType:  "USER",
+		TargetID:    userID.String(),
+		TargetLabel: email,
+		Details: map[string]any{
+			"accountId":        accountID.String(),
+			"organizationName": orgName,
+			"status":           "ACTIVE",
+		},
+	}); err != nil {
+		http.Error(w, "failed to record owner audit event", http.StatusInternalServerError)
+		return
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		http.Error(w, "failed to create owner", http.StatusInternalServerError)
 		return
@@ -933,6 +949,7 @@ func (h *AuthHandler) AdminRejectOwner(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) adminSetOwnerStatus(w http.ResponseWriter, r *http.Request, status string) {
+	actorUserID := GetUserID(r).(uuid.UUID)
 	userIDParam := strings.TrimSpace(chi.URLParam(r, "userId"))
 	userID, err := uuid.Parse(userIDParam)
 	if err != nil {
@@ -940,9 +957,18 @@ func (h *AuthHandler) adminSetOwnerStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	command, err := h.db.Exec(r.Context(), `
-		UPDATE users u
-		SET status = $2
+	tx, err := h.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	var email string
+	var previousStatus string
+	err = tx.QueryRow(r.Context(), `
+		SELECT u.email, u.status
+		FROM users u
 		WHERE u.id = $1
 		  AND u.account_type = 'USER'
 		  AND EXISTS (
@@ -950,13 +976,49 @@ func (h *AuthHandler) adminSetOwnerStatus(w http.ResponseWriter, r *http.Request
 		      FROM account_memberships am
 		      WHERE am.user_id = u.id AND am.role = 'OWNER'
 		  )
+		FOR UPDATE
+	`, userID).Scan(&email, &previousStatus)
+	if err == pgx.ErrNoRows {
+		http.Error(w, "owner not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to load owner", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = tx.Exec(r.Context(), `
+		UPDATE users u
+		SET status = $2
+		WHERE u.id = $1
 	`, userID, status)
 	if err != nil {
 		http.Error(w, "failed to update owner", http.StatusInternalServerError)
 		return
 	}
-	if command.RowsAffected() == 0 {
-		http.Error(w, "owner not found", http.StatusNotFound)
+
+	action := "OWNER_STATUS_CHANGED"
+	if status == "ACTIVE" {
+		action = "OWNER_APPROVED"
+	} else if status == "REJECTED" {
+		action = "OWNER_REJECTED"
+	}
+	if err := recordAdminAuditEvent(r.Context(), tx, r, actorUserID, adminAuditEventInput{
+		Action:      action,
+		TargetType:  "USER",
+		TargetID:    userID.String(),
+		TargetLabel: email,
+		Details: map[string]any{
+			"previousStatus": previousStatus,
+			"newStatus":      status,
+		},
+	}); err != nil {
+		http.Error(w, "failed to record owner audit event", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to update owner", http.StatusInternalServerError)
 		return
 	}
 
