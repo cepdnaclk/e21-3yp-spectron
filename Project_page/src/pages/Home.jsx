@@ -40,7 +40,13 @@ function Home({ copy }) {
                 </svg>
                 <span>{copy.hero.eyebrow}</span>
               </p>
-              <h1 className="hero__title">{copy.hero.title}</h1>
+              <h1 className="hero__title">
+                <img
+                  className="hero__title-logo"
+                  src="/team/spectron-logo-full.svg"
+                  alt={copy.hero.title}
+                />
+              </h1>
               <p className="hero__text">{copy.hero.text}</p>
               <div className="hero__actions">
                 <a className="btn btn--primary" href="#architecture">
@@ -58,7 +64,13 @@ function Home({ copy }) {
               </div>
               <div className="adapter-visual" aria-hidden="true">
                 <span className="adapter-visual__port"></span>
-                <span className="adapter-visual__chip">S</span>
+                <span className="adapter-visual__chip">
+                  <img
+                    className="adapter-visual__chip-logo"
+                    src="/team/spectron-logo.svg"
+                    alt=""
+                  />
+                </span>
                 <span className="adapter-visual__port"></span>
               </div>
               <h2 className="card__title">{copy.hero.highlightsTitle}</h2>

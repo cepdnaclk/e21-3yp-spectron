@@ -65,8 +65,7 @@ section[id] {
 }
 
 .site-header .brand-logo__mark {
-  background: rgba(244, 251, 250, 0.96);
-  color: #070b1d;
+  background: transparent;
   box-shadow: none;
 }
 
