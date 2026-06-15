@@ -134,6 +134,7 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 		return fmt.Errorf("load config for sensor %s: %w", sensorHWID, err)
 	}
 
+	normalizedValue, convertedDistance := normalizeReadingValue(persistedSensorType, sensor.Value)
 	readingMeta := map[string]any{
 		"event_id":            event.EventID,
 		"device_id":           event.DeviceID,
@@ -146,15 +147,21 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 		"timestamp_raw":       event.TimestampRaw,
 		"source":              event.Source,
 	}
+	if convertedDistance {
+		readingMeta["raw_value"] = sensor.Value
+		readingMeta["raw_unit"] = "mm"
+		readingMeta["normalized_unit"] = "cm"
+		readingMeta["distance_conversion"] = "mm_to_cm"
+	}
 
-	alertValue := sensor.Value
+	alertValue := normalizedValue
 	if hasConfig {
 		attendance, enabled, err := p.processDistanceAttendance(
 			ctx,
 			tx,
 			persistedSensorID,
 			persistedSensorType,
-			sensor.Value,
+			normalizedValue,
 			event.ReadingTime,
 			config,
 		)
@@ -185,7 +192,7 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 		SET system_sensor_id = COALESCE(EXCLUDED.system_sensor_id, sensor_readings.system_sensor_id),
 		    value = EXCLUDED.value,
 		    meta = EXCLUDED.meta
-	`, event.ReadingTime, persistedSensorID, systemSensorID, sensor.Value, meta)
+	`, event.ReadingTime, persistedSensorID, systemSensorID, normalizedValue, meta)
 	if err != nil {
 		return fmt.Errorf("insert sensor reading %s: %w", sensorHWID, err)
 	}
@@ -206,6 +213,15 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 	}
 
 	return nil
+}
+
+func normalizeReadingValue(sensorType string, value float64) (float64, bool) {
+	switch strings.ToLower(strings.TrimSpace(sensorType)) {
+	case "vl53l0x", "distance":
+		return value / 10.0, true
+	default:
+		return value, false
+	}
 }
 
 func upsertSystemSensorState(
