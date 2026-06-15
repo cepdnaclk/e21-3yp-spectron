@@ -2880,14 +2880,24 @@ const SensorConfig: React.FC = () => {
           appConfig,
         });
 
+        const successState = {
+          configurationSaved: true,
+          configuredSensorId: sensor.id,
+          configuredSensorName: friendlyName.trim(),
+          observationMessage: 'Three-layer configuration activated successfully.',
+        };
+
+        if (navigationState?.returnTo) {
+          navigate(navigationState.returnTo, {
+            replace: true,
+            state: successState,
+          });
+          return;
+        }
+
         navigate(`/hardware/${activeControllerId}/sensors`, {
           replace: true,
-          state: {
-            configurationSaved: true,
-            configuredSensorId: sensor.id,
-            configuredSensorName: friendlyName.trim(),
-            observationMessage: 'Three-layer configuration activated successfully.',
-          },
+          state: successState,
         });
         return;
       }

@@ -25,7 +25,10 @@ const baseSensor = (type: string, name = `${type} Sensor`): Sensor => ({
   config_active: false,
 });
 
-const renderSensorConfig = (sensor: Sensor) => {
+const renderSensorConfig = (
+  sensor: Sensor,
+  navigationState?: Record<string, unknown>
+) => {
   vi.mocked(getHardwareController).mockResolvedValue({
     id: 'CTRL-100',
     account_id: 'account-1',
@@ -38,10 +41,18 @@ const renderSensorConfig = (sensor: Sensor) => {
   vi.mocked(saveHardwareSensorConfiguration).mockResolvedValue(undefined);
 
   render(
-    <MemoryRouter initialEntries={['/hardware/CTRL-100/sensors/sensor-1/configure']}>
+    <MemoryRouter
+      initialEntries={[
+        {
+          pathname: '/hardware/CTRL-100/sensors/sensor-1/configure',
+          state: navigationState,
+        },
+      ]}
+    >
       <Routes>
         <Route path="/hardware/:controllerId/sensors/:sensorId/configure" element={<SensorConfig />} />
         <Route path="/hardware/:controllerId/sensors" element={<div>Back to sensors</div>} />
+        <Route path="/monitoring" element={<div>Back to monitoring</div>} />
       </Routes>
     </MemoryRouter>
   );
@@ -177,6 +188,19 @@ describe('SensorConfig', () => {
 
     await user.click(screen.getByRole('button', { name: /next/i }));
     expect(await screen.findByRole('heading', { name: /^Alerts$/i })).toBeInTheDocument();
+  });
+
+  it('returns to monitoring after saving a config opened from monitoring', async () => {
+    localStorage.clear();
+    const user = userEvent.setup();
+    renderSensorConfig(baseSensor('load', 'Load Sensor'), { returnTo: '/monitoring' });
+
+    await screen.findByRole('heading', { name: /configure load sensor/i });
+    await user.click(screen.getByRole('button', { name: /next/i }));
+    await user.click(screen.getByRole('button', { name: /save and activate configuration/i }));
+
+    expect(await screen.findByText(/back to monitoring/i)).toBeInTheDocument();
+    expect(screen.queryByText(/back to sensors/i)).not.toBeInTheDocument();
   });
 
   it('validates the current step before moving forward', async () => {
