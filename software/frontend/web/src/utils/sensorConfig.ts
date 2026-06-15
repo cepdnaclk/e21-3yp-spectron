@@ -2554,6 +2554,47 @@ const alertTemplateValuesForMetric = (
           critical_label: 'Critical at or above',
         },
       ];
+    case 'temperature_spike':
+    case 'humidity_spike':
+    case 'gas_spike':
+      return [
+        {
+          key: `${metricKey}_spike_band`,
+          label: `${getMetricLabel(metricKey)} Alert`,
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: `Escalate when ${getMetricLabel(metricKey).toLowerCase()} exceeds the expected short-term change.`,
+          warning_label: 'Rapid change at',
+          critical_label: 'Critical change at',
+        },
+      ];
+    case 'heat_index':
+      return [
+        {
+          key: `${metricKey}_heat_band`,
+          label: 'Heat Stress Alert',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Warn when combined temperature and humidity create unsafe perceived heat.',
+          warning_label: 'Heat stress at',
+          critical_label: 'Dangerous heat at',
+        },
+      ];
+    case 'dew_point':
+      return [
+        {
+          key: `${metricKey}_condensation_band`,
+          label: 'Condensation Risk Alert',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Warn when the dew point indicates an increased risk of condensation or moisture damage.',
+          warning_label: 'Condensation risk at',
+          critical_label: 'Critical moisture risk at',
+        },
+      ];
     case 'fill_level':
       return [
         {
@@ -2567,6 +2608,32 @@ const alertTemplateValuesForMetric = (
           critical_label: 'Urgent service at',
         },
       ];
+    case 'remaining_capacity_percent':
+      return [
+        {
+          key: `${metricKey}_reserve_band`,
+          label: 'Low Remaining Capacity Alert',
+          metric_key: metricKey,
+          condition: 'below',
+          unit,
+          description: 'Escalate when the free capacity or remaining reserve falls below the required level.',
+          warning_label: 'Capacity running low at',
+          critical_label: 'Critical capacity at',
+        },
+      ];
+    case 'fill_rate':
+      return [
+        {
+          key: `${metricKey}_rate_band`,
+          label: profile === 'event_timeline' ? 'Rapid Fill Event' : 'High Fill Rate Alert',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Warn when the container is filling faster than the expected daily rate.',
+          warning_label: 'Filling quickly at',
+          critical_label: 'Critical fill rate at',
+        },
+      ];
     case 'occupancy_count':
       return [
         {
@@ -2578,6 +2645,32 @@ const alertTemplateValuesForMetric = (
           description: 'Escalate when the monitored area becomes crowded or exceeds safe occupancy.',
           warning_label: 'Busy at',
           critical_label: 'Crowded at',
+        },
+      ];
+    case 'occupancy_spike':
+      return [
+        {
+          key: `${metricKey}_spike_band`,
+          label: 'Sudden Occupancy Increase',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Escalate when the people count rises sharply within a short observation window.',
+          warning_label: 'Rapid increase at',
+          critical_label: 'Critical surge at',
+        },
+      ];
+    case 'peak_occupancy':
+      return [
+        {
+          key: `${metricKey}_peak_band`,
+          label: 'Peak Occupancy Alert',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Warn when the highest observed occupancy approaches or exceeds the safe capacity.',
+          warning_label: 'High peak at',
+          critical_label: 'Unsafe peak at',
         },
       ];
     case 'attendance_count':
@@ -2607,6 +2700,45 @@ const alertTemplateValuesForMetric = (
               : 'Warn when the measured load approaches or exceeds the supported weight band.',
           warning_label: 'Heavy load at',
           critical_label: 'Overload at',
+        },
+      ];
+    case 'utilization_percent':
+      return [
+        {
+          key: `${metricKey}_capacity_band`,
+          label: 'Capacity Utilization Alert',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Warn when the measured load uses too much of the configured operating capacity.',
+          warning_label: 'High utilization at',
+          critical_label: 'Capacity exceeded at',
+        },
+      ];
+    case 'load_change_rate':
+      return [
+        {
+          key: `${metricKey}_rate_band`,
+          label: 'Rapid Load Change Alert',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Escalate when weight changes faster than the expected operating rate.',
+          warning_label: 'Rapid change at',
+          critical_label: 'Critical change at',
+        },
+      ];
+    case 'depletion_rate':
+      return [
+        {
+          key: `${metricKey}_rate_band`,
+          label: 'High Depletion Rate Alert',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Warn when stored material or inventory is being consumed faster than expected.',
+          warning_label: 'Depleting quickly at',
+          critical_label: 'Critical depletion at',
         },
       ];
     case 'overload_risk':
@@ -2646,8 +2778,33 @@ const alertTemplateValuesForMetric = (
           critical_label: 'Critical at',
         },
       ];
+    case 'risk_score':
+      return [
+        {
+          key: `${metricKey}_risk_band`,
+          label: 'Safety Risk Score Alert',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Escalate when the normalized safety risk score enters a warning or critical band.',
+          warning_label: 'Elevated risk at',
+          critical_label: 'Critical risk at',
+        },
+      ];
+    case 'unsafe_duration':
+      return [
+        {
+          key: `${metricKey}_duration_band`,
+          label: 'Extended Unsafe Exposure Alert',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Warn when unsafe environmental conditions continue for too long.',
+          warning_label: 'Unsafe for',
+          critical_label: 'Critical duration at',
+        },
+      ];
     case 'distance':
-    default:
       return [
         {
           key: `${metricKey}_limit_band`,
@@ -2660,6 +2817,19 @@ const alertTemplateValuesForMetric = (
               ? 'Escalate when the measured distance crosses the event threshold.'
               : 'Warn when the measured distance exceeds the configured limit.',
           warning_label: 'Review at or above',
+          critical_label: 'Critical at or above',
+        },
+      ];
+    default:
+      return [
+        {
+          key: `${metricKey}_limit_band`,
+          label: `${getMetricLabel(metricKey)} Alert`,
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: `Warn when ${getMetricLabel(metricKey).toLowerCase()} exceeds the configured operating limit.`,
+          warning_label: 'Warning at or above',
           critical_label: 'Critical at or above',
         },
       ];
