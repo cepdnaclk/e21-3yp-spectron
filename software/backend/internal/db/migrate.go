@@ -54,6 +54,9 @@ var migration013ControllerClaimOwnership string
 //go:embed migrations/014_distance_attendance_state.sql
 var migration014DistanceAttendanceState string
 
+//go:embed migrations/015_admin_audit_events.sql
+var migration015AdminAuditEvents string
+
 type migration struct {
 	name string
 	sql  string
@@ -74,6 +77,7 @@ var startupMigrations = []migration{
 	{name: "012_sensor_type_compatibility", sql: migration012SensorTypeCompatibility},
 	{name: "013_controller_claim_ownership", sql: migration013ControllerClaimOwnership},
 	{name: "014_distance_attendance_state", sql: migration014DistanceAttendanceState},
+	{name: "015_admin_audit_events", sql: migration015AdminAuditEvents},
 }
 
 func ApplyStartupMigrations(ctx context.Context, pool *pgxpool.Pool) error {
