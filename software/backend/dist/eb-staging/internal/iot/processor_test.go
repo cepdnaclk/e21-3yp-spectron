@@ -1,6 +1,7 @@
 package iot
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -187,6 +188,82 @@ func TestThresholdAlertMessageIncludesSensorValueAndTime(t *testing.T) {
 		if !strings.Contains(message, expected) {
 			t.Fatalf("expected message %q to contain %q", message, expected)
 		}
+	}
+}
+
+func TestDistanceAttendanceCountsSpikeThenRequiresClearDoor(t *testing.T) {
+	config := distanceAttendanceConfig{
+		BaselineCM: 300,
+		TriggerCM:  100,
+		ResetCM:    80,
+		Cooldown:   2 * time.Second,
+	}
+	start := time.Date(2026, 6, 15, 10, 0, 0, 0, time.UTC)
+	state := distanceAttendanceState{SessionStartedAt: start}
+
+	first, state := evaluateDistanceAttendance(150, start, config, state)
+	if !first.Counted || first.Count != 1 || !first.PassageActive {
+		t.Fatalf("expected first passage to count once, got %+v", first)
+	}
+	if !first.SessionStartedAt.Equal(start) {
+		t.Fatalf("expected attendance session start %s, got %s", start, first.SessionStartedAt)
+	}
+
+	duplicate, state := evaluateDistanceAttendance(140, start.Add(3*time.Second), config, state)
+	if duplicate.Counted || duplicate.Count != 1 {
+		t.Fatalf("expected blocked doorway not to count twice, got %+v", duplicate)
+	}
+
+	cleared, state := evaluateDistanceAttendance(295, start.Add(4*time.Second), config, state)
+	if cleared.PassageActive {
+		t.Fatalf("expected clear doorway to rearm detector, got %+v", cleared)
+	}
+
+	second, _ := evaluateDistanceAttendance(410, start.Add(5*time.Second), config, state)
+	if !second.Counted || second.Count != 2 {
+		t.Fatalf("expected upward spike to count after rearm, got %+v", second)
+	}
+}
+
+func TestDistanceAttendanceEnforcesCooldownAfterRearm(t *testing.T) {
+	config := distanceAttendanceConfig{BaselineCM: 300, TriggerCM: 100, ResetCM: 80, Cooldown: 2 * time.Second}
+	start := time.Date(2026, 6, 15, 10, 0, 0, 0, time.UTC)
+	countedAt := start
+	state := distanceAttendanceState{Count: 1, LastCountedAt: &countedAt}
+
+	result, _ := evaluateDistanceAttendance(150, start.Add(time.Second), config, state)
+	if result.Counted || result.Count != 1 {
+		t.Fatalf("expected reading inside cooldown to be ignored, got %+v", result)
+	}
+}
+
+func TestDistanceAttendanceIgnoresInvalidReading(t *testing.T) {
+	config := distanceAttendanceConfig{BaselineCM: 300, TriggerCM: 100, ResetCM: 80, Cooldown: 2 * time.Second}
+	state := distanceAttendanceState{Count: 4}
+
+	result, nextState := evaluateDistanceAttendance(math.Inf(1), time.Now().UTC(), config, state)
+	if result.Counted || result.Count != 4 || nextState.Count != 4 {
+		t.Fatalf("expected invalid reading to leave attendance unchanged, got result=%+v state=%+v", result, nextState)
+	}
+}
+
+func TestAttendanceConfigReadsConfiguredDoorDistances(t *testing.T) {
+	config := models.SensorConfig{
+		UseCase:      "attendance_monitoring",
+		PrimaryMetric: "attendance_count",
+		HardwareConfig: map[string]interface{}{
+			"attendanceBaselineDistanceCm": 250.0,
+			"attendanceTriggerDeltaCm":     75.0,
+			"attendanceCooldownSeconds":    2.0,
+		},
+	}
+
+	detector, ok := attendanceConfigForSensor("vl53l0x", config)
+	if !ok {
+		t.Fatal("expected attendance detector to be enabled")
+	}
+	if detector.BaselineCM != 250 || detector.TriggerCM != 75 || detector.Cooldown != 2*time.Second {
+		t.Fatalf("unexpected detector config: %+v", detector)
 	}
 }
 
