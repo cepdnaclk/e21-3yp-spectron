@@ -639,8 +639,8 @@ func (h *ControllerHandler) ControllerSensorsAPI(w http.ResponseWriter, r *http.
 	}
 
 	if err := h.syncHardwareSensorsForActiveSystem(r.Context(), controller.id); err != nil {
-		http.Error(w, "failed to prepare sensors", http.StatusInternalServerError)
-		return
+		// Log but do not abort: allow loadHardwareSensors to return whatever is already in the database.
+		log.Printf("[WARN] syncHardwareSensorsForActiveSystem failed for controller %s: %v", controllerParam, err)
 	}
 
 	sensors := []models.HardwareSensorResponse{}
