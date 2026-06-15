@@ -34,8 +34,12 @@ export default function Hero() {
             <Zap className="h-3.5 w-3.5" aria-hidden="true" />
             Standardized modular IoT adapter kit
           </p>
-          <h1 className="mt-6 max-w-4xl text-5xl font-bold leading-none text-slate-950 sm:text-6xl lg:text-7xl">
-            SPECTRON
+          <h1 className="mt-6 max-w-xl">
+            <img
+              src="/assets/spectron-logo-full.svg"
+              alt="SPECTRON"
+              className="h-auto w-full"
+            />
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-700 sm:text-xl">
             One reusable device core for multiple sensing applications. Attach different sensor
