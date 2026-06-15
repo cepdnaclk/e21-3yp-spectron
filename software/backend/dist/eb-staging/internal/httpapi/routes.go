@@ -127,6 +127,8 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		})
 		r.Route("/sensors", func(r chi.Router) {
 			r.Get("/{id}", sensorHandler.Get)
+			r.Get("/{id}/attendance", sensorHandler.GetAttendanceState)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/attendance/reset", sensorHandler.ResetAttendance)
 			// TODO: Learning phase endpoints - implementation pending
 			// r.Get("/{id}/learning-phase", sensorHandler.GetLearningPhaseStatus)
 			// r.Post("/{id}/learning-phase/suggestions", sensorHandler.GetLearningPhaseSuggestions)
