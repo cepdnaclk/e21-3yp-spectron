@@ -4,7 +4,11 @@ function BrandLogo({ className = "", as: Component = "span" }) {
   return (
     <Component className={classes} aria-label="Spectron Modular IoT Adapter Kit">
       <span className="brand-logo__mark" aria-hidden="true">
-        S
+        <img
+          className="brand-logo__mark-img"
+          src="/team/spectron-logo.svg"
+          alt=""
+        />
       </span>
       <span className="brand-logo__copy">
         <span className="brand-logo__name">SPECTRON</span>

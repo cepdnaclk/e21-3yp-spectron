@@ -13,8 +13,7 @@
 }
 
 .brand-logo--footer .brand-logo__mark {
-  background: var(--footer-ink);
-  color: var(--footer-bg);
+  background: transparent;
   box-shadow: none;
 }
 
