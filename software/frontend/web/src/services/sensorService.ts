@@ -5,6 +5,8 @@ export interface Sensor {
   id: string;
   controller_id: string;
   hw_id: string;
+  physical_sensor_id?: string;
+  slot_key?: string;
   type: string;
   name?: string;
   purpose?: string;
@@ -37,6 +39,11 @@ export interface SensorReading {
   min_value?: number;
   max_value?: number;
   meta?: Record<string, unknown>;
+}
+
+export interface AttendanceState {
+  attendance_count: number;
+  session_started_at?: string;
 }
 
 export interface SensorConfig {
@@ -83,6 +90,8 @@ export interface SensorInterpretationLayer {
   use_case?: string;
   primary_metric?: string;
   display_unit?: string;
+  /** Metric keys explicitly selected in the "What to Measure" step. Used by the monitoring dashboard to decide which metric cards to show. */
+  observable_metrics?: string[];
   derived_metrics?: SensorDerivedMetric[];
   thresholds?: {
     min?: number;
@@ -236,4 +245,14 @@ export const getSensorReadings = async (
     params,
   });
   return Array.isArray(response.data) ? response.data : [];
+};
+
+export const getAttendanceState = async (sensorId: string): Promise<AttendanceState> => {
+  const response = await api.get<AttendanceState>(API_ENDPOINTS.SENSORS.ATTENDANCE(sensorId));
+  return response.data;
+};
+
+export const resetAttendanceCount = async (sensorId: string): Promise<AttendanceState> => {
+  const response = await api.post<AttendanceState>(API_ENDPOINTS.SENSORS.RESET_ATTENDANCE(sensorId));
+  return response.data;
 };

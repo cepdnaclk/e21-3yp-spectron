@@ -210,17 +210,31 @@ const renameRouteUnavailableError = () => {
 
 export const toAppSensor = (controllerId: string, sensor: HardwarePairingSensor): Sensor => {
   const appConfig = sensor.config?.appConfig as SensorConfigPayload | undefined;
+  const sensorUid = sensor.sensorUid || sensor.id;
 
   return {
     id: sensor.id,
     controller_id: controllerId,
-    hw_id: sensor.sensorUid || sensor.id,
+    hw_id: sensorUid,
+    physical_sensor_id: getPhysicalHardwareSensorId(sensorUid, sensor.type),
+    slot_key: sensor.slotKey,
     type: sensor.type,
     name: sensor.name,
     status: normalizeStatus(sensor.status),
     config_active: sensor.configured,
     active_config: appConfig,
   };
+};
+
+const getPhysicalHardwareSensorId = (sensorUid: string, sensorType: string) => {
+  const normalizedType = (sensorType || '').trim().toLowerCase();
+  if (normalizedType === 'humidity' && /-humidity$/i.test(sensorUid)) {
+    return sensorUid.replace(/-humidity$/i, '');
+  }
+  if (normalizedType === 'pressure' && /-pressure$/i.test(sensorUid)) {
+    return sensorUid.replace(/-pressure$/i, '');
+  }
+  return sensorUid;
 };
 
 const toHardwareThreshold = (rawValue: unknown): number | undefined => {

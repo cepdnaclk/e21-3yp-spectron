@@ -27,7 +27,13 @@ import {
   renameHardwareSensor,
   releaseHardwareController,
 } from '../../services/hardwarePairingService';
-import { formatHardwareMetricRange, getSensorHardwareCapabilities } from '../../utils/sensorConfig';
+import { formatHardwareMetricRange, getSensorHardwareCapabilities, SensorHardwareMetric } from '../../utils/sensorConfig';
+import {
+  getOriginalSensorName,
+  getPhysicalSensorGroupKey,
+  isDefaultSensorName,
+  resolvePhysicalSensorType,
+} from '../../utils/physicalSensor';
 import { ControllerDashboardSkeleton } from '../../components/LoadingSkeletons';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { useAuth } from '../../contexts/AuthContext';
@@ -111,6 +117,81 @@ const ControllerDashboard: React.FC = () => {
       ),
     [removedSensorSet, reportedSensors]
   );
+
+  const groupedSensors = useMemo(() => {
+    const groups: Record<string, Sensor[]> = {};
+    sensors.forEach((sensor) => {
+      const baseId = getPhysicalSensorGroupKey(sensor, sensors);
+      if (!groups[baseId]) {
+        groups[baseId] = [];
+      }
+      groups[baseId].push(sensor);
+    });
+
+    return Object.entries(groups).map(([baseId, groupSensors]) => {
+      const primarySensor = groupSensors.find((s) => s.config_active) || groupSensors[0];
+
+      const groupType = resolvePhysicalSensorType(groupSensors);
+      const originalName = getOriginalSensorName(groupType);
+
+      let groupName = '';
+      const customNamed = groupSensors.find((sensor) => !isDefaultSensorName(sensor));
+      if (customNamed) {
+        groupName = customNamed.name || '';
+      } else {
+        groupName = originalName;
+      }
+
+      const hasError = groupSensors.some(s => s.status === 'ERROR');
+      const groupStatus = hasError ? 'ERROR' : 'OK';
+
+      const isConfigured = groupSensors.some(s => s.config_active);
+
+      let observation = undefined;
+      const review = groupSensors.find(s => s.observation?.status === 'ready_for_review');
+      const awaiting = groupSensors.find(s => s.observation?.status === 'awaiting_data');
+      const observing = groupSensors.find(s => s.observation?.status === 'observing');
+      
+      if (review) {
+        observation = review.observation;
+      } else if (awaiting) {
+        observation = awaiting.observation;
+      } else if (observing) {
+        observation = observing.observation;
+      }
+
+      const rangesMap: Record<string, SensorHardwareMetric> = {};
+      groupSensors.forEach(s => {
+        const capabilities = s.active_config?.hardware?.supported_raw_metrics?.length
+          ? s.active_config.hardware.supported_raw_metrics
+          : getSensorHardwareCapabilities(s.type);
+        capabilities.forEach(c => {
+          rangesMap[c.key] = c;
+        });
+      });
+      let readableRanges = Object.values(rangesMap);
+      if (readableRanges.length === 0) {
+        readableRanges = getSensorHardwareCapabilities(groupType);
+      }
+
+      const purpose = groupSensors.map(s => s.purpose).find(p => p && p.trim() !== '');
+
+      return {
+        id: primarySensor.id,
+        hw_id: baseId,
+        name: groupName,
+        originalName,
+        type: groupType,
+        status: groupStatus,
+        config_active: isConfigured,
+        observation,
+        sensors: groupSensors,
+        primarySensor,
+        readableRanges,
+        purpose,
+      };
+    });
+  }, [sensors, removedSensorIds]);
 
   useEffect(() => {
     if (controller && !editingControllerName) {
@@ -220,6 +301,84 @@ const ControllerDashboard: React.FC = () => {
         return { label: 'Error', color: 'error' as const };
       default:
         return { label: 'Not connected', color: 'default' as const };
+    }
+  };
+
+  const getObservationChipForGroup = (group: any) => {
+    if (!group.observation) {
+      return null;
+    }
+    switch (group.observation.status) {
+      case 'ready_for_review':
+        return { label: 'Ready for Review', color: 'success' as const };
+      case 'awaiting_data':
+        return { label: 'Awaiting Data', color: 'warning' as const };
+      case 'observing':
+        return { label: 'Observing', color: 'info' as const };
+      default:
+        return null;
+    }
+  };
+
+  const startSensorGroupRename = (group: any) => {
+    setEditingSensorId(group.id);
+    setSensorNameDraft(group.name);
+  };
+
+  const saveSensorNameForGroup = async (group: any) => {
+    const nextName = sensorNameDraft.trim();
+    if (!activeControllerId || !nextName || renamingSensorId) {
+      return;
+    }
+
+    setRenamingSensorId(group.primarySensor.id);
+    try {
+      const updatedSensor = await renameHardwareSensor(activeControllerId, group.primarySensor.id, nextName);
+      setReportedSensors((current) =>
+        current.map((item) =>
+          item.id === group.primarySensor.id ? { ...item, ...updatedSensor, name: updatedSensor.name || nextName } : item
+        )
+      );
+      cancelSensorRename();
+      showToast('Sensor name updated.', 'success');
+    } catch (err: any) {
+      const responseData = err?.response?.data;
+      showToast(err?.message || (typeof responseData === 'string' ? responseData : responseData?.message) || 'Failed to update sensor name.', 'error');
+    } finally {
+      setRenamingSensorId(null);
+    }
+  };
+
+  const removeSensorGroupFromWorkspace = async (group: any) => {
+    setRemovingSensorId(group.primarySensor.id);
+    try {
+      await Promise.all(
+        group.sensors.map((s: any) => deleteHardwareSensor(activeControllerId, s.id))
+      );
+      
+      const nextRemovedSensorIds = [...removedSensorIds];
+      group.sensors.forEach((s: any) => {
+        const sensorKey = getSensorIdentity(s);
+        if (!nextRemovedSensorIds.includes(sensorKey)) {
+          nextRemovedSensorIds.push(sensorKey);
+        }
+      });
+      setRemovedSensorIds(nextRemovedSensorIds);
+      writeRemovedSensorIds(activeControllerId, nextRemovedSensorIds);
+      
+      const deletedIds = new Set(group.sensors.map((s: any) => s.id));
+      setReportedSensors((current) => current.filter((item) => !deletedIds.has(item.id)));
+      showToast(`${group.name} removed from the controller.`, 'success');
+    } catch (err: any) {
+      const responseData = err?.response?.data;
+      showToast(
+        err?.message ||
+          (typeof responseData === 'string' ? responseData : responseData?.message) ||
+          'Failed to remove sensor group from the database.',
+        'error'
+      );
+    } finally {
+      setRemovingSensorId(null);
     }
   };
 
@@ -544,7 +703,7 @@ const ControllerDashboard: React.FC = () => {
 
       <Box display="flex" justifyContent="space-between" alignItems="center" gap={2}>
         <Box>
-          <Typography variant="h5">Sensors ({sensors.length})</Typography>
+          <Typography variant="h5">Sensors ({groupedSensors.length})</Typography>
         </Box>
       </Box>
 
@@ -634,17 +793,15 @@ const ControllerDashboard: React.FC = () => {
             </Card>
           </Grid>
         ) : (
-          sensors.map((sensor) => {
-            const observationChip = getObservationChip(sensor);
-            const readinessChip = getReadinessChip(sensor);
-            const connectionChip = getConnectionChip(sensor);
-            const readableRanges =
-              sensor.active_config?.hardware?.supported_raw_metrics?.length
-                ? sensor.active_config.hardware.supported_raw_metrics
-                : getSensorHardwareCapabilities(sensor.type);
+          groupedSensors.map((group) => {
+            const observationChip = getObservationChipForGroup(group);
+            const readinessChip = group.config_active ? { label: 'Configured', color: 'primary' as const } : null;
+            const connectionChip = group.status === 'OK'
+              ? { label: 'Connected', color: 'success' as const }
+              : { label: 'Error', color: 'error' as const };
 
-            const isConfigured = Boolean(sensor.config_active);
-            const isConnected = sensor.status === 'OK';
+            const isConfigured = Boolean(group.config_active);
+            const isConnected = group.status === 'OK';
 
             // Match the previous page's clean solid background
             const cardBg = '#fffdf8';
@@ -656,10 +813,10 @@ const ControllerDashboard: React.FC = () => {
               ? isConnected ? 'rgba(108, 137, 48, 0.4)' : 'rgba(218, 54, 8, 0.4)'
               : 'rgba(219, 160, 72, 0.6)';
             
-            const isNewlySaved = saveNotice?.configuredSensorId === sensor.id;
+            const isNewlySaved = saveNotice?.configuredSensorId && group.sensors.some(s => s.id === saveNotice?.configuredSensorId);
 
             return (
-              <Grid item xs={12} sm={6} md={6} lg={4} key={sensor.id}>
+              <Grid item xs={12} sm={6} md={6} lg={4} key={group.hw_id}>
                 <Card
                   sx={{
                     display: 'flex',
@@ -721,7 +878,7 @@ const ControllerDashboard: React.FC = () => {
                           <DeviceThermostat fontSize="small" color="inherit" />
                         </Box>
                         
-                        {editingSensorId === sensor.id ? (
+                        {editingSensorId === group.id ? (
                           <Stack
                             direction={{ xs: 'column', sm: 'row' }}
                             spacing={0.5}
@@ -729,7 +886,7 @@ const ControllerDashboard: React.FC = () => {
                             component="form"
                             onSubmit={(event) => {
                               event.preventDefault();
-                              saveSensorName(sensor);
+                              saveSensorNameForGroup(group);
                             }}
                             sx={{ flexGrow: 1 }}
                           >
@@ -748,7 +905,7 @@ const ControllerDashboard: React.FC = () => {
                                 type="submit"
                                 size="small"
                                 color="primary"
-                                disabled={renamingSensorId === sensor.id || !sensorNameDraft.trim()}
+                                disabled={renamingSensorId === group.primarySensor.id || !sensorNameDraft.trim()}
                               >
                                 <Check />
                               </IconButton>
@@ -756,7 +913,7 @@ const ControllerDashboard: React.FC = () => {
                                 aria-label="Cancel sensor name edit"
                                 onClick={cancelSensorRename}
                                 size="small"
-                                disabled={renamingSensorId === sensor.id}
+                                disabled={renamingSensorId === group.primarySensor.id}
                               >
                                 <Close />
                               </IconButton>
@@ -772,13 +929,13 @@ const ControllerDashboard: React.FC = () => {
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                               }}>
-                                {sensor.name || `${sensor.type} Sensor`}
+                                {group.name}
                               </Typography>
                               {canManageControllers && (
                                 <IconButton
                                   aria-label="Edit sensor name"
                                   size="small"
-                                  onClick={() => startSensorRename(sensor)}
+                                  onClick={() => startSensorGroupRename(group)}
                                   sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
                                 >
                                   <Edit fontSize="inherit" />
@@ -786,7 +943,13 @@ const ControllerDashboard: React.FC = () => {
                               )}
                             </Stack>
                             <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600, mt: 0.25 }}>
-                              {sensor.type.toUpperCase()}
+                              {group.type.toUpperCase()}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                              Hardware: {group.originalName}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                              Sensor ID: {group.hw_id}
                             </Typography>
                           </Box>
                         )}
@@ -819,7 +982,7 @@ const ControllerDashboard: React.FC = () => {
                     </Stack>
 
                     <Box sx={{ flexGrow: 1 }}>
-                      {readableRanges.length > 0 && (
+                      {group.readableRanges.length > 0 && (
                         <Box sx={{ 
                           mb: 2, 
                           p: 1.5, 
@@ -828,43 +991,51 @@ const ControllerDashboard: React.FC = () => {
                           border: '1px solid rgba(60, 57, 17, 0.08)',
                           backdropFilter: 'blur(8px)',
                         }}>
-                          <Typography variant="caption" sx={{ display: 'block', mb: 0.5, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            Physical Range
+                          <Typography variant="caption" sx={{ display: 'block', mb: 1, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            Physical Metrics
                           </Typography>
-                          <Stack spacing={0.5}>
-                            {readableRanges.map((metric) => (
-                              <Typography key={`${sensor.id}-${metric.key}`} variant="body2" sx={{ fontWeight: 500, color: '#3c3911' }}>
-                                {metric.label}: {formatHardwareMetricRange(metric)}
-                              </Typography>
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                            {group.readableRanges.map((metric) => (
+                              <Chip
+                                key={`${group.id}-${metric.key}`}
+                                label={`${metric.label}: ${formatHardwareMetricRange(metric)}`}
+                                variant="outlined"
+                                sx={{
+                                  borderColor: 'rgba(108, 137, 48, 0.3)',
+                                  color: '#6c8930',
+                                  fontWeight: 600,
+                                  bgcolor: 'rgba(108, 137, 48, 0.04)',
+                                }}
+                              />
                             ))}
-                          </Stack>
+                          </Box>
                         </Box>
                       )}
                       
-                      {sensor.purpose && (
+                      {group.purpose && (
                         <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontStyle: 'italic' }}>
-                          "{sensor.purpose}"
+                          "{group.purpose}"
                         </Typography>
                       )}
                     </Box>
 
                     <Stack direction="row" spacing={1.5} sx={{ mt: 'auto', pt: 2, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
                         <Button
-                          variant={sensor.config_active ? "outlined" : "contained"}
-                          color={sensor.config_active ? "inherit" : "primary"}
-                          startIcon={sensor.config_active ? <Tune /> : <Settings />}
+                          variant={group.config_active ? "outlined" : "contained"}
+                          color={group.config_active ? "inherit" : "primary"}
+                          startIcon={group.config_active ? <Tune /> : <Settings />}
                           onClick={() =>
                             navigate(
                               isHardwareContext
-                                ? `/hardware/${activeControllerId}/sensors/${sensor.id}/configure`
-                                : `/sensors/${sensor.id}/config`,
+                                ? `/hardware/${activeControllerId}/sensors/${group.primarySensor.id}/configure`
+                                : `/sensors/${group.primarySensor.id}/config`,
                               {
                                 state: {
                                   controllerId: activeControllerId,
-                                  sensorId: sensor.id,
-                                  sensorType: sensor.type,
-                                  sensorName: sensor.name || `${sensor.type} Sensor`,
-                                  configured: Boolean(sensor.config_active),
+                                  sensorId: group.primarySensor.id,
+                                  sensorType: group.primarySensor.type,
+                                  sensorName: group.name,
+                                  configured: Boolean(group.config_active),
                                   returnTo: isHardwareContext
                                     ? `/hardware/${activeControllerId}/sensors`
                                     : `/controllers/${activeControllerId}`,
@@ -872,15 +1043,15 @@ const ControllerDashboard: React.FC = () => {
                               }
                             )
                           }
-                          sx={sensor.config_active ? { flexGrow: 1, borderColor: 'rgba(60, 57, 17, 0.2)' } : { flexGrow: 1 }}
+                          sx={group.config_active ? { flexGrow: 1, borderColor: 'rgba(60, 57, 17, 0.2)' } : { flexGrow: 1 }}
                         >
-                          {sensor.config_active ? 'Review Config' : 'Configure Now'}
+                          {group.config_active ? 'Review Config' : 'Configure Now'}
                         </Button>
                         {canManageControllers && (
                           <IconButton
                             color="error"
-                            disabled={removingSensorId === sensor.id}
-                            onClick={() => removeSensorFromWorkspace(sensor)}
+                            disabled={removingSensorId === group.primarySensor.id}
+                            onClick={() => removeSensorGroupFromWorkspace(group)}
                             sx={{ 
                               border: '1px solid rgba(218, 54, 8, 0.2)', 
                               borderRadius: 2,

@@ -31,6 +31,103 @@ func NewSensorHandler(db *pgxpool.Pool) *SensorHandler {
 	return &SensorHandler{db: db}
 }
 
+type attendanceStateResponse struct {
+	AttendanceCount  int64      `json:"attendance_count"`
+	SessionStartedAt *time.Time `json:"session_started_at,omitempty"`
+}
+
+func (h *SensorHandler) resolveAttendanceSensorID(
+	ctx context.Context,
+	sensorIdentifier uuid.UUID,
+	accountID uuid.UUID,
+) (uuid.UUID, error) {
+	var sensorID uuid.UUID
+	err := h.db.QueryRow(ctx, `
+		SELECT s.id
+		FROM sensors s
+		JOIN controllers c ON c.id = s.controller_id
+		WHERE (s.id = $1 OR s.system_sensor_id = $1)
+		  AND c.owner_account_id = $2
+		  AND c.claim_status = 'CLAIMED'
+		ORDER BY (s.id = $1) DESC, s.last_seen DESC NULLS LAST
+		LIMIT 1
+	`, sensorIdentifier, accountID).Scan(&sensorID)
+	return sensorID, err
+}
+
+func (h *SensorHandler) GetAttendanceState(w http.ResponseWriter, r *http.Request) {
+	sensorIdentifier, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		http.Error(w, "invalid sensor id", http.StatusBadRequest)
+		return
+	}
+
+	accountID := GetAccountID(r).(uuid.UUID)
+	sensorID, err := h.resolveAttendanceSensorID(r.Context(), sensorIdentifier, accountID)
+	if err != nil {
+		http.Error(w, "sensor not found", http.StatusNotFound)
+		return
+	}
+
+	var response attendanceStateResponse
+	err = h.db.QueryRow(r.Context(), `
+		SELECT attendance_count, session_started_at
+		FROM distance_attendance_state
+		WHERE sensor_id = $1
+	`, sensorID).Scan(&response.AttendanceCount, &response.SessionStartedAt)
+	if err != nil && err != pgx.ErrNoRows {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
+}
+
+func (h *SensorHandler) ResetAttendance(w http.ResponseWriter, r *http.Request) {
+	sensorIdentifier, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		http.Error(w, "invalid sensor id", http.StatusBadRequest)
+		return
+	}
+
+	accountID := GetAccountID(r).(uuid.UUID)
+	sensorID, err := h.resolveAttendanceSensorID(r.Context(), sensorIdentifier, accountID)
+	if err != nil {
+		http.Error(w, "sensor not found", http.StatusNotFound)
+		return
+	}
+
+	sessionStartedAt := time.Now().UTC()
+	_, err = h.db.Exec(r.Context(), `
+		INSERT INTO distance_attendance_state (
+			sensor_id,
+			attendance_count,
+			passage_active,
+			last_counted_at,
+			session_started_at,
+			updated_at
+		)
+		VALUES ($1, 0, false, NULL, $2, $2)
+		ON CONFLICT (sensor_id) DO UPDATE
+		SET attendance_count = 0,
+		    passage_active = false,
+		    last_counted_at = NULL,
+		    session_started_at = EXCLUDED.session_started_at,
+		    updated_at = EXCLUDED.updated_at
+	`, sensorID, sessionStartedAt)
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(attendanceStateResponse{
+		AttendanceCount:  0,
+		SessionStartedAt: &sessionStartedAt,
+	})
+}
+
 func (h *SensorHandler) List(w http.ResponseWriter, r *http.Request) {
 	controllerID, err := uuid.Parse(chi.URLParam(r, "controllerId"))
 	if err != nil {

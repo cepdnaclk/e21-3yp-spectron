@@ -20,6 +20,7 @@ type RawReadingsProcessor struct {
 }
 
 const sensorReadingsRetentionWindow = 7 * 24 * time.Hour
+const defaultAttendanceCooldown = 2 * time.Second
 
 func NewRawReadingsProcessor(db *pgxpool.Pool) *RawReadingsProcessor {
 	return &RawReadingsProcessor{db: db}
@@ -128,7 +129,12 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 		systemSensorID = &resolvedSystemSensorID
 	}
 
-	meta, err := json.Marshal(map[string]any{
+	config, hasConfig, err := loadActiveSensorConfig(ctx, tx, persistedSensorID, systemSensorID, controllerID, sensorHWID, persistedSensorType)
+	if err != nil {
+		return fmt.Errorf("load config for sensor %s: %w", sensorHWID, err)
+	}
+
+	readingMeta := map[string]any{
 		"event_id":            event.EventID,
 		"device_id":           event.DeviceID,
 		"sensor_hw_id":        sensorHWID,
@@ -139,7 +145,35 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 		"reading_time":        event.ReadingTime,
 		"timestamp_raw":       event.TimestampRaw,
 		"source":              event.Source,
-	})
+	}
+
+	alertValue := sensor.Value
+	if hasConfig {
+		attendance, enabled, err := p.processDistanceAttendance(
+			ctx,
+			tx,
+			persistedSensorID,
+			persistedSensorType,
+			sensor.Value,
+			event.ReadingTime,
+			config,
+		)
+		if err != nil {
+			return fmt.Errorf("process attendance for sensor %s: %w", sensorHWID, err)
+		}
+		if enabled {
+			readingMeta["attendance_count"] = attendance.Count
+			readingMeta["attendance_event"] = attendance.Counted
+			readingMeta["attendance_passage_active"] = attendance.PassageActive
+			readingMeta["attendance_deviation_cm"] = attendance.DeviationCM
+			readingMeta["attendance_session_started_at"] = attendance.SessionStartedAt
+			if strings.EqualFold(strings.TrimSpace(config.PrimaryMetric), "attendance_count") {
+				alertValue = float64(attendance.Count)
+			}
+		}
+	}
+
+	meta, err := json.Marshal(readingMeta)
 	if err != nil {
 		return fmt.Errorf("marshal reading metadata: %w", err)
 	}
@@ -156,7 +190,7 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 		return fmt.Errorf("insert sensor reading %s: %w", sensorHWID, err)
 	}
 
-	if err := p.evaluateThresholdAlert(ctx, tx, thresholdAlertInput{
+	if err := p.evaluateThresholdAlertWithConfig(ctx, tx, thresholdAlertInput{
 		AccountID:      accountID,
 		ControllerID:   controllerID,
 		SensorID:       persistedSensorID,
@@ -165,9 +199,9 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 		SensorHWID:     sensorHWID,
 		SensorName:     persistedSensorName,
 		SensorType:     persistedSensorType,
-		Value:          sensor.Value,
+		Value:          alertValue,
 		ReadingAt:      event.ReadingTime,
-	}); err != nil {
+	}, config, hasConfig); err != nil {
 		return fmt.Errorf("evaluate alert for sensor %s: %w", sensorHWID, err)
 	}
 
@@ -361,11 +395,7 @@ type thresholdAlertEvaluation struct {
 	Threshold  float64
 }
 
-func (p *RawReadingsProcessor) evaluateThresholdAlert(ctx context.Context, tx pgx.Tx, input thresholdAlertInput) error {
-	config, ok, err := loadActiveSensorConfig(ctx, tx, input.SensorID, input.SystemSensorID, input.ControllerID, input.SensorHWID, input.SensorType)
-	if err != nil {
-		return err
-	}
+func (p *RawReadingsProcessor) evaluateThresholdAlertWithConfig(ctx context.Context, tx pgx.Tx, input thresholdAlertInput, config models.SensorConfig, ok bool) error {
 	if !ok {
 		return nil
 	}
@@ -377,6 +407,181 @@ func (p *RawReadingsProcessor) evaluateThresholdAlert(ctx context.Context, tx pg
 
 	message := thresholdAlertMessage(input, evaluation)
 	return upsertOpenAlert(ctx, tx, input.AccountID, input.ControllerID, input.SensorID, input.SystemID, input.SystemSensorID, "THRESHOLD_BREACH", evaluation.Severity, message)
+}
+
+type distanceAttendanceConfig struct {
+	BaselineCM float64
+	TriggerCM  float64
+	ResetCM    float64
+	Cooldown   time.Duration
+}
+
+type distanceAttendanceState struct {
+	Count            int64
+	PassageActive    bool
+	LastCountedAt    *time.Time
+	SessionStartedAt time.Time
+}
+
+type distanceAttendanceResult struct {
+	Count            int64
+	Counted          bool
+	PassageActive    bool
+	DeviationCM      float64
+	SessionStartedAt time.Time
+}
+
+func (p *RawReadingsProcessor) processDistanceAttendance(
+	ctx context.Context,
+	tx pgx.Tx,
+	sensorID uuid.UUID,
+	sensorType string,
+	value float64,
+	readingAt time.Time,
+	config models.SensorConfig,
+) (distanceAttendanceResult, bool, error) {
+	detectorConfig, enabled := attendanceConfigForSensor(sensorType, config)
+	if !enabled {
+		return distanceAttendanceResult{}, false, nil
+	}
+
+	var state distanceAttendanceState
+	err := tx.QueryRow(ctx, `
+		SELECT attendance_count, passage_active, last_counted_at, session_started_at
+		FROM distance_attendance_state
+		WHERE sensor_id = $1
+		FOR UPDATE
+	`, sensorID).Scan(&state.Count, &state.PassageActive, &state.LastCountedAt, &state.SessionStartedAt)
+	if err != nil && err != pgx.ErrNoRows {
+		return distanceAttendanceResult{}, true, err
+	}
+	if err == pgx.ErrNoRows {
+		state.SessionStartedAt = readingAt
+	}
+
+	result, nextState := evaluateDistanceAttendance(value, readingAt, detectorConfig, state)
+	_, err = tx.Exec(ctx, `
+		INSERT INTO distance_attendance_state (
+			sensor_id, attendance_count, passage_active, last_counted_at, session_started_at, updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (sensor_id) DO UPDATE
+		SET attendance_count = EXCLUDED.attendance_count,
+		    passage_active = EXCLUDED.passage_active,
+		    last_counted_at = EXCLUDED.last_counted_at,
+		    session_started_at = EXCLUDED.session_started_at,
+		    updated_at = EXCLUDED.updated_at
+	`, sensorID, nextState.Count, nextState.PassageActive, nextState.LastCountedAt, nextState.SessionStartedAt, readingAt)
+	if err != nil {
+		return distanceAttendanceResult{}, true, err
+	}
+
+	return result, true, nil
+}
+
+func attendanceConfigForSensor(sensorType string, config models.SensorConfig) (distanceAttendanceConfig, bool) {
+	switch strings.ToLower(strings.TrimSpace(sensorType)) {
+	case "vl53l0x", "distance", "ultrasonic":
+	default:
+		return distanceAttendanceConfig{}, false
+	}
+
+	config.NormalizeThreeLayer(sensorType, nil)
+	enabled := strings.EqualFold(config.UseCase, "attendance_monitoring") ||
+		strings.EqualFold(config.PrimaryMetric, "attendance_count")
+	if config.Interpretation != nil {
+		for _, metric := range config.Interpretation.ObservableMetrics {
+			if strings.EqualFold(metric, "attendance_count") {
+				enabled = true
+			}
+		}
+		for _, metric := range config.Interpretation.DerivedMetrics {
+			if strings.EqualFold(metric.Key, "attendance_count") {
+				enabled = true
+			}
+		}
+	}
+	if !enabled {
+		return distanceAttendanceConfig{}, false
+	}
+
+	hardware := config.HardwareConfig
+	if len(hardware) == 0 && config.Hardware != nil {
+		hardware = config.Hardware.Config
+	}
+	baseline, baselineOK := numericValueFromMap(hardware, "attendanceBaselineDistanceCm")
+	trigger, triggerOK := numericValueFromMap(hardware, "attendanceTriggerDeltaCm")
+	if !baselineOK || baseline <= 0 || !triggerOK || trigger <= 0 {
+		return distanceAttendanceConfig{}, false
+	}
+
+	resetHysteresis, ok := numericValueFromMap(hardware, "attendanceResetHysteresisCm")
+	if !ok || resetHysteresis < 0 {
+		resetHysteresis = math.Min(10, trigger*0.2)
+	}
+	if resetHysteresis >= trigger {
+		resetHysteresis = trigger * 0.5
+	}
+
+	cooldownSeconds, ok := numericValueFromMap(hardware, "attendanceCooldownSeconds")
+	if !ok || cooldownSeconds <= 0 {
+		cooldownSeconds = defaultAttendanceCooldown.Seconds()
+	}
+
+	return distanceAttendanceConfig{
+		BaselineCM: baseline,
+		TriggerCM:  trigger,
+		ResetCM:    trigger - resetHysteresis,
+		Cooldown:   time.Duration(cooldownSeconds * float64(time.Second)),
+	}, true
+}
+
+func evaluateDistanceAttendance(
+	value float64,
+	readingAt time.Time,
+	config distanceAttendanceConfig,
+	state distanceAttendanceState,
+) (distanceAttendanceResult, distanceAttendanceState) {
+	result := distanceAttendanceResult{
+		Count:            state.Count,
+		PassageActive:    state.PassageActive,
+		SessionStartedAt: state.SessionStartedAt,
+	}
+	if math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 || readingAt.IsZero() {
+		return result, state
+	}
+
+	deviation := math.Abs(value - config.BaselineCM)
+	result.DeviationCM = deviation
+
+	if state.PassageActive {
+		if deviation <= config.ResetCM {
+			state.PassageActive = false
+		}
+		result.PassageActive = state.PassageActive
+		return result, state
+	}
+
+	cooldownComplete := state.LastCountedAt == nil || !readingAt.Before(state.LastCountedAt.Add(config.Cooldown))
+	if deviation >= config.TriggerCM && cooldownComplete {
+		state.Count++
+		state.PassageActive = true
+		countedAt := readingAt
+		state.LastCountedAt = &countedAt
+		result.Count = state.Count
+		result.Counted = true
+		result.PassageActive = true
+	}
+
+	return result, state
+}
+
+func numericValueFromMap(values map[string]interface{}, key string) (float64, bool) {
+	ptr := numericPtrFromMap(values, key)
+	if ptr == nil {
+		return 0, false
+	}
+	return *ptr, true
 }
 
 func loadActiveSensorConfig(ctx context.Context, tx pgx.Tx, sensorID uuid.UUID, systemSensorID *uuid.UUID, controllerID uuid.UUID, sensorHWID string, sensorType string) (models.SensorConfig, bool, error) {

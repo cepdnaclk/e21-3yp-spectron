@@ -119,6 +119,20 @@ describe('SensorConfig', () => {
     expect(screen.getByText(/this is how the sensor card will look in monitoring/i)).toBeInTheDocument();
   });
 
+  it('shows distance attendance detector settings on the alerts step', async () => {
+    const user = userEvent.setup();
+    renderSensorConfig(baseSensor('ultrasonic', 'Door Distance Sensor'));
+
+    await screen.findByRole('heading', { name: /configure ultrasonic sensor/i });
+    await user.click(screen.getByText(/^Attendance Count$/i));
+    await user.click(screen.getByRole('button', { name: /next/i }));
+
+    expect(screen.getByText(/door passage detection/i)).toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: /normal clear-door distance/i })).toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: /passage trigger distance change/i })).toHaveValue(50);
+    expect(screen.getByRole('spinbutton', { name: /cooldown after each count/i })).toHaveValue(2);
+  }, 15000);
+
   it('validates the current step before moving forward', async () => {
     const user = userEvent.setup();
     renderSensorConfig(baseSensor('temperature_humidity', 'Climate Sensor'));

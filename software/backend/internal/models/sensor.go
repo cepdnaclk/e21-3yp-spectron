@@ -61,15 +61,16 @@ type SensorHardwareLayer struct {
 }
 
 type SensorInterpretationLayer struct {
-	FriendlyName     string                     `json:"friendly_name,omitempty"`
-	Purpose          string                     `json:"purpose,omitempty"`
-	UseCase          string                     `json:"use_case,omitempty"`
-	PrimaryMetric    string                     `json:"primary_metric,omitempty"`
-	DisplayUnit      string                     `json:"display_unit,omitempty"`
-	DerivedMetrics   []SensorDerivedMetric      `json:"derived_metrics,omitempty"`
-	Thresholds       ThresholdConfig            `json:"thresholds"`
-	MetricThresholds map[string]ThresholdConfig `json:"metric_thresholds,omitempty"`
-	Context          *SensorContext             `json:"context,omitempty"`
+	FriendlyName      string                     `json:"friendly_name,omitempty"`
+	Purpose           string                     `json:"purpose,omitempty"`
+	UseCase           string                     `json:"use_case,omitempty"`
+	PrimaryMetric     string                     `json:"primary_metric,omitempty"`
+	DisplayUnit       string                     `json:"display_unit,omitempty"`
+	ObservableMetrics []string                   `json:"observable_metrics,omitempty"`
+	DerivedMetrics    []SensorDerivedMetric      `json:"derived_metrics,omitempty"`
+	Thresholds        ThresholdConfig            `json:"thresholds"`
+	MetricThresholds  map[string]ThresholdConfig `json:"metric_thresholds,omitempty"`
+	Context           *SensorContext             `json:"context,omitempty"`
 }
 
 type SensorPresentationLayer struct {
