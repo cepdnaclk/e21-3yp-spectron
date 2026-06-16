@@ -155,16 +155,6 @@ const formatTimeLabel = (isoString: string) => {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
-const shouldRenderTick = (index: number, total: number) => {
-  if (total <= 1) {
-    return true;
-  }
-
-  const targetTicks = total <= 4 ? total : 4;
-  const interval = Math.max(1, Math.floor((total - 1) / Math.max(1, targetTicks - 1)));
-  return index === 0 || index === total - 1 || index % interval === 0;
-};
-
 const formatDateTime = (isoString?: string) => {
   if (!isoString) {
     return 'No recent update';
@@ -187,17 +177,31 @@ const formatYAxisTick = (value: number) => {
     return Math.round(value).toString();
   }
 
-  return value.toFixed(0);
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 1,
+    maximumFractionDigits: 2,
+  });
+};
+
+const getCompactXAxisTicks = (trend: SensorPoint[], maximumTicks: number) => {
+  if (trend.length <= maximumTicks) {
+    return trend.map((point) => point.time);
+  }
+
+  return Array.from({ length: maximumTicks }, (_, index) => {
+    const pointIndex = Math.round((index * (trend.length - 1)) / (maximumTicks - 1));
+    return trend[pointIndex].time;
+  });
 };
 
 const compactChartMargin = {
   top: 8,
-  right: 8,
-  left: -12,
-  bottom: 24,
+  right: 16,
+  left: -4,
+  bottom: 28,
 };
 
-const compactChartXAxisHeight = 36;
+const compactChartXAxisHeight = 42;
 
 const getRawMetricForSensor = (sensorType?: string) => {
   switch ((sensorType || '').trim().toLowerCase()) {
@@ -287,6 +291,72 @@ const deriveAttendanceTrend = (
       shortLabel: formatTimeLabel(reading.time),
       value: attendanceCount,
       time: reading.time,
+    });
+    return points;
+  }, []);
+};
+
+const deriveFillLevelTrend = (
+  readings: SensorReading[],
+  sensor: Sensor,
+  config?: SensorConfig
+): SensorPoint[] => {
+  const hardwareConfig = config?.hardware?.config || config?.hardware_config || {};
+  const fullScaleDistance =
+    numericConfigValue(hardwareConfig, 'fullScaleDistanceCm') ??
+    numericConfigValue(hardwareConfig, 'tankDepthCm');
+
+  if (fullScaleDistance === null || fullScaleDistance <= 0) {
+    return [];
+  }
+
+  return readings.reduce<SensorPoint[]>((points, reading) => {
+    const distance = toReadingValue(reading, 'distance', sensor.type);
+    if (distance === null || distance < 0) {
+      return points;
+    }
+
+    const fillLevel = Math.max(0, Math.min(100, ((fullScaleDistance - distance) / fullScaleDistance) * 100));
+    points.push({
+      label: formatTimeLabel(reading.time),
+      shortLabel: formatTimeLabel(reading.time),
+      value: fillLevel,
+      time: reading.time,
+    });
+    return points;
+  }, []);
+};
+
+const deriveFillMetricTrend = (
+  metricKey: string,
+  readings: SensorReading[],
+  sensor: Sensor,
+  config?: SensorConfig
+): SensorPoint[] => {
+  const fillLevelTrend = deriveFillLevelTrend(readings, sensor, config);
+  if (metricKey === 'fill_level') {
+    return fillLevelTrend;
+  }
+  if (metricKey === 'remaining_capacity_percent') {
+    return fillLevelTrend.map((point) => ({ ...point, value: 100 - point.value }));
+  }
+  if (metricKey !== 'fill_rate') {
+    return [];
+  }
+
+  return fillLevelTrend.reduce<SensorPoint[]>((points, point, index) => {
+    if (index === 0) {
+      return points;
+    }
+    const previous = fillLevelTrend[index - 1];
+    const elapsedDays =
+      (new Date(point.time).getTime() - new Date(previous.time).getTime()) / (24 * 60 * 60 * 1000);
+    if (!Number.isFinite(elapsedDays) || elapsedDays <= 0) {
+      return points;
+    }
+    points.push({
+      ...point,
+      value: (point.value - previous.value) / elapsedDays,
     });
     return points;
   }, []);
@@ -1580,6 +1650,12 @@ const Monitoring: React.FC = () => {
                 if (trend.length === 0 && metricKey === 'attendance_count') {
                   trend = deriveAttendanceTrend(metricReadings, sensor, activeConfig);
                 }
+                if (
+                  trend.length === 0 &&
+                  ['fill_level', 'remaining_capacity_percent', 'fill_rate'].includes(metricKey)
+                ) {
+                  trend = deriveFillMetricTrend(metricKey, metricReadings, sensor, activeConfig);
+                }
                 if (metricKey === 'attendance_count' && attendanceState?.session_started_at) {
                   const latestCount = attendanceState.attendance_count;
                   if (trend[trend.length - 1]?.value !== latestCount) {
@@ -2382,19 +2458,19 @@ const Monitoring: React.FC = () => {
                                                   </linearGradient>
                                                 </defs>
                                                 <XAxis
-                                                  dataKey="shortLabel"
+                                                  dataKey="time"
+                                                  ticks={getCompactXAxisTicks(item.trend, isMobile ? 3 : 4)}
                                                   height={compactChartXAxisHeight}
                                                   tickLine={false}
                                                   axisLine={false}
                                                   interval={0}
                                                   tick={{ fontSize: 11, fill: '#6a624f' }}
-                                                  tickFormatter={(value, index) =>
-                                                    shouldRenderTick(index, item.trend.length) ? value : ''
-                                                  }
-                                                  minTickGap={24}
+                                                  tickFormatter={formatTimeLabel}
+                                                  tickMargin={14}
+                                                  padding={{ left: 20, right: 20 }}
                                                 />
                                                 <YAxis
-                                                  width={32}
+                                                  width={42}
                                                   domain={['auto', 'auto']}
                                                   axisLine={false}
                                                   tickLine={false}
@@ -2414,19 +2490,19 @@ const Monitoring: React.FC = () => {
                                               <BarChart data={item.trend} margin={compactChartMargin}>
                                                 <CartesianGrid vertical={false} strokeDasharray="3 3" stroke={alpha(metricStyles.accent, 0.12)} />
                                                 <XAxis
-                                                  dataKey="shortLabel"
+                                                  dataKey="time"
+                                                  ticks={getCompactXAxisTicks(item.trend, isMobile ? 3 : 4)}
                                                   height={compactChartXAxisHeight}
                                                   tickLine={false}
                                                   axisLine={false}
                                                   interval={0}
                                                   tick={{ fontSize: 11, fill: '#6a624f' }}
-                                                  tickFormatter={(value, index) =>
-                                                    shouldRenderTick(index, item.trend.length) ? value : ''
-                                                  }
-                                                  minTickGap={24}
+                                                  tickFormatter={formatTimeLabel}
+                                                  tickMargin={14}
+                                                  padding={{ left: 20, right: 20 }}
                                                 />
                                                 <YAxis
-                                                  width={32}
+                                                  width={42}
                                                   domain={['auto', 'auto']}
                                                   axisLine={false}
                                                   tickLine={false}
@@ -2444,19 +2520,19 @@ const Monitoring: React.FC = () => {
                                               <LineChart data={item.trend} margin={compactChartMargin}>
                                                 <CartesianGrid vertical={false} strokeDasharray="4 4" stroke={alpha(metricStyles.accent, 0.16)} />
                                                 <XAxis
-                                                  dataKey="shortLabel"
+                                                  dataKey="time"
+                                                  ticks={getCompactXAxisTicks(item.trend, isMobile ? 3 : 4)}
                                                   height={compactChartXAxisHeight}
                                                   tickLine={false}
                                                   axisLine={false}
                                                   interval={0}
                                                   tick={{ fontSize: 11, fill: '#6a624f' }}
-                                                  tickFormatter={(value, index) =>
-                                                    shouldRenderTick(index, item.trend.length) ? value : ''
-                                                  }
-                                                  minTickGap={24}
+                                                  tickFormatter={formatTimeLabel}
+                                                  tickMargin={14}
+                                                  padding={{ left: 20, right: 20 }}
                                                 />
                                                 <YAxis
-                                                  width={32}
+                                                  width={42}
                                                   domain={['auto', 'auto']}
                                                   axisLine={false}
                                                   tickLine={false}
@@ -2476,19 +2552,19 @@ const Monitoring: React.FC = () => {
                                             ) : (
                                               <LineChart data={item.trend} margin={compactChartMargin}>
                                                 <XAxis
-                                                  dataKey="shortLabel"
+                                                  dataKey="time"
+                                                  ticks={getCompactXAxisTicks(item.trend, isMobile ? 3 : 4)}
                                                   height={compactChartXAxisHeight}
                                                   tickLine={false}
                                                   axisLine={false}
                                                   interval={0}
                                                   tick={{ fontSize: 11, fill: '#6a624f' }}
-                                                  tickFormatter={(value, index) =>
-                                                    shouldRenderTick(index, item.trend.length) ? value : ''
-                                                  }
-                                                  minTickGap={24}
+                                                  tickFormatter={formatTimeLabel}
+                                                  tickMargin={14}
+                                                  padding={{ left: 20, right: 20 }}
                                                 />
                                                 <YAxis
-                                                  width={32}
+                                                  width={42}
                                                   domain={['auto', 'auto']}
                                                   axisLine={false}
                                                   tickLine={false}
@@ -2806,6 +2882,10 @@ const Monitoring: React.FC = () => {
                           tickLine={false}
                           axisLine={false}
                           tick={{ fontSize: 12, fill: '#6a624f' }}
+                          interval="preserveStartEnd"
+                          minTickGap={48}
+                          tickMargin={8}
+                          padding={{ left: 16, right: 16 }}
                         />
                         <YAxis
                           tickLine={false}
@@ -2834,6 +2914,10 @@ const Monitoring: React.FC = () => {
                           tickLine={false}
                           axisLine={false}
                           tick={{ fontSize: 12, fill: '#6a624f' }}
+                          interval="preserveStartEnd"
+                          minTickGap={48}
+                          tickMargin={8}
+                          padding={{ left: 16, right: 16 }}
                         />
                         <YAxis
                           tickLine={false}
@@ -2856,6 +2940,10 @@ const Monitoring: React.FC = () => {
                           tickLine={false}
                           axisLine={false}
                           tick={{ fontSize: 12, fill: '#6a624f' }}
+                          interval="preserveStartEnd"
+                          minTickGap={48}
+                          tickMargin={8}
+                          padding={{ left: 16, right: 16 }}
                         />
                         <YAxis
                           tickLine={false}
@@ -2881,6 +2969,10 @@ const Monitoring: React.FC = () => {
                           tickLine={false}
                           axisLine={false}
                           tick={{ fontSize: 12, fill: '#6a624f' }}
+                          interval="preserveStartEnd"
+                          minTickGap={48}
+                          tickMargin={8}
+                          padding={{ left: 16, right: 16 }}
                         />
                         <YAxis
                           tickLine={false}

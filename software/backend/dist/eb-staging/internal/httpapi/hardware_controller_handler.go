@@ -248,6 +248,21 @@ func (h *ControllerHandler) AdminCreateDeviceAPI(w http.ResponseWriter, r *http.
 		}
 	}
 
+	if err := recordAdminAuditEvent(r.Context(), tx, r, userID, adminAuditEventInput{
+		Action:      "DEVICE_REGISTERED",
+		TargetType:  "CONTROLLER",
+		TargetID:    controllerID.String(),
+		TargetLabel: controllerUID,
+		Details: map[string]any{
+			"name":                 name,
+			"location":             location,
+			"createDefaultSensors": req.CreateDefaultSensors,
+		},
+	}); err != nil {
+		http.Error(w, "failed to record device audit event", http.StatusInternalServerError)
+		return
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		http.Error(w, "failed to commit device", http.StatusInternalServerError)
 		return
@@ -353,11 +368,36 @@ func (h *ControllerHandler) AdminGeneratePairingTokenAPI(w http.ResponseWriter, 
 
 	pairingToken := "PAIR-" + randomCode(6)
 	expiresAt := time.Now().Add(time.Duration(expiryHours) * time.Hour)
-	_, err = h.db.Exec(r.Context(), `
+	tx, err := h.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	_, err = tx.Exec(r.Context(), `
 		INSERT INTO controller_pairing_tokens (id, controller_id, token_hash, expires_at, created_at)
 		VALUES ($1, $2, $3, $4, NOW())
 	`, uuid.New(), controller.id, hashPairingToken(pairingToken), expiresAt)
 	if err != nil {
+		http.Error(w, "failed to create pairing token", http.StatusInternalServerError)
+		return
+	}
+
+	if err := recordAdminAuditEvent(r.Context(), tx, r, userID, adminAuditEventInput{
+		Action:      "PAIRING_TOKEN_GENERATED",
+		TargetType:  "CONTROLLER",
+		TargetID:    controller.id.String(),
+		TargetLabel: controller.uid,
+		Details: map[string]any{
+			"expiresAt": expiresAt.UTC().Format(time.RFC3339),
+		},
+	}); err != nil {
+		http.Error(w, "failed to record pairing token audit event", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
 		http.Error(w, "failed to create pairing token", http.StatusInternalServerError)
 		return
 	}

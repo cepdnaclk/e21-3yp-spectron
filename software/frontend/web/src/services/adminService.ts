@@ -74,6 +74,28 @@ export interface AdminSystemHealth {
   serverTime: string;
 }
 
+export interface AdminAuditEvent {
+  id: string;
+  actorUserId?: string;
+  actorEmail: string;
+  action: string;
+  targetType: string;
+  targetId?: string;
+  targetLabel?: string;
+  outcome: string;
+  details: Record<string, unknown>;
+  ipAddress?: string;
+  userAgent?: string;
+  createdAt: string;
+}
+
+export interface AdminAuditResponse {
+  events: AdminAuditEvent[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export const getAdminOverview = async (): Promise<AdminOverview> => {
   const response = await api.get<AdminOverview>('/api/admin/overview');
   return response.data;
@@ -116,5 +138,15 @@ export const rejectAdminOwner = async (ownerId: string): Promise<void> => {
 
 export const getAdminSystemHealth = async (): Promise<AdminSystemHealth> => {
   const response = await api.get<AdminSystemHealth>('/api/admin/system');
+  return response.data;
+};
+
+export const getAdminAuditEvents = async (params: {
+  limit?: number;
+  offset?: number;
+  action?: string;
+  search?: string;
+} = {}): Promise<AdminAuditResponse> => {
+  const response = await api.get<AdminAuditResponse>('/api/admin/audit', { params });
   return response.data;
 };

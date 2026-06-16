@@ -29,6 +29,25 @@ describe('physical sensor identity', () => {
     expect(getPhysicalSensorGroupKey(humidity, [temperature, humidity])).toBe(humidity.hw_id);
   });
 
+  it('groups generated base and temperature metric IDs as one physical sensor', () => {
+    const humidity = sensor('CTRL-REAL-001-sensor-805306369', 'humidity');
+    const temperature = sensor('CTRL-REAL-001-sensor-805306369-temperature', 'temperature');
+
+    expect(getPhysicalSensorGroupKey(humidity, [humidity, temperature])).toBe(humidity.hw_id);
+    expect(getPhysicalSensorGroupKey(temperature, [humidity, temperature])).toBe(humidity.hw_id);
+    expect(resolvePhysicalSensorType([humidity, temperature])).toBe('temperature_humidity');
+  });
+
+  it('groups all generated metric suffixes under the same numeric sensor ID', () => {
+    const base = sensor('CTRL-REAL-001-sensor-805306370', 'humidity');
+    const temperature = sensor('CTRL-REAL-001-sensor-805306370-temperature', 'temperature');
+    const pressure = sensor('CTRL-REAL-001-sensor-805306370-pressure', 'pressure');
+
+    expect(getPhysicalSensorGroupKey(temperature, [base, temperature, pressure])).toBe(base.hw_id);
+    expect(getPhysicalSensorGroupKey(pressure, [base, temperature, pressure])).toBe(base.hw_id);
+    expect(resolvePhysicalSensorType([base, temperature, pressure])).toBe('bme280');
+  });
+
   it('provides the original module name', () => {
     expect(getOriginalSensorName('temperature_humidity')).toMatch(/SHT30/i);
     expect(getOriginalSensorName('vl53l0x')).toMatch(/VL53L0X/i);

@@ -228,6 +228,17 @@ export const toAppSensor = (controllerId: string, sensor: HardwarePairingSensor)
 
 const getPhysicalHardwareSensorId = (sensorUid: string, sensorType: string) => {
   const normalizedType = (sensorType || '').trim().toLowerCase();
+  if (
+    ['temperature', 'humidity', 'pressure', 'distance', 'fill_level', 'weight', 'gas_level', 'aqi'].includes(
+      normalizedType
+    )
+  ) {
+    const generatedMetricSuffix = new RegExp(`^(.*-sensor-\\d+)-${normalizedType}$`, 'i');
+    const match = sensorUid.match(generatedMetricSuffix);
+    if (match) {
+      return match[1];
+    }
+  }
   if (normalizedType === 'humidity' && /-humidity$/i.test(sensorUid)) {
     return sensorUid.replace(/-humidity$/i, '');
   }

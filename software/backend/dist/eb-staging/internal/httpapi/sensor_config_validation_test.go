@@ -137,6 +137,41 @@ func TestValidateAndFinalizeConfigSupportsVl53l0xFillLevelUseCase(t *testing.T) 
 	}
 }
 
+func TestValidateAndFinalizeConfigPreservesObservableMetricSelections(t *testing.T) {
+	result := validateAndFinalizeConfig(
+		"vl53l0x",
+		"Track the tank fill rate",
+		nil,
+		models.SensorConfig{
+			FriendlyName:         "Tank Monitor",
+			UseCase:              "fill_level_monitoring",
+			PresentationProfile:  "gauge_status",
+			PrimaryMetric:        "fill_rate",
+			ReportIntervalPerDay: 24,
+			HardwareConfig: map[string]any{
+				"fullScaleDistanceCm": 100,
+				"metric_profiles": map[string]any{
+					"fill_rate": "gauge_status",
+				},
+			},
+			Interpretation: &models.SensorInterpretationLayer{
+				ObservableMetrics: []string{"fill_rate", "fill_level", "fill_rate", ""},
+			},
+		},
+		defaultControllerCapability(),
+		"",
+	)
+
+	if result.FinalConfig.Interpretation == nil {
+		t.Fatalf("expected interpretation layer to be populated")
+	}
+
+	got := result.FinalConfig.Interpretation.ObservableMetrics
+	if len(got) != 2 || got[0] != "fill_rate" || got[1] != "fill_level" {
+		t.Fatalf("expected observable metric selection to survive validation, got %+v", got)
+	}
+}
+
 func TestValidateAndFinalizeConfigKeepsOverloadRiskForLoadMonitoring(t *testing.T) {
 	result := validateAndFinalizeConfig(
 		"load",

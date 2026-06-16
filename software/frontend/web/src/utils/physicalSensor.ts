@@ -3,6 +3,14 @@ import { getSensorKnowledgeProfile } from './sensorConfig';
 
 const normalizeType = (value?: string) => (value || '').trim().toLowerCase();
 
+const generatedMetricSuffixPattern =
+  /^(.*-sensor-\d+)-(temperature|humidity|pressure|distance|fill_level|weight|gas_level|aqi)$/i;
+
+export const getGeneratedPhysicalSensorId = (sensorId: string) => {
+  const match = sensorId.trim().match(generatedMetricSuffixPattern);
+  return match ? match[1] : sensorId;
+};
+
 const isCompatibleSidecarParent = (sidecarType: string, parentType: string) => {
   const normalizedParent = normalizeType(parentType);
   if (sidecarType === 'humidity') {
@@ -27,10 +35,21 @@ const isCompatibleSidecarParent = (sidecarType: string, parentType: string) => {
 
 export const getPhysicalSensorGroupKey = (sensor: Sensor, allSensors: Sensor[]) => {
   if (sensor.physical_sensor_id) {
-    return sensor.physical_sensor_id;
+    return getGeneratedPhysicalSensorId(sensor.physical_sensor_id);
   }
 
   const rawId = sensor.hw_id || sensor.id;
+  const generatedPhysicalId = getGeneratedPhysicalSensorId(rawId);
+  if (generatedPhysicalId !== rawId) {
+    const generatedParent = allSensors.find((candidate) => {
+      const candidateId = candidate.hw_id || candidate.id;
+      return getGeneratedPhysicalSensorId(candidateId).toLowerCase() === generatedPhysicalId.toLowerCase();
+    });
+    if (generatedParent) {
+      return generatedPhysicalId;
+    }
+  }
+
   const sensorType = normalizeType(sensor.type);
   if (sensorType !== 'humidity' && sensorType !== 'pressure') {
     return rawId;
@@ -52,8 +71,16 @@ export const getPhysicalSensorGroupKey = (sensor: Sensor, allSensors: Sensor[]) 
 
 export const resolvePhysicalSensorType = (sensors: Sensor[]) => {
   const types = sensors.map((sensor) => normalizeType(sensor.type));
+  const metricKeys = new Set(types);
+  sensors.forEach((sensor) => {
+    sensor.active_config?.hardware?.supported_raw_metrics?.forEach((metric) => metricKeys.add(metric.key));
+  });
+
   if (types.includes('bme280')) return 'bme280';
   if (types.includes('bmp280')) return 'bmp280';
+  if (metricKeys.has('pressure') && metricKeys.has('humidity')) return 'bme280';
+  if (metricKeys.has('pressure') && metricKeys.has('temperature')) return 'bmp280';
+  if (metricKeys.has('temperature') && metricKeys.has('humidity')) return 'temperature_humidity';
   if (types.some((type) => ['sht30', 'sht31', 'sht35', 'temperature_humidity', 'temp_humidity'].includes(type))) {
     return 'temperature_humidity';
   }
