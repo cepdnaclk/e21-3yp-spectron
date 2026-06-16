@@ -1,12 +1,10 @@
 // Centralized copy and section data keeps the React components focused on layout.
 export const navigation = [
-  { label: 'Problem', href: '#problem' },
-  { label: 'Features', href: '#features' },
-  { label: 'Modules', href: '#modules' },
-  { label: 'Workflow', href: '#workflow' },
-  { label: 'Security', href: '#security' },
-  { label: 'Pricing', href: '#pricing' },
-  { label: 'FAQ', href: '#faq' },
+  { label: 'Home', href: '/' },
+  { label: 'Product', href: '/product' },
+  { label: 'Modules', href: '/modules' },
+  { label: 'Pricing', href: '/pricing' },
+  { label: 'Contact', href: '/contact' },
 ]
 
 export const heroStats = [

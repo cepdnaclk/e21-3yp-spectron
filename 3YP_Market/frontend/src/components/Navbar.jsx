@@ -3,13 +3,20 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Menu, X } from 'lucide-react'
 import { navigation } from '../data/siteData.js'
 
-export default function Navbar() {
+export default function Navbar({ activePath = '/', onNavigate }) {
   const [open, setOpen] = useState(false)
+
+  function handleNavigate(event, href) {
+    if (!onNavigate) return
+    event.preventDefault()
+    onNavigate(href)
+    setOpen(false)
+  }
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-white/50 bg-[#f7f4ec]/85 backdrop-blur-xl">
       <nav className="section-shell flex h-[4.5rem] items-center justify-between">
-        <a href="#top" className="flex items-center gap-3" aria-label="SPECTRON home">
+        <a href="/" className="flex items-center gap-3" aria-label="SPECTRON home" onClick={(event) => handleNavigate(event, '/')}>
           <img
             src="/assets/spectron-logo.svg"
             alt=""
@@ -27,14 +34,17 @@ export default function Navbar() {
             <a
               key={item.href}
               href={item.href}
-              className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-white hover:text-slate-950"
+              onClick={(event) => handleNavigate(event, item.href)}
+              className={`rounded-md px-3 py-2 text-sm font-medium transition hover:bg-white hover:text-slate-950 ${
+                activePath === item.href ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-700'
+              }`}
             >
               {item.label}
             </a>
           ))}
         </div>
 
-        <a href="#contact" className="primary-button hidden lg:inline-flex">
+        <a href="/contact" className="primary-button hidden lg:inline-flex" onClick={(event) => handleNavigate(event, '/contact')}>
           Request demo
         </a>
 
@@ -63,13 +73,15 @@ export default function Navbar() {
                 <a
                   key={item.href}
                   href={item.href}
-                  className="rounded-lg bg-white px-4 py-3 text-sm font-semibold text-slate-800"
-                  onClick={() => setOpen(false)}
+                  className={`rounded-lg px-4 py-3 text-sm font-semibold ${
+                    activePath === item.href ? 'bg-slate-950 text-white' : 'bg-white text-slate-800'
+                  }`}
+                  onClick={(event) => handleNavigate(event, item.href)}
                 >
                   {item.label}
                 </a>
               ))}
-              <a href="#contact" className="primary-button mt-2" onClick={() => setOpen(false)}>
+              <a href="/contact" className="primary-button mt-2" onClick={(event) => handleNavigate(event, '/contact')}>
                 Request demo
               </a>
             </div>

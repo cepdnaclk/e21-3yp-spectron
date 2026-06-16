@@ -43,6 +43,10 @@ textarea {
     @apply mx-auto w-full max-w-7xl px-5 sm:px-6 lg:px-8;
   }
 
+  .page-pad {
+    @apply pt-[4.5rem];
+  }
+
   .eyebrow {
     @apply inline-flex items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-semibold uppercase text-teal-800;
   }
