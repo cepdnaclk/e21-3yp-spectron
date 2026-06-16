@@ -14,6 +14,8 @@ import { teamMembers } from "../data/teamData.js";
 
 function Home({ copy }) {
   const [activeItem, setActiveItem] = useState(null);
+  const logoSrc = `${import.meta.env.BASE_URL}team/spectron-logo.svg`;
+  const logoFullSrc = `${import.meta.env.BASE_URL}team/spectron-logo-full.svg`;
 
   const handleSelect = (type, item) => {
     // Clicking the same item twice clears the explanation panel.
@@ -43,7 +45,7 @@ function Home({ copy }) {
               <h1 className="hero__title">
                 <img
                   className="hero__title-logo"
-                  src="/team/spectron-logo-full.svg"
+                  src={logoFullSrc}
                   alt={copy.hero.title}
                 />
               </h1>
@@ -67,7 +69,7 @@ function Home({ copy }) {
                 <span className="adapter-visual__chip">
                   <img
                     className="adapter-visual__chip-logo"
-                    src="/team/spectron-logo.svg"
+                    src={logoSrc}
                     alt=""
                   />
                 </span>
