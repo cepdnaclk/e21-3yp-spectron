@@ -76,8 +76,8 @@ const SignUp: React.FC = () => {
         name: name || undefined,
         organizationName: organizationName || undefined,
       });
-      setSuccess('Account created. You can sign in now.');
-      setTimeout(() => navigate('/signin'), 1800);
+      setSuccess('Account created. Pending administrator approval.');
+      setTimeout(() => navigate('/signin'), 2000);
     } catch (err) {
       setError(getApiErrorMessage(err, 'Failed to create account'));
     } finally {

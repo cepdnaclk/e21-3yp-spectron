@@ -25,7 +25,10 @@ const baseSensor = (type: string, name = `${type} Sensor`): Sensor => ({
   config_active: false,
 });
 
-const renderSensorConfig = (sensor: Sensor) => {
+const renderSensorConfig = (
+  sensor: Sensor,
+  navigationState?: Record<string, unknown>
+) => {
   vi.mocked(getHardwareController).mockResolvedValue({
     id: 'CTRL-100',
     account_id: 'account-1',
@@ -38,10 +41,18 @@ const renderSensorConfig = (sensor: Sensor) => {
   vi.mocked(saveHardwareSensorConfiguration).mockResolvedValue(undefined);
 
   render(
-    <MemoryRouter initialEntries={['/hardware/CTRL-100/sensors/sensor-1/configure']}>
+    <MemoryRouter
+      initialEntries={[
+        {
+          pathname: '/hardware/CTRL-100/sensors/sensor-1/configure',
+          state: navigationState,
+        },
+      ]}
+    >
       <Routes>
         <Route path="/hardware/:controllerId/sensors/:sensorId/configure" element={<SensorConfig />} />
         <Route path="/hardware/:controllerId/sensors" element={<div>Back to sensors</div>} />
+        <Route path="/monitoring" element={<div>Back to monitoring</div>} />
       </Routes>
     </MemoryRouter>
   );
@@ -119,19 +130,78 @@ describe('SensorConfig', () => {
     expect(screen.getByText(/this is how the sensor card will look in monitoring/i)).toBeInTheDocument();
   });
 
-  it('shows distance attendance detector settings on the alerts step', async () => {
+  it('shows distance attendance detector settings immediately after metric selection', async () => {
     const user = userEvent.setup();
     renderSensorConfig(baseSensor('ultrasonic', 'Door Distance Sensor'));
 
     await screen.findByRole('heading', { name: /configure ultrasonic sensor/i });
-    await user.click(screen.getByText(/^Attendance Count$/i));
-    await user.click(screen.getByRole('button', { name: /next/i }));
+    await user.click(screen.getByRole('checkbox', { name: /measure attendance count/i }));
 
     expect(screen.getByText(/door passage detection/i)).toBeInTheDocument();
     expect(screen.getByRole('spinbutton', { name: /normal clear-door distance/i })).toBeInTheDocument();
     expect(screen.getByRole('spinbutton', { name: /passage trigger distance change/i })).toHaveValue(50);
     expect(screen.getByRole('spinbutton', { name: /cooldown after each count/i })).toHaveValue(2);
   }, 15000);
+
+  it('shows only the questions required by the selected measurement', async () => {
+    localStorage.clear();
+    const user = userEvent.setup();
+    renderSensorConfig(baseSensor('ultrasonic', 'Tank Distance Sensor'));
+
+    await screen.findByRole('heading', { name: /configure ultrasonic sensor/i });
+    expect(screen.queryByRole('spinbutton', { name: /how deep is the container/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: /measure fill level/i }));
+    expect(await screen.findByRole('spinbutton', { name: /how deep is the container/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: /measure fill rate/i }));
+    expect(
+      await screen.findByRole('spinbutton', { name: /over how many minutes should changes be calculated/i })
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: /measure fill level/i }));
+    await user.click(screen.getByRole('checkbox', { name: /measure fill rate/i }));
+    expect(screen.queryByRole('spinbutton', { name: /how deep is the container/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('spinbutton', { name: /over how many minutes should changes be calculated/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it('accepts a distance metric after it is deselected and selected again', async () => {
+    localStorage.clear();
+    const user = userEvent.setup();
+    renderSensorConfig(baseSensor('ultrasonic', 'Door Distance Sensor'));
+
+    await screen.findByRole('heading', { name: /configure ultrasonic sensor/i });
+    const distanceCheckbox = await screen.findByRole('checkbox', { name: /measure distance/i });
+    expect(distanceCheckbox).toBeChecked();
+
+    await user.click(distanceCheckbox);
+    expect(distanceCheckbox).not.toBeChecked();
+    await user.click(screen.getByRole('button', { name: /next/i }));
+    expect(await screen.findByText(/please choose what to measure/i)).toBeInTheDocument();
+
+    await user.click(distanceCheckbox);
+    await waitFor(() => {
+      expect(screen.queryByText(/please choose what to measure/i)).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /next/i }));
+    expect(await screen.findByRole('heading', { name: /^Alerts$/i })).toBeInTheDocument();
+  });
+
+  it('returns to monitoring after saving a config opened from monitoring', async () => {
+    localStorage.clear();
+    const user = userEvent.setup();
+    renderSensorConfig(baseSensor('load', 'Load Sensor'), { returnTo: '/monitoring' });
+
+    await screen.findByRole('heading', { name: /configure load sensor/i });
+    await user.click(screen.getByRole('button', { name: /next/i }));
+    await user.click(screen.getByRole('button', { name: /save and activate configuration/i }));
+
+    expect(await screen.findByText(/back to monitoring/i)).toBeInTheDocument();
+    expect(screen.queryByText(/back to sensors/i)).not.toBeInTheDocument();
+  });
 
   it('validates the current step before moving forward', async () => {
     const user = userEvent.setup();

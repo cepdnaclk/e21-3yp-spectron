@@ -1,4 +1,5 @@
 import {
+  buildPresentationAlertSettings,
   getPresentationProfileDefinitions,
   getSupportedProfilesForDerivedMetric,
 } from '../sensorConfig';
@@ -34,4 +35,24 @@ describe('metric presentation profile suitability', () => {
     expect(getSupportedProfilesForDerivedMetric('gas_sensor', 'gas_spike')).not.toContain('gauge_status');
     expect(getSupportedProfilesForDerivedMetric('ultrasonic', 'occupancy_spike')).not.toContain('gauge_status');
   });
+
+  it.each([
+    ['fill_level', 'gauge_status', 'Level Capacity Alert', 'above'],
+    ['remaining_capacity_percent', 'gauge_status', 'Low Remaining Capacity Alert', 'below'],
+    ['fill_rate', 'event_timeline', 'Rapid Fill Event', 'above'],
+    ['occupancy_spike', 'event_timeline', 'Sudden Occupancy Increase', 'above'],
+    ['peak_occupancy', 'counter_status', 'Peak Occupancy Alert', 'above'],
+  ] as const)(
+    'builds category-specific alerts for %s',
+    (metric, profile, label, condition) => {
+      const alerts = buildPresentationAlertSettings('ultrasonic', metric, profile);
+
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toMatchObject({
+        label,
+        metric_key: metric,
+        condition,
+      });
+    }
+  );
 });

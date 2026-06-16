@@ -22,7 +22,7 @@ type AuthHandler struct {
 }
 
 const (
-	signupSuccessMessage           = "Account created. You can sign in now."
+	signupSuccessMessage           = "Account created. Pending administrator approval."
 	verificationNotRequiredMessage = "Email verification is no longer required. You can sign in now."
 )
 
@@ -167,7 +167,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	_, err = tx.Exec(r.Context(), `
 		INSERT INTO users (id, email, password_hash, phone, name, account_type, status, is_email_verified)
-		VALUES ($1, $2, $3, $4, $5, 'USER', 'ACTIVE', true)
+		VALUES ($1, $2, $3, $4, $5, 'USER', 'PENDING_APPROVAL', true)
 	`, userID, email, hashedPassword, req.Phone, req.Name)
 	if err != nil {
 		log.Printf("Failed to create user: %v", err)
@@ -219,7 +219,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 func writeSignupSuccessResponse(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(AuthResponse{
-		Status:  "ACTIVE",
+		Status:  "PENDING_APPROVAL",
 		Message: signupSuccessMessage,
 	})
 }
@@ -1025,5 +1025,132 @@ func (h *AuthHandler) adminSetOwnerStatus(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(map[string]string{
 		"id":     userID.String(),
 		"status": status,
+	})
+}
+
+func (h *AuthHandler) AdminDeleteOwner(w http.ResponseWriter, r *http.Request) {
+	actorUserID := GetUserID(r).(uuid.UUID)
+	userIDParam := strings.TrimSpace(chi.URLParam(r, "userId"))
+	targetUserID, err := uuid.Parse(userIDParam)
+	if err != nil {
+		http.Error(w, "invalid owner id", http.StatusBadRequest)
+		return
+	}
+
+	// First, fetch the user's account_id and email to make sure they are an owner and get target for audit log
+	var email string
+	var accountID uuid.UUID
+	err = h.db.QueryRow(r.Context(), `
+		SELECT u.email, am.account_id
+		FROM users u
+		JOIN account_memberships am ON u.id = am.user_id
+		WHERE u.id = $1 AND am.role = 'OWNER' AND u.account_type = 'USER'
+	`, targetUserID).Scan(&email, &accountID)
+	if err == pgx.ErrNoRows {
+		http.Error(w, "owner account not found or access denied", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		log.Printf("Failed to look up owner account for deletion: %v", err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	tx, err := h.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	// Clean up user and account data, matching DeleteAccount's pattern
+	deletes := []string{
+		`DELETE FROM pairing_tokens
+		 WHERE issued_for_account_id = $1
+		    OR controller_id IN (SELECT id FROM controllers WHERE account_id = $1)`,
+		`DELETE FROM sensor_group_members
+		 WHERE group_id IN (
+		     SELECT sg.id
+		     FROM sensor_groups sg
+		     JOIN controllers c ON sg.controller_id = c.id
+		     WHERE c.owner_account_id = $1
+		 )
+		    OR sensor_id IN (
+		     SELECT s.id
+		     FROM sensors s
+		     JOIN controllers c ON s.controller_id = c.id
+		     WHERE c.owner_account_id = $1
+		 )`,
+		`DELETE FROM sensor_readings
+		 WHERE sensor_id IN (
+		     SELECT s.id
+		     FROM sensors s
+		     JOIN controllers c ON s.controller_id = c.id
+		     WHERE c.owner_account_id = $1
+		 )`,
+		`DELETE FROM sensor_configs
+		 WHERE sensor_id IN (
+		     SELECT s.id
+		     FROM sensors s
+		     JOIN controllers c ON s.controller_id = c.id
+		     WHERE c.owner_account_id = $1
+		 )`,
+		`DELETE FROM alerts WHERE account_id = $1`,
+		`DELETE FROM sensor_groups
+		 WHERE controller_id IN (SELECT id FROM controllers WHERE account_id = $1)`,
+		`DELETE FROM sensors
+		 WHERE controller_id IN (SELECT id FROM controllers WHERE account_id = $1)`,
+		`DELETE FROM controller_configs
+		 WHERE controller_id IN (SELECT id FROM controllers WHERE account_id = $1)`,
+		`DELETE FROM controllers WHERE account_id = $1`,
+		`DELETE FROM account_memberships WHERE account_id = $1`,
+		`DELETE FROM accounts WHERE id = $1`,
+	}
+
+	for _, query := range deletes {
+		if _, err := tx.Exec(r.Context(), query, accountID); err != nil {
+			log.Printf("Failed to delete account data for owner deletion: %v", err)
+			http.Error(w, "failed to delete owner resources", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Delete target user memberships just in case any viewer/other memberships exist
+	if _, err := tx.Exec(r.Context(), `DELETE FROM account_memberships WHERE user_id = $1`, targetUserID); err != nil {
+		log.Printf("Failed to delete user memberships for owner: %v", err)
+		http.Error(w, "failed to delete owner memberships", http.StatusInternalServerError)
+		return
+	}
+
+	// Delete target user
+	if _, err := tx.Exec(r.Context(), `DELETE FROM users WHERE id = $1`, targetUserID); err != nil {
+		log.Printf("Failed to delete owner user: %v", err)
+		http.Error(w, "failed to delete owner account", http.StatusInternalServerError)
+		return
+	}
+
+	// Record audit event
+	if err := recordAdminAuditEvent(r.Context(), tx, r, actorUserID, adminAuditEventInput{
+		Action:      "OWNER_DELETED",
+		TargetType:  "USER",
+		TargetID:    targetUserID.String(),
+		TargetLabel: email,
+		Details: map[string]any{
+			"accountId": accountID.String(),
+		},
+	}); err != nil {
+		log.Printf("Failed to record owner delete audit event: %v", err)
+		http.Error(w, "failed to record owner delete audit event", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		log.Printf("Failed to commit owner deletion transaction: %v", err)
+		http.Error(w, "failed to delete owner", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "owner_deleted",
 	})
 }

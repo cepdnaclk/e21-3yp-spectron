@@ -5,6 +5,10 @@ import {
   Card,
   CardContent,
   Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
   Divider,
   Grid,
   Stack,
@@ -17,11 +21,12 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { CheckCircle, PersonAddAlt, Refresh, Block } from '@mui/icons-material';
+import { CheckCircle, PersonAddAlt, Refresh, Block, Delete } from '@mui/icons-material';
 import {
   AdminOwner,
   approveAdminOwner,
   createAdminOwner,
+  deleteAdminOwner,
   getAdminOwners,
   rejectAdminOwner,
 } from '../../services/adminService';
@@ -54,6 +59,8 @@ const AdminUsers: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [ownerToDelete, setOwnerToDelete] = useState<AdminOwner | null>(null);
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -90,7 +97,7 @@ const AdminUsers: React.FC = () => {
         password: form.password,
         name: form.name || undefined,
         phone: form.phone || undefined,
-        organizationName: form.organizationName,
+        organizationName: form.organizationName || undefined,
       });
       setNotice('Owner account created. You can share these credentials with the owner.');
       setForm({ name: '', email: '', password: '', organizationName: '', phone: '' });
@@ -117,6 +124,31 @@ const AdminUsers: React.FC = () => {
       await loadOwners();
     } catch {
       setError('Failed to update owner status.');
+    }
+  };
+
+  const handleDeleteOwner = (owner: AdminOwner) => {
+    setOwnerToDelete(owner);
+    setDeleteDialogOpen(true);
+  };
+
+  const closeDeleteDialog = () => {
+    setDeleteDialogOpen(false);
+    setOwnerToDelete(null);
+  };
+
+  const confirmDeleteOwner = async () => {
+    if (!ownerToDelete) return;
+    setError('');
+    setNotice('');
+    try {
+      await deleteAdminOwner(ownerToDelete.id);
+      setNotice(`${ownerToDelete.email} has been deleted.`);
+      await loadOwners();
+    } catch {
+      setError('Failed to delete owner account.');
+    } finally {
+      closeDeleteDialog();
     }
   };
 
@@ -202,13 +234,13 @@ const AdminUsers: React.FC = () => {
                 <TextField fullWidth label="Owner name" placeholder="Owner name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               </Grid>
               <Grid item xs={12} md={6}>
-                <TextField fullWidth required label="Organization" placeholder="Organization name" value={form.organizationName} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} />
+                <TextField fullWidth label="Organization" placeholder="Organization name" value={form.organizationName} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} />
               </Grid>
               <Grid item xs={12} md={6}>
                 <TextField fullWidth label="Phone" placeholder="+94 77 123 4567" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
               </Grid>
-              <Grid item xs={12} md={6} sx={{ display: 'flex', alignItems: 'flex-end' }}>
-                <Button type="submit" variant="contained" color="secondary" disabled={saving} fullWidth sx={compactButtonSx}>
+              <Grid item xs={12} sx={{ mt: 1 }}>
+                <Button type="submit" variant="contained" color="secondary" disabled={saving} sx={{ ...compactButtonSx, minWidth: 200 }}>
                   Create Owner
                 </Button>
               </Grid>
@@ -258,6 +290,9 @@ const AdminUsers: React.FC = () => {
                             Reject
                           </Button>
                         )}
+                        <Button size="small" color="error" startIcon={<Delete />} onClick={() => handleDeleteOwner(owner)} sx={compactButtonSx}>
+                          Delete
+                        </Button>
                       </Stack>
                     </TableCell>
                   </TableRow>
@@ -276,6 +311,31 @@ const AdminUsers: React.FC = () => {
           </TableContainer>
         </CardContent>
       </Card>
+
+      <Dialog open={deleteDialogOpen} onClose={closeDeleteDialog} fullWidth maxWidth="xs">
+        <DialogTitle>Delete Owner Account</DialogTitle>
+        <DialogContent>
+          <Typography color="text.secondary" sx={{ mb: 2 }}>
+            Are you sure you want to permanently delete the owner account for <strong>{ownerToDelete?.email}</strong>?
+          </Typography>
+          <Typography color="text.secondary" variant="body2">
+            This will permanently delete the organization, their associated controllers, sensors, and configurations. This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button variant="outlined" onClick={closeDeleteDialog}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            startIcon={<Delete />}
+            onClick={confirmDeleteOwner}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

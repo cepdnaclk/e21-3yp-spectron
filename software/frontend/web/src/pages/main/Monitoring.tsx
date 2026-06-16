@@ -155,16 +155,6 @@ const formatTimeLabel = (isoString: string) => {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
-const shouldRenderTick = (index: number, total: number) => {
-  if (total <= 1) {
-    return true;
-  }
-
-  const targetTicks = total <= 4 ? total : 4;
-  const interval = Math.max(1, Math.floor((total - 1) / Math.max(1, targetTicks - 1)));
-  return index === 0 || index === total - 1 || index % interval === 0;
-};
-
 const formatDateTime = (isoString?: string) => {
   if (!isoString) {
     return 'No recent update';
@@ -187,17 +177,31 @@ const formatYAxisTick = (value: number) => {
     return Math.round(value).toString();
   }
 
-  return value.toFixed(0);
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 1,
+    maximumFractionDigits: 2,
+  });
+};
+
+const getCompactXAxisTicks = (trend: SensorPoint[], maximumTicks: number) => {
+  if (trend.length <= maximumTicks) {
+    return trend.map((point) => point.time);
+  }
+
+  return Array.from({ length: maximumTicks }, (_, index) => {
+    const pointIndex = Math.round((index * (trend.length - 1)) / (maximumTicks - 1));
+    return trend[pointIndex].time;
+  });
 };
 
 const compactChartMargin = {
   top: 8,
-  right: 8,
-  left: -12,
-  bottom: 24,
+  right: 16,
+  left: -4,
+  bottom: 28,
 };
 
-const compactChartXAxisHeight = 36;
+const compactChartXAxisHeight = 42;
 
 const getRawMetricForSensor = (sensorType?: string) => {
   switch ((sensorType || '').trim().toLowerCase()) {
@@ -2602,19 +2606,19 @@ const Monitoring: React.FC = () => {
                                                   </linearGradient>
                                                 </defs>
                                                 <XAxis
-                                                  dataKey="shortLabel"
+                                                  dataKey="time"
+                                                  ticks={getCompactXAxisTicks(item.trend, isMobile ? 3 : 4)}
                                                   height={compactChartXAxisHeight}
                                                   tickLine={false}
                                                   axisLine={false}
                                                   interval={0}
                                                   tick={{ fontSize: 11, fill: '#6a624f' }}
-                                                  tickFormatter={(value, index) =>
-                                                    shouldRenderTick(index, item.trend.length) ? value : ''
-                                                  }
-                                                  minTickGap={24}
+                                                  tickFormatter={formatTimeLabel}
+                                                  tickMargin={14}
+                                                  padding={{ left: 20, right: 20 }}
                                                 />
                                                 <YAxis
-                                                  width={32}
+                                                  width={42}
                                                   domain={['auto', 'auto']}
                                                   axisLine={false}
                                                   tickLine={false}
@@ -2634,19 +2638,19 @@ const Monitoring: React.FC = () => {
                                               <BarChart data={item.trend} margin={compactChartMargin}>
                                                 <CartesianGrid vertical={false} strokeDasharray="3 3" stroke={alpha(metricStyles.accent, 0.12)} />
                                                 <XAxis
-                                                  dataKey="shortLabel"
+                                                  dataKey="time"
+                                                  ticks={getCompactXAxisTicks(item.trend, isMobile ? 3 : 4)}
                                                   height={compactChartXAxisHeight}
                                                   tickLine={false}
                                                   axisLine={false}
                                                   interval={0}
                                                   tick={{ fontSize: 11, fill: '#6a624f' }}
-                                                  tickFormatter={(value, index) =>
-                                                    shouldRenderTick(index, item.trend.length) ? value : ''
-                                                  }
-                                                  minTickGap={24}
+                                                  tickFormatter={formatTimeLabel}
+                                                  tickMargin={14}
+                                                  padding={{ left: 20, right: 20 }}
                                                 />
                                                 <YAxis
-                                                  width={32}
+                                                  width={42}
                                                   domain={['auto', 'auto']}
                                                   axisLine={false}
                                                   tickLine={false}
@@ -2664,19 +2668,19 @@ const Monitoring: React.FC = () => {
                                               <LineChart data={item.trend} margin={compactChartMargin}>
                                                 <CartesianGrid vertical={false} strokeDasharray="4 4" stroke={alpha(metricStyles.accent, 0.16)} />
                                                 <XAxis
-                                                  dataKey="shortLabel"
+                                                  dataKey="time"
+                                                  ticks={getCompactXAxisTicks(item.trend, isMobile ? 3 : 4)}
                                                   height={compactChartXAxisHeight}
                                                   tickLine={false}
                                                   axisLine={false}
                                                   interval={0}
                                                   tick={{ fontSize: 11, fill: '#6a624f' }}
-                                                  tickFormatter={(value, index) =>
-                                                    shouldRenderTick(index, item.trend.length) ? value : ''
-                                                  }
-                                                  minTickGap={24}
+                                                  tickFormatter={formatTimeLabel}
+                                                  tickMargin={14}
+                                                  padding={{ left: 20, right: 20 }}
                                                 />
                                                 <YAxis
-                                                  width={32}
+                                                  width={42}
                                                   domain={['auto', 'auto']}
                                                   axisLine={false}
                                                   tickLine={false}
@@ -2696,19 +2700,19 @@ const Monitoring: React.FC = () => {
                                             ) : (
                                               <LineChart data={item.trend} margin={compactChartMargin}>
                                                 <XAxis
-                                                  dataKey="shortLabel"
+                                                  dataKey="time"
+                                                  ticks={getCompactXAxisTicks(item.trend, isMobile ? 3 : 4)}
                                                   height={compactChartXAxisHeight}
                                                   tickLine={false}
                                                   axisLine={false}
                                                   interval={0}
                                                   tick={{ fontSize: 11, fill: '#6a624f' }}
-                                                  tickFormatter={(value, index) =>
-                                                    shouldRenderTick(index, item.trend.length) ? value : ''
-                                                  }
-                                                  minTickGap={24}
+                                                  tickFormatter={formatTimeLabel}
+                                                  tickMargin={14}
+                                                  padding={{ left: 20, right: 20 }}
                                                 />
                                                 <YAxis
-                                                  width={32}
+                                                  width={42}
                                                   domain={['auto', 'auto']}
                                                   axisLine={false}
                                                   tickLine={false}
@@ -3026,6 +3030,10 @@ const Monitoring: React.FC = () => {
                           tickLine={false}
                           axisLine={false}
                           tick={{ fontSize: 12, fill: '#6a624f' }}
+                          interval="preserveStartEnd"
+                          minTickGap={48}
+                          tickMargin={8}
+                          padding={{ left: 16, right: 16 }}
                         />
                         <YAxis
                           tickLine={false}
@@ -3054,6 +3062,10 @@ const Monitoring: React.FC = () => {
                           tickLine={false}
                           axisLine={false}
                           tick={{ fontSize: 12, fill: '#6a624f' }}
+                          interval="preserveStartEnd"
+                          minTickGap={48}
+                          tickMargin={8}
+                          padding={{ left: 16, right: 16 }}
                         />
                         <YAxis
                           tickLine={false}
@@ -3076,6 +3088,10 @@ const Monitoring: React.FC = () => {
                           tickLine={false}
                           axisLine={false}
                           tick={{ fontSize: 12, fill: '#6a624f' }}
+                          interval="preserveStartEnd"
+                          minTickGap={48}
+                          tickMargin={8}
+                          padding={{ left: 16, right: 16 }}
                         />
                         <YAxis
                           tickLine={false}
@@ -3101,6 +3117,10 @@ const Monitoring: React.FC = () => {
                           tickLine={false}
                           axisLine={false}
                           tick={{ fontSize: 12, fill: '#6a624f' }}
+                          interval="preserveStartEnd"
+                          minTickGap={48}
+                          tickMargin={8}
+                          padding={{ left: 16, right: 16 }}
                         />
                         <YAxis
                           tickLine={false}

@@ -34,7 +34,6 @@ import {
 import { alpha } from '@mui/material/styles';
 import {
   ArrowBack,
-  BatteryChargingFull,
   Close,
   ShowChart as ShowChartIcon,
   BarChart as BarChartIcon,
@@ -140,7 +139,12 @@ type SensorConfigNavigationState = {
   configured?: boolean;
 };
 
-type ClarificationFieldKey = 'fullScaleDistanceCm' | 'sustainedWindowMinutes';
+type ClarificationFieldKey =
+  | 'fullScaleDistanceCm'
+  | 'sustainedWindowMinutes'
+  | 'maximumLoadKg'
+  | 'safeOccupancyPeople'
+  | 'changeWindowMinutes';
 
 type ClarificationPrompt = {
   key: ClarificationFieldKey;
@@ -149,13 +153,6 @@ type ClarificationPrompt = {
   helperText: string;
   placeholder: string;
   unit: string;
-};
-
-type ReportingPreset = {
-  key: 'fast' | 'normal' | 'eco';
-  label: string;
-  description: string;
-  reportsPerDay: number;
 };
 
 type AIDraftSummary = ConfigurationAiSuggestionResponse & {
@@ -413,54 +410,17 @@ const getRecommendedProfileForUseCase = (
   }
 };
 
-const REPORTING_PRESETS: ReportingPreset[] = [
-  {
-    key: 'fast',
-    label: 'Fast',
-    description: 'Frequent updates for live operational decisions.',
-    reportsPerDay: 96,
-  },
-  {
-    key: 'normal',
-    label: 'Normal',
-    description: 'Balanced update speed for everyday monitoring.',
-    reportsPerDay: 24,
-  },
-  {
-    key: 'eco',
-    label: 'Eco',
-    description: 'Battery-friendly updates for slower-changing conditions.',
-    reportsPerDay: 6,
-  },
-];
-
-const metricNeedsContainerDepth = (metricKey: string, useCase: UseCaseOption) =>
-  ['fill_level', 'remaining_capacity_percent', 'fill_rate'].includes(metricKey) ||
-  useCase === 'fill_level_monitoring';
-
-const metricNeedsSustainedWindow = (metricKey: string, useCase: UseCaseOption) =>
-  [
-    'temperature',
-    'humidity',
-    'heat_index',
-    'dew_point',
-    'climate_condition',
-    'pressure',
-    'gas_level',
-    'aqi',
-  ].includes(metricKey) || useCase === 'climate_monitoring' || useCase === 'safety_monitoring';
-
 const getClarificationPrompts = (
   sensorType: string,
-  metricKey: string,
-  useCase: UseCaseOption
+  metricKeys: string[]
 ): ClarificationPrompt[] => {
   const normalizedSensorType = sensorType.toLowerCase();
   const prompts: ClarificationPrompt[] = [];
+  const selected = new Set(metricKeys);
 
   if (
     ['vl53l0x', 'distance', 'ultrasonic'].includes(normalizedSensorType) &&
-    metricNeedsContainerDepth(metricKey, useCase)
+    ['fill_level', 'remaining_capacity_percent', 'fill_rate'].some((metric) => selected.has(metric))
   ) {
     prompts.push({
       key: 'fullScaleDistanceCm',
@@ -472,7 +432,64 @@ const getClarificationPrompts = (
     });
   }
 
-  if (metricNeedsSustainedWindow(metricKey, useCase)) {
+  if (['utilization_percent', 'overload_risk'].some((metric) => selected.has(metric))) {
+    prompts.push({
+      key: 'maximumLoadKg',
+      title: 'Load capacity is required',
+      label: 'What is the maximum safe operating load?',
+      helperText: 'This is required to calculate utilization percentage and overload risk.',
+      placeholder: 'e.g. 500',
+      unit: 'kg',
+    });
+  }
+
+  if (['occupancy_count', 'occupancy_spike', 'peak_occupancy'].some((metric) => selected.has(metric))) {
+    prompts.push({
+      key: 'safeOccupancyPeople',
+      title: 'Occupancy capacity is required',
+      label: 'What is the safe occupancy limit for this area?',
+      helperText: 'This lets alerts distinguish normal, busy, and unsafe occupancy.',
+      placeholder: 'e.g. 40',
+      unit: 'people',
+    });
+  }
+
+  if (
+    [
+      'temperature_spike',
+      'humidity_spike',
+      'gas_spike',
+      'occupancy_spike',
+      'fill_rate',
+      'load_change_rate',
+      'depletion_rate',
+    ].some((metric) => selected.has(metric))
+  ) {
+    prompts.push({
+      key: 'changeWindowMinutes',
+      title: 'Choose the change window',
+      label: 'Over how many minutes should changes be calculated?',
+      helperText: 'Shorter windows react faster; longer windows reduce noise.',
+      placeholder: 'e.g. 15',
+      unit: 'minutes',
+    });
+  }
+
+  if (
+    [
+      'temperature',
+      'humidity',
+      'heat_index',
+      'dew_point',
+      'climate_condition',
+      'pressure',
+      'gas_level',
+      'aqi',
+      'risk_score',
+      'exposure_state',
+      'unsafe_duration',
+    ].some((metric) => selected.has(metric))
+  ) {
     prompts.push({
       key: 'sustainedWindowMinutes',
       title: 'How patient should alerts be?',
@@ -484,24 +501,6 @@ const getClarificationPrompts = (
   }
 
   return prompts;
-};
-
-const inferReportingPreset = (reportsPerDay: string) => {
-  const numericReports = Number(reportsPerDay);
-  if (!Number.isFinite(numericReports) || numericReports <= 0) {
-    return 'normal';
-  }
-
-  let closest = REPORTING_PRESETS[0];
-  let closestDistance = Math.abs(numericReports - closest.reportsPerDay);
-  REPORTING_PRESETS.slice(1).forEach((preset) => {
-    const distance = Math.abs(numericReports - preset.reportsPerDay);
-    if (distance < closestDistance) {
-      closest = preset;
-      closestDistance = distance;
-    }
-  });
-  return closest.key;
 };
 
 const pageKickerSx = {
@@ -1354,6 +1353,9 @@ const SensorConfig: React.FC = () => {
   const [systemName, setSystemName] = useState('');
   const [fullScaleDistanceCm, setFullScaleDistanceCm] = useState('');
   const [sustainedWindowMinutes, setSustainedWindowMinutes] = useState('15');
+  const [maximumLoadKg, setMaximumLoadKg] = useState('');
+  const [safeOccupancyPeople, setSafeOccupancyPeople] = useState('');
+  const [changeWindowMinutes, setChangeWindowMinutes] = useState('15');
   const [attendanceBaselineDistanceCm, setAttendanceBaselineDistanceCm] = useState('');
   const [attendanceTriggerDeltaCm, setAttendanceTriggerDeltaCm] = useState('50');
   const [attendanceResetHysteresisCm, setAttendanceResetHysteresisCm] = useState('10');
@@ -1403,6 +1405,7 @@ const SensorConfig: React.FC = () => {
   const [showAiAssistance, setShowAiAssistance] = useState(false);
   const [resolvedHardwareControllerId, setResolvedHardwareControllerId] = useState('');
   const initializedSensorIdRef = useRef<string | null>(null);
+  const hasUserEditedMetricsRef = useRef(false);
   const activeSensorId = sensorId || id || navigationState?.sensorId || '';
   const activeControllerId =
     controllerId || navigationState?.controllerId || resolvedHardwareControllerId || sensor?.controller_id || '';
@@ -1474,15 +1477,10 @@ const SensorConfig: React.FC = () => {
     [primaryMetric]
   );
   const clarificationPrompts = useMemo(
-    () => getClarificationPrompts(sensor?.type || navigationState?.sensorType || '', primaryMetric, useCase),
-    [navigationState?.sensorType, primaryMetric, sensor?.type, useCase]
+    () => getClarificationPrompts(sensor?.type || navigationState?.sensorType || '', selectedMetrics),
+    [navigationState?.sensorType, selectedMetrics, sensor?.type]
   );
-  const selectedReportingPreset = useMemo(() => inferReportingPreset(reportsPerDay), [reportsPerDay]);
-  const activeReportingPreset = useMemo(
-    () => REPORTING_PRESETS.find((preset) => preset.key === selectedReportingPreset) || REPORTING_PRESETS[1],
-    [selectedReportingPreset]
-  );
-  const resolvedReportsPerDay = activeReportingPreset.reportsPerDay;
+  const resolvedReportsPerDay = toPositiveIntOrUndefined(reportsPerDay) || 24;
   const estimatedBatteryLifeDays = estimateBatteryLifeDays(
     resolvedReportsPerDay,
     sensorMetrics.length,
@@ -1520,6 +1518,9 @@ const SensorConfig: React.FC = () => {
       presentationProfile,
       fullScaleDistanceCm,
       sustainedWindowMinutes,
+      maximumLoadKg,
+      safeOccupancyPeople,
+      changeWindowMinutes,
       attendanceBaselineDistanceCm,
       attendanceTriggerDeltaCm,
       attendanceResetHysteresisCm,
@@ -1539,6 +1540,9 @@ const SensorConfig: React.FC = () => {
     alertSettings,
     friendlyName,
     fullScaleDistanceCm,
+    maximumLoadKg,
+    safeOccupancyPeople,
+    changeWindowMinutes,
     attendanceBaselineDistanceCm,
     attendanceTriggerDeltaCm,
     attendanceResetHysteresisCm,
@@ -1586,6 +1590,9 @@ const SensorConfig: React.FC = () => {
       }
       if (typeof draft.fullScaleDistanceCm === 'string') setFullScaleDistanceCm(draft.fullScaleDistanceCm);
       if (typeof draft.sustainedWindowMinutes === 'string') setSustainedWindowMinutes(draft.sustainedWindowMinutes);
+      if (typeof draft.maximumLoadKg === 'string') setMaximumLoadKg(draft.maximumLoadKg);
+      if (typeof draft.safeOccupancyPeople === 'string') setSafeOccupancyPeople(draft.safeOccupancyPeople);
+      if (typeof draft.changeWindowMinutes === 'string') setChangeWindowMinutes(draft.changeWindowMinutes);
       if (typeof draft.attendanceBaselineDistanceCm === 'string') {
         setAttendanceBaselineDistanceCm(draft.attendanceBaselineDistanceCm);
       }
@@ -1652,6 +1659,7 @@ const SensorConfig: React.FC = () => {
   };
 
   const toggleMetricSelection = (metric: ObservableMetricDefinition) => {
+    hasUserEditedMetricsRef.current = true;
     setSelectedMetrics((prev) => {
       const isSelected = prev.includes(metric.key);
       const next = isSelected ? prev.filter((k) => k !== metric.key) : [...prev, metric.key];
@@ -1681,6 +1689,11 @@ const SensorConfig: React.FC = () => {
             setPurpose(metric.purposes[0]?.label || '');
           }
         }
+      }
+      if (next.length > 0) {
+        setPageError((current) =>
+          current === 'Please choose what to measure.' ? null : current
+        );
       }
       return next;
     });
@@ -1809,7 +1822,10 @@ const SensorConfig: React.FC = () => {
         buildPresentationAlertSettings(
           sensorType,
           metricKey,
-          presentationProfile,
+          metricPresentationProfiles[metricKey] ||
+            (getObservableMetricDefinition(sensorType, metricKey)
+              ?.recommended_profile as PresentationProfileOption | undefined) ||
+            'single_trend',
           currentAlerts,
           metricThresholdsFromAlertSettings(currentAlerts)
         ).map(toAlertSettingInput)
@@ -1818,7 +1834,13 @@ const SensorConfig: React.FC = () => {
       setMetricThresholds(alertInputsToMetricThresholds(nextAlerts));
       return nextAlerts;
     });
-  }, [navigationState?.sensorType, presentationProfile, primaryMetric, selectedDerivedMetric, selectedMetrics, sensor?.type]);
+  }, [
+    metricPresentationProfiles,
+    navigationState?.sensorType,
+    selectedDerivedMetric,
+    selectedMetrics,
+    sensor?.type,
+  ]);
 
   useEffect(() => {
     const sensorType = sensor?.type || navigationState?.sensorType || '';
@@ -1934,6 +1956,21 @@ const SensorConfig: React.FC = () => {
             ? existingHardwareConfig.sustainedWindowMinutes.toString()
             : '15'
         );
+        setMaximumLoadKg(
+          typeof existingHardwareConfig.maximumLoadKg === 'number'
+            ? existingHardwareConfig.maximumLoadKg.toString()
+            : ''
+        );
+        setSafeOccupancyPeople(
+          typeof existingHardwareConfig.safeOccupancyPeople === 'number'
+            ? existingHardwareConfig.safeOccupancyPeople.toString()
+            : ''
+        );
+        setChangeWindowMinutes(
+          typeof existingHardwareConfig.changeWindowMinutes === 'number'
+            ? existingHardwareConfig.changeWindowMinutes.toString()
+            : '15'
+        );
         setAttendanceBaselineDistanceCm(
           typeof existingHardwareConfig.attendanceBaselineDistanceCm === 'number'
             ? existingHardwareConfig.attendanceBaselineDistanceCm.toString()
@@ -1974,7 +2011,15 @@ const SensorConfig: React.FC = () => {
               : savedDerivedMetrics.length > 0
                 ? savedDerivedMetrics
                 : metrics.map((metric) => metric.key).filter(Boolean);
-        const hydratedMetricKeys = Array.from(new Set(savedMetricKeys.filter(Boolean)));
+        const hydratedMetricKeys = Array.from(
+          new Set(
+            savedMetricKeys.filter(
+              (metricKey) =>
+                Boolean(metricKey) &&
+                Boolean(getObservableMetricDefinition(sensorData.type || '', metricKey))
+            )
+          )
+        );
         if (hydratedMetricKeys.length === 0 && configuredMetric?.key) {
           hydratedMetricKeys.push(configuredMetric.key);
         }
@@ -2057,12 +2102,16 @@ const SensorConfig: React.FC = () => {
 
   useEffect(() => {
     initializedSensorIdRef.current = null;
+    hasUserEditedMetricsRef.current = false;
     setActiveStep(0);
     setPageError(null);
   }, [activeSensorId]);
 
   useEffect(() => {
     if (observableMetricCatalog.length === 0) {
+      return;
+    }
+    if (hasUserEditedMetricsRef.current) {
       return;
     }
     
@@ -2372,6 +2421,15 @@ const SensorConfig: React.FC = () => {
     if (typeof suggestedHardwareConfig.sustainedWindowMinutes === 'number') {
       setSustainedWindowMinutes(suggestedHardwareConfig.sustainedWindowMinutes.toString());
     }
+    if (typeof suggestedHardwareConfig.maximumLoadKg === 'number') {
+      setMaximumLoadKg(suggestedHardwareConfig.maximumLoadKg.toString());
+    }
+    if (typeof suggestedHardwareConfig.safeOccupancyPeople === 'number') {
+      setSafeOccupancyPeople(suggestedHardwareConfig.safeOccupancyPeople.toString());
+    }
+    if (typeof suggestedHardwareConfig.changeWindowMinutes === 'number') {
+      setChangeWindowMinutes(suggestedHardwareConfig.changeWindowMinutes.toString());
+    }
 
     const previewMetrics = getPresentationMetrics(sensorType, suggestedMetric.key, suggestedProfile);
     const baseThresholds = { ...(getConfigMetricThresholds(suggestedConfig) || {}) };
@@ -2400,8 +2458,12 @@ const SensorConfig: React.FC = () => {
           setPageError('Please give your sensor a name.');
           return false;
         }
-        if (!selectedDerivedMetric) {
+        if (selectedMetrics.length === 0) {
           setPageError('Please choose what to measure.');
+          return false;
+        }
+        if (!observableMetricCatalog.some((metric) => selectedMetrics.includes(metric.key))) {
+          setPageError('The selected measurement is not supported by this sensor.');
           return false;
         }
         if (!purpose.trim()) {
@@ -2425,6 +2487,49 @@ const SensorConfig: React.FC = () => {
         ) {
           setPageError('Please choose how many minutes a condition must stay unsafe before alerting.');
           return false;
+        }
+        if (
+          clarificationPrompts.some((prompt) => prompt.key === 'maximumLoadKg') &&
+          !toPositiveIntOrUndefined(maximumLoadKg)
+        ) {
+          setPageError('Please enter the maximum safe operating load.');
+          return false;
+        }
+        if (
+          clarificationPrompts.some((prompt) => prompt.key === 'safeOccupancyPeople') &&
+          !toPositiveIntOrUndefined(safeOccupancyPeople)
+        ) {
+          setPageError('Please enter the safe occupancy limit.');
+          return false;
+        }
+        if (
+          clarificationPrompts.some((prompt) => prompt.key === 'changeWindowMinutes') &&
+          !toPositiveIntOrUndefined(changeWindowMinutes)
+        ) {
+          setPageError('Please choose how many minutes should be used to calculate changes.');
+          return false;
+        }
+        if (selectedMetrics.includes('attendance_count')) {
+          const baseline = Number(attendanceBaselineDistanceCm);
+          const trigger = Number(attendanceTriggerDeltaCm);
+          const hysteresis = Number(attendanceResetHysteresisCm);
+          const cooldown = Number(attendanceCooldownSeconds);
+          if (!Number.isFinite(baseline) || baseline <= 0) {
+            setPageError('Enter the normal clear-door distance before continuing.');
+            return false;
+          }
+          if (!Number.isFinite(trigger) || trigger <= 0) {
+            setPageError('Enter a positive distance change that should count as a passage.');
+            return false;
+          }
+          if (!Number.isFinite(hysteresis) || hysteresis < 0 || hysteresis >= trigger) {
+            setPageError('The reset margin must be zero or more and smaller than the trigger distance change.');
+            return false;
+          }
+          if (!Number.isFinite(cooldown) || cooldown <= 0) {
+            setPageError('Enter a positive attendance cooldown duration.');
+            return false;
+          }
         }
         return true;
       case 'alerts':
@@ -2465,14 +2570,28 @@ const SensorConfig: React.FC = () => {
       return;
     }
 
-    if (!selectedDerivedMetric) {
+    const selectedMetricDefinition = selectedMetrics
+      .map((metricKey) =>
+        getObservableMetricDefinition(
+          sensor.type || navigationState?.sensorType || '',
+          metricKey
+        )
+      )
+      .find((metric): metric is ObservableMetricDefinition => Boolean(metric));
+
+    if (selectedMetrics.length === 0) {
       setPageError('Please choose the observed metric for this sensor.');
       return;
     }
 
-    if (selectedDerivedMetric.availability === 'planned_analytics') {
+    if (!selectedMetricDefinition) {
+      setPageError('The selected measurement is not supported by this sensor.');
+      return;
+    }
+
+    if (selectedMetricDefinition.availability === 'planned_analytics') {
       setPageError(
-        `${selectedDerivedMetric.label} can now be selected for design preview, but activation is blocked until the analytics derivation runtime is implemented.`
+        `${selectedMetricDefinition.label} can now be selected for design preview, but activation is blocked until the analytics derivation runtime is implemented.`
       );
       return;
     }
@@ -2546,7 +2665,7 @@ const SensorConfig: React.FC = () => {
         ])
       ) as Record<string, MetricThresholdPayload>;
 
-      const primaryMetricKey = selectedDerivedMetric?.runtime_metric_key || sensorMetrics[0]?.key;
+      const primaryMetricKey = selectedMetricDefinition.runtime_metric_key || sensorMetrics[0]?.key;
       const primaryMetricThreshold: MetricThresholdPayload = primaryMetricKey
         ? metricThresholdPayload[primaryMetricKey] || {}
         : {};
@@ -2573,6 +2692,9 @@ const SensorConfig: React.FC = () => {
       const presentationMetadata = getPresentationMetadata(primaryPresentationProfile, useCase);
       const fullScaleDistance = toPositiveIntOrUndefined(fullScaleDistanceCm);
       const sustainedWindow = toPositiveIntOrUndefined(sustainedWindowMinutes);
+      const maximumLoad = toPositiveIntOrUndefined(maximumLoadKg);
+      const safeOccupancy = toPositiveIntOrUndefined(safeOccupancyPeople);
+      const changeWindow = toPositiveIntOrUndefined(changeWindowMinutes);
       const existingHardwareConfig = getConfigHardware(sensor.active_config);
       const conversationalHardwareConfig: Record<string, unknown> = {
         ...existingHardwareConfig,
@@ -2590,6 +2712,15 @@ const SensorConfig: React.FC = () => {
 
       if (sustainedWindow !== undefined) {
         conversationalHardwareConfig.sustainedWindowMinutes = sustainedWindow;
+      }
+      if (maximumLoad !== undefined) {
+        conversationalHardwareConfig.maximumLoadKg = maximumLoad;
+      }
+      if (safeOccupancy !== undefined) {
+        conversationalHardwareConfig.safeOccupancyPeople = safeOccupancy;
+      }
+      if (changeWindow !== undefined) {
+        conversationalHardwareConfig.changeWindowMinutes = changeWindow;
       }
       if (selectedMetrics.includes('attendance_count')) {
         conversationalHardwareConfig.attendanceBaselineDistanceCm = Number(attendanceBaselineDistanceCm);
@@ -2627,7 +2758,7 @@ const SensorConfig: React.FC = () => {
           purpose: purpose.trim() || undefined,
           use_case: useCase,
           primary_metric: primaryMetric || primaryMetricKey || undefined,
-          display_unit: selectedDerivedMetric.unit || undefined,
+          display_unit: selectedMetricDefinition.unit || undefined,
           // observable_metrics records every metric key the user explicitly selected
           // in the "What to Measure" step. The monitoring dashboard reads this field
           // to decide which metric cards to render. This is the source of truth.
@@ -2735,14 +2866,24 @@ const SensorConfig: React.FC = () => {
           appConfig,
         });
 
+        const successState = {
+          configurationSaved: true,
+          configuredSensorId: sensor.id,
+          configuredSensorName: friendlyName.trim(),
+          observationMessage: 'Three-layer configuration activated successfully.',
+        };
+
+        if (navigationState?.returnTo) {
+          navigate(navigationState.returnTo, {
+            replace: true,
+            state: successState,
+          });
+          return;
+        }
+
         navigate(`/hardware/${activeControllerId}/sensors`, {
           replace: true,
-          state: {
-            configurationSaved: true,
-            configuredSensorId: sensor.id,
-            configuredSensorName: friendlyName.trim(),
-            observationMessage: 'Three-layer configuration activated successfully.',
-          },
+          state: successState,
         });
         return;
       }
@@ -2788,6 +2929,80 @@ const SensorConfig: React.FC = () => {
       setSaving(false);
     }
   };
+
+  const renderAttendanceQuestions = () =>
+    selectedMetrics.includes('attendance_count') ? (
+      <Box
+        sx={{
+          p: 2.25,
+          borderRadius: 2,
+          bgcolor: '#fffdf8',
+          border: '1px solid rgba(60, 57, 17, 0.08)',
+        }}
+      >
+        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+          Door passage detection
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+          Measure the empty doorway first. A reading that changes from that baseline by the trigger
+          distance counts once, then the detector waits for the doorway to clear and for the cooldown
+          to finish.
+        </Typography>
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              required
+              type="number"
+              label="Normal clear-door distance"
+              value={attendanceBaselineDistanceCm}
+              onChange={(event) => setAttendanceBaselineDistanceCm(event.target.value)}
+              inputProps={{ min: 0, step: 'any' }}
+              helperText="The stable distance recorded when nobody is in the doorway (cm)."
+            />
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              required
+              type="number"
+              label="Passage trigger distance change"
+              value={attendanceTriggerDeltaCm}
+              onChange={(event) => setAttendanceTriggerDeltaCm(event.target.value)}
+              inputProps={{ min: 0, step: 'any' }}
+              helperText="Count when the distance moves up or down by at least this amount (cm)."
+            />
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              type="number"
+              label="Reset margin"
+              value={attendanceResetHysteresisCm}
+              onChange={(event) => setAttendanceResetHysteresisCm(event.target.value)}
+              inputProps={{ min: 0, step: 'any' }}
+              helperText="Prevents noisy readings near the trigger from counting repeatedly (cm)."
+            />
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              required
+              type="number"
+              label="Cooldown after each count"
+              value={attendanceCooldownSeconds}
+              onChange={(event) => setAttendanceCooldownSeconds(event.target.value)}
+              inputProps={{ min: 0.1, step: 0.1 }}
+              helperText="Defaults to 2 seconds before another passage can count."
+            />
+          </Grid>
+        </Grid>
+        <Alert severity="info" sx={{ mt: 2 }}>
+          The sensor must send readings frequently enough to capture a person crossing the doorway.
+          One reading per second or faster is recommended for testing.
+        </Alert>
+      </Box>
+    ) : null;
 
   // ===== NEW SIMPLIFIED 2-PAGE FLOW =====
   const renderSetupStep = () => (
@@ -3112,7 +3327,10 @@ const SensorConfig: React.FC = () => {
                     <Box display="flex" alignItems="flex-start" gap={2}>
                       <Checkbox
                         checked={selected}
-                        sx={{ p: 0, '& .MuiSvgIcon-root': { fontSize: 26 }, pointerEvents: 'none' }}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={() => toggleMetricSelection(metric)}
+                        inputProps={{ 'aria-label': `Measure ${metric.label}` }}
+                        sx={{ p: 0, '& .MuiSvgIcon-root': { fontSize: 26 } }}
                         color="primary"
                       />
                       <Box sx={{ flexGrow: 1 }}>
@@ -3203,12 +3421,28 @@ const SensorConfig: React.FC = () => {
             </Stack>
             <Stack spacing={2}>
               {clarificationPrompts.map((prompt) => {
-                const value =
-                  prompt.key === 'fullScaleDistanceCm' ? fullScaleDistanceCm : sustainedWindowMinutes;
-                const onChange =
-                  prompt.key === 'fullScaleDistanceCm'
-                    ? setFullScaleDistanceCm
-                    : setSustainedWindowMinutes;
+                const field = {
+                  fullScaleDistanceCm: {
+                    value: fullScaleDistanceCm,
+                    onChange: setFullScaleDistanceCm,
+                  },
+                  sustainedWindowMinutes: {
+                    value: sustainedWindowMinutes,
+                    onChange: setSustainedWindowMinutes,
+                  },
+                  maximumLoadKg: {
+                    value: maximumLoadKg,
+                    onChange: setMaximumLoadKg,
+                  },
+                  safeOccupancyPeople: {
+                    value: safeOccupancyPeople,
+                    onChange: setSafeOccupancyPeople,
+                  },
+                  changeWindowMinutes: {
+                    value: changeWindowMinutes,
+                    onChange: setChangeWindowMinutes,
+                  },
+                }[prompt.key];
 
                 return (
                   <Box
@@ -3226,8 +3460,8 @@ const SensorConfig: React.FC = () => {
                     <TextField
                       fullWidth
                       label={prompt.label}
-                      value={value}
-                      onChange={(e) => onChange(e.target.value)}
+                      value={field.value}
+                      onChange={(e) => field.onChange(e.target.value)}
                       type="number"
                       placeholder={prompt.placeholder}
                       helperText={`${prompt.helperText} (${prompt.unit})`}
@@ -3239,6 +3473,7 @@ const SensorConfig: React.FC = () => {
           </Box>
         )}
 
+        {renderAttendanceQuestions()}
 
       </Stack>
     </Box>
@@ -3280,7 +3515,10 @@ const SensorConfig: React.FC = () => {
                   <Stack direction="row" spacing={1} alignItems="center">
                     <Checkbox
                       checked={selected}
-                      sx={{ p: 0, '& .MuiSvgIcon-root': { fontSize: 24 }, pointerEvents: 'none' }}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => toggleMetricSelection(metric)}
+                      inputProps={{ 'aria-label': `Measure ${metric.label}` }}
+                      sx={{ p: 0, '& .MuiSvgIcon-root': { fontSize: 24 } }}
                       color="primary"
                     />
                     <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
@@ -3696,197 +3934,6 @@ const SensorConfig: React.FC = () => {
         </Box>
       )}
 
-      {selectedMetrics.includes('attendance_count') && (
-        <Box
-          sx={{
-            mt: 3,
-            p: 2.25,
-            borderRadius: 2,
-            bgcolor: '#fffdf8',
-            border: '1px solid rgba(60, 57, 17, 0.08)',
-          }}
-        >
-          <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-            Door passage detection
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
-            Measure the empty doorway first. A reading that changes from that baseline by the trigger
-            distance counts once, then the detector waits for the doorway to clear and for the cooldown
-            to finish.
-          </Typography>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                required
-                type="number"
-                label="Normal clear-door distance"
-                value={attendanceBaselineDistanceCm}
-                onChange={(event) => setAttendanceBaselineDistanceCm(event.target.value)}
-                inputProps={{ min: 0, step: 'any' }}
-                helperText="The stable distance recorded when nobody is in the doorway (cm)."
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                required
-                type="number"
-                label="Passage trigger distance change"
-                value={attendanceTriggerDeltaCm}
-                onChange={(event) => setAttendanceTriggerDeltaCm(event.target.value)}
-                inputProps={{ min: 0, step: 'any' }}
-                helperText="Count when the distance moves up or down by at least this amount (cm)."
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                type="number"
-                label="Reset margin"
-                value={attendanceResetHysteresisCm}
-                onChange={(event) => setAttendanceResetHysteresisCm(event.target.value)}
-                inputProps={{ min: 0, step: 'any' }}
-                helperText="Prevents noisy readings near the trigger from counting repeatedly (cm)."
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                required
-                type="number"
-                label="Cooldown after each count"
-                value={attendanceCooldownSeconds}
-                onChange={(event) => setAttendanceCooldownSeconds(event.target.value)}
-                inputProps={{ min: 0.1, step: 0.1 }}
-                helperText="Defaults to 2 seconds before another passage can count."
-              />
-            </Grid>
-          </Grid>
-          <Alert severity="info" sx={{ mt: 2 }}>
-            The sensor must send readings frequently enough to capture a person crossing the doorway.
-            One reading per second or faster is recommended for testing.
-          </Alert>
-        </Box>
-      )}
-
-      <Stack
-        direction="row"
-        spacing={1}
-        alignItems="center"
-        justifyContent="space-between"
-        sx={{ mt: 3, pt: 2.25, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}
-      >
-        <Typography variant="subtitle2" sx={{ ...fieldGroupTitleSx, mb: 0 }}>
-          Reporting & Power Settings
-        </Typography>
-        <InfoButton tooltip="Reporting guidance">
-          Reporting frequency affects both freshness and battery life. Faster updates give more responsive monitoring, while fewer reports extend battery runtime.
-        </InfoButton>
-      </Stack>
-      <Box sx={{ p: 2, borderRadius: 2, bgcolor: '#fffdf8', border: '1px solid rgba(60, 57, 17, 0.08)', mt: 2 }}>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ color: 'primary.main', mb: 2 }}>
-          <BatteryChargingFull />
-          <Typography variant="body2" fontWeight={800}>
-            Battery runtime updates automatically based on your reporting frequency.
-          </Typography>
-        </Stack>
-        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-            Update speed
-          </Typography>
-          <InfoButton tooltip="Update speed help">
-            Use faster reporting when you need quick reactions to changes. Use slower reporting when long battery life matters more than minute-by-minute visibility.
-          </InfoButton>
-        </Stack>
-        <Grid container spacing={1.5} sx={{ mb: 2 }}>
-          {REPORTING_PRESETS.map((preset) => {
-            const selected = selectedReportingPreset === preset.key;
-            return (
-              <Grid item xs={12} md={4} key={preset.key}>
-                <Box
-                  onClick={() => {
-                    setReportsPerDay(String(preset.reportsPerDay));
-                  }}
-                  sx={{
-                    p: 1.5,
-                    borderRadius: 2,
-                    border: '1px solid',
-                    borderColor: selected ? 'primary.main' : 'rgba(60, 57, 17, 0.12)',
-                    bgcolor: selected ? 'rgba(108, 137, 48, 0.08)' : '#ffffff',
-                    cursor: 'pointer',
-                    height: '100%',
-                  }}
-                >
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                    {preset.label}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {preset.description}
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.75 }}>
-                    {preset.reportsPerDay} reports per day
-                  </Typography>
-                </Box>
-              </Grid>
-            );
-          })}
-        </Grid>
-        <Box
-          sx={{
-            mb: 2,
-            p: 1.5,
-            borderRadius: 2,
-            border: '1px solid rgba(60, 57, 17, 0.08)',
-            bgcolor: '#ffffff',
-          }}
-        >
-          <Stack direction="row" justifyContent="space-between" spacing={2}>
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Selected speed
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                {activeReportingPreset.label}
-              </Typography>
-            </Box>
-            <Box sx={{ textAlign: 'right' }}>
-              <Typography variant="caption" color="text.secondary">
-                Reporting cadence
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                {resolvedReportsPerDay} reports per day
-              </Typography>
-            </Box>
-          </Stack>
-        </Box>
-        {clarificationPrompts.some((prompt) => prompt.key === 'sustainedWindowMinutes') && (
-          <TextField
-            fullWidth
-            label="Only alert me if the condition stays unsafe for"
-            type="number"
-            value={sustainedWindowMinutes}
-            onChange={(e) => setSustainedWindowMinutes(e.target.value)}
-            helperText="This reduces false alarms from brief spikes or short door openings."
-            sx={{ mb: 2 }}
-          />
-        )}
-        <Box
-          sx={{
-            p: 1.5,
-            borderRadius: 2,
-            border: '1px solid rgba(60, 57, 17, 0.08)',
-            bgcolor: '#ffffff',
-          }}
-        >
-          <Typography variant="caption" color="text.secondary">
-            Estimated battery life
-          </Typography>
-          <Typography variant="body2" sx={{ fontWeight: 800, mt: 0.35 }}>
-            {estimatedBatteryLifeDays} days
-          </Typography>
-        </Box>
-      </Box>
     </Box>
   );
 
@@ -3974,22 +4021,6 @@ const SensorConfig: React.FC = () => {
               </Typography>
               <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'right' }}>
                 {previewProfile?.visualization_label || 'Choose a dashboard view'}
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-              <Typography variant="body2" color="text.secondary">
-                Update plan
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'right' }}>
-                {`${resolvedReportsPerDay} reports / day`}
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-              <Typography variant="body2" color="text.secondary">
-                Battery estimate
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'right' }}>
-                {estimatedBatteryLifeDays} days
               </Typography>
             </Box>
           </Stack>

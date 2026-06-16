@@ -118,6 +118,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 			r.Post("/owners", authHandler.AdminCreateOwner)
 			r.Patch("/owners/{userId}/approve", authHandler.AdminApproveOwner)
 			r.Patch("/owners/{userId}/reject", authHandler.AdminRejectOwner)
+			r.Delete("/owners/{userId}", authHandler.AdminDeleteOwner)
 			r.Get("/system", controllerHandler.AdminSystemHealthAPI)
 			r.Get("/audit", controllerHandler.AdminAuditEventsAPI)
 		})
