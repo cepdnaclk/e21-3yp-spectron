@@ -65,7 +65,7 @@ export interface CreateOwnerRequest {
   password: string;
   name?: string;
   phone?: string;
-  organizationName: string;
+  organizationName?: string;
 }
 
 export interface AdminSystemHealth {
@@ -134,6 +134,10 @@ export const approveAdminOwner = async (ownerId: string): Promise<void> => {
 
 export const rejectAdminOwner = async (ownerId: string): Promise<void> => {
   await api.patch(`/api/admin/owners/${encodeURIComponent(ownerId)}/reject`);
+};
+
+export const deleteAdminOwner = async (ownerId: string): Promise<void> => {
+  await api.delete(`/api/admin/owners/${encodeURIComponent(ownerId)}`);
 };
 
 export const getAdminSystemHealth = async (): Promise<AdminSystemHealth> => {

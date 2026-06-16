@@ -39,6 +39,7 @@ const actionOptions = [
   'OWNER_APPROVED',
   'OWNER_REJECTED',
   'OWNER_STATUS_CHANGED',
+  'OWNER_DELETED',
 ];
 
 const formatAction = (value: string) =>
