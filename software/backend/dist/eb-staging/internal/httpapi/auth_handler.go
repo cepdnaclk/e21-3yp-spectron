@@ -22,7 +22,7 @@ type AuthHandler struct {
 }
 
 const (
-	signupSuccessMessage           = "Account created. You can sign in now."
+	signupSuccessMessage           = "Account created. Pending administrator approval."
 	verificationNotRequiredMessage = "Email verification is no longer required. You can sign in now."
 )
 
@@ -167,7 +167,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	_, err = tx.Exec(r.Context(), `
 		INSERT INTO users (id, email, password_hash, phone, name, account_type, status, is_email_verified)
-		VALUES ($1, $2, $3, $4, $5, 'USER', 'ACTIVE', true)
+		VALUES ($1, $2, $3, $4, $5, 'USER', 'PENDING_APPROVAL', true)
 	`, userID, email, hashedPassword, req.Phone, req.Name)
 	if err != nil {
 		log.Printf("Failed to create user: %v", err)
@@ -219,7 +219,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 func writeSignupSuccessResponse(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(AuthResponse{
-		Status:  "ACTIVE",
+		Status:  "PENDING_APPROVAL",
 		Message: signupSuccessMessage,
 	})
 }
