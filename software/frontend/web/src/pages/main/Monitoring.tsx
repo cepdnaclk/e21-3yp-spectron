@@ -358,6 +358,105 @@ const deriveFillMetricTrend = (
   }, []);
 };
 
+/**
+ * NOAA simplified heat-index formula.
+ * Uses Steadman's constants when T >= 27 °C and RH >= 40 %.
+ * Falls back to a lightweight approximation otherwise.
+ */
+const computeHeatIndex = (tempC: number, rh: number): number => {
+  // Convert to Fahrenheit for the Rothfusz regression
+  const T = tempC * 9 / 5 + 32;
+  // Simple average for low-stress conditions
+  let HI = 0.5 * (T + 61.0 + (T - 68.0) * 1.2 + rh * 0.094);
+  if (HI >= 80) {
+    // Full Rothfusz regression
+    HI =
+      -42.379 +
+      2.04901523 * T +
+      10.14333127 * rh -
+      0.22475541 * T * rh -
+      0.00683783 * T * T -
+      0.05481717 * rh * rh +
+      0.00122874 * T * T * rh +
+      0.00085282 * T * rh * rh -
+      0.00000199 * T * T * rh * rh;
+    if (rh < 13 && T >= 80 && T <= 112) {
+      HI -= ((13 - rh) / 4) * Math.sqrt((17 - Math.abs(T - 95)) / 17);
+    } else if (rh > 85 && T >= 80 && T <= 87) {
+      HI += ((rh - 85) / 10) * ((87 - T) / 5);
+    }
+  }
+  // Convert back to Celsius
+  return (HI - 32) * 5 / 9;
+};
+
+/**
+ * Magnus formula for dew point.
+ */
+const computeDewPoint = (tempC: number, rh: number): number => {
+  const a = 17.27;
+  const b = 237.7;
+  const alpha = (a * tempC) / (b + tempC) + Math.log(rh / 100);
+  return (b * alpha) / (a - alpha);
+};
+
+/**
+ * Derive climate-computed metrics (heat_index, dew_point, temperature_spike,
+ * humidity_spike) from raw temperature and humidity readings.
+ */
+const deriveClimateMetricTrend = (
+  metricKey: string,
+  readings: SensorReading[],
+  sensor: Sensor,
+): SensorPoint[] => {
+  if (metricKey === 'heat_index' || metricKey === 'dew_point') {
+    return readings.reduce<SensorPoint[]>((points, reading) => {
+      const temp = toReadingValue(reading, 'temperature', sensor.type);
+      const hum = toReadingValue(reading, 'humidity', sensor.type);
+      if (temp === null || hum === null) return points;
+
+      const value = metricKey === 'heat_index'
+        ? computeHeatIndex(temp, hum)
+        : computeDewPoint(temp, hum);
+
+      if (!Number.isFinite(value)) return points;
+
+      points.push({
+        label: formatTimeLabel(reading.time),
+        shortLabel: formatTimeLabel(reading.time),
+        value: Math.round(value * 10) / 10,
+        time: reading.time,
+      });
+      return points;
+    }, []);
+  }
+
+  // Spike metrics: delta between consecutive readings
+  if (metricKey === 'temperature_spike' || metricKey === 'humidity_spike') {
+    const sourceKey = metricKey === 'temperature_spike' ? 'temperature' : 'humidity';
+    const rawPoints = readings.reduce<SensorPoint[]>((points, reading) => {
+      const value = toReadingValue(reading, sourceKey, sensor.type);
+      if (value === null) return points;
+      points.push({
+        label: formatTimeLabel(reading.time),
+        shortLabel: formatTimeLabel(reading.time),
+        value,
+        time: reading.time,
+      });
+      return points;
+    }, []);
+
+    return rawPoints.reduce<SensorPoint[]>((spikes, point, index) => {
+      if (index === 0) return spikes;
+      const delta = Math.abs(point.value - rawPoints[index - 1].value);
+      spikes.push({ ...point, value: Math.round(delta * 10) / 10 });
+      return spikes;
+    }, []);
+  }
+
+  return [];
+};
+
 const toReadingValue = (reading: SensorReading, metricKey?: string, sensorType?: string): number | null => {
   if (metricKey) {
     if (typeof (reading as any)[metricKey] === 'number') {
@@ -701,13 +800,13 @@ const getSensorUnit = (sensor: Sensor, metricKey?: string) => {
   const useCase = getUseCase(sensor);
   return sensor.unit || (
     sensor.type === 'temperature'
-      ? 'C'
+      ? '°C'
         : sensor.type === 'humidity'
           ? '%RH'
         : sensor.type === 'pressure'
           ? 'hPa'
         : sensor.type === 'bme280' || sensor.type === 'bmp280'
-          ? 'C'
+          ? '°C'
         : sensor.type === 'vl53l0x' || sensor.type === 'distance'
           ? 'cm'
         : sensor.type === 'ultrasonic'
@@ -1578,12 +1677,55 @@ const Monitoring: React.FC = () => {
           // Include all sensors regardless of status to show historical readings even when disconnected
           const { from, to } = getDateRangeForTimeRange(range);
 
-          const sensorCardsMatrix = await Promise.all(
-            sensors.map(async (sensor) => {
-              const readings = await getSensorReadings(sensor.id, {
+          const readingsBySensorId = new Map<string, SensorReading[]>();
+          await Promise.all(
+            sensors.map(async (s) => {
+              const readings = await getSensorReadings(s.id, {
                 from: from.toISOString(),
                 to: to.toISOString(),
               }).catch(() => []);
+              readingsBySensorId.set(s.id, readings);
+            })
+          );
+
+          const siblingGroupValues = new Map<string, Map<string, Record<string, number>>>();
+          sensors.forEach((s) => {
+            const groupKey = getPhysicalSensorGroupKey(s, sensors);
+            const metricKey = getRawMetricForSensor(s.type);
+            const readings = readingsBySensorId.get(s.id) || [];
+            if (!siblingGroupValues.has(groupKey)) {
+              siblingGroupValues.set(groupKey, new Map());
+            }
+            const timeMap = siblingGroupValues.get(groupKey)!;
+            readings.forEach((reading) => {
+              const val = toReadingValue(reading, metricKey, s.type);
+              if (val !== null) {
+                const existing = timeMap.get(reading.time) || {};
+                existing[metricKey] = val;
+                timeMap.set(reading.time, existing);
+              }
+            });
+          });
+
+          const sensorCardsMatrix = await Promise.all(
+            sensors.map(async (sensor) => {
+              const rawReadings = readingsBySensorId.get(sensor.id) || [];
+              const groupKey = getPhysicalSensorGroupKey(sensor, sensors);
+              const timeMap = siblingGroupValues.get(groupKey);
+              const readings = rawReadings.map((reading) => {
+                const siblingVals = timeMap?.get(reading.time);
+                if (siblingVals) {
+                  return {
+                    ...reading,
+                    meta: {
+                      ...reading.meta,
+                      ...siblingVals,
+                    },
+                    ...siblingVals,
+                  };
+                }
+                return reading;
+              });
 
               const sorted = sortReadingsAscending(readings);
               
@@ -1651,6 +1793,12 @@ const Monitoring: React.FC = () => {
                   ['fill_level', 'remaining_capacity_percent', 'fill_rate'].includes(metricKey)
                 ) {
                   trend = deriveFillMetricTrend(metricKey, metricReadings, sensor, activeConfig);
+                }
+                if (
+                  trend.length === 0 &&
+                  ['heat_index', 'dew_point', 'temperature_spike', 'humidity_spike'].includes(metricKey)
+                ) {
+                  trend = deriveClimateMetricTrend(metricKey, metricReadings, sensor);
                 }
                 if (metricKey === 'attendance_count' && attendanceState?.session_started_at) {
                   const latestCount = attendanceState.attendance_count;

@@ -2242,21 +2242,7 @@ const SensorConfig: React.FC = () => {
     suggestions: ConfigurationAiSuggestionResponse,
     sensorType: string
   ) => {
-    if (suggestions.needs_follow_up && suggestions.follow_up_questions?.length) {
-      const questions = suggestions.follow_up_questions.slice(0, 3);
-      setAiFollowUpQuestions(questions);
-      setAiFollowUpAnswers((current) => {
-        const next: AIFollowUpAnswers = {};
-        questions.forEach((question) => {
-          next[question.id] = current[question.id] || '';
-        });
-        return next;
-      });
-      setShowAiSuggestions(false);
-      setAiSuggestions(null);
-      return;
-    }
-
+    // Skip follow-up questions — always show results directly
     resetAiFollowUpState();
     setShowAiSuggestions(true);
     setAiSuggestions(buildAiDraftSummary(suggestions, sensorType));
@@ -2928,45 +2914,17 @@ const SensorConfig: React.FC = () => {
             </IconButton>
           </DialogTitle>
           <DialogContent dividers sx={{ bgcolor: '#f7faf4', p: { xs: 2, sm: 2.5 } }}>
-            <Stack
-              direction="row"
-              spacing={1}
-              justifyContent="space-between"
-              alignItems="center"
-              sx={{ mb: 1.5 }}
-            >
-              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                Describe Your Setup
-              </Typography>
-              <InfoButton tooltip="What should I include?">
-                <Stack spacing={1}>
-                  <Typography variant="body2">
-                    Tell the AI what you are monitoring, where it is installed, which risks matter, and any ideal ranges you already know.
-                  </Typography>
-                  <Box component="ul" sx={{ pl: 2.25, my: 0, fontSize: '0.875rem' }}>
-                    <li>What you are monitoring, for example tomatoes, a storage room, or a tank</li>
-                    <li>The environment, for example greenhouse, warehouse, or outdoor</li>
-                    <li>The main risks, for example extreme heat, high humidity, or overflow</li>
-                    <li>Ideal conditions if you already know them</li>
-                  </Box>
-                  <Typography variant="body2" sx={{ fontStyle: 'italic' }}>
-                    Example: "I grow basil indoors on a windowsill. Temperature should stay between 18 and 25 C. Below 15 C the plants suffer, and above 30 C they wilt. Humidity below 40 percent is too dry."
-                  </Typography>
-                </Stack>
-              </InfoButton>
-            </Stack>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+              Describe Your Setup
+            </Typography>
+
             <TextField
               fullWidth
               multiline
-              rows={4}
+              rows={3}
               label="Describe your monitoring setup..."
               value={aiPrompt}
-              onChange={(e) => {
-                setAiPrompt(e.target.value);
-                if (aiFollowUpQuestions.length > 0) {
-                  resetAiFollowUpState();
-                }
-              }}
+              onChange={(e) => setAiPrompt(e.target.value)}
               placeholder="Example: I am monitoring a greenhouse with tomatoes. Temperature should stay 20 to 28 C and humidity 60 to 80 percent."
               variant="outlined"
               helperText={`${aiPrompt.length}/300 characters`}
@@ -2980,88 +2938,75 @@ const SensorConfig: React.FC = () => {
               sx={{ mt: 1.5, fontWeight: 700 }}
               onClick={() => requestAiConfiguration()}
             >
-              Use AI to Fill Configuration
+              {requestingAi ? 'Generating Configuration...' : 'Use AI to Fill Configuration'}
             </Button>
 
-          {aiFollowUpQuestions.length > 0 && (
-            <Box sx={{ mt: 2, p: 2, borderRadius: 2, bgcolor: '#fffdf8', border: '1px solid rgba(60, 57, 17, 0.12)' }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.75 }}>
-                AI needs {aiFollowUpQuestions.length} quick answers before it can finish the configuration
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                This helps it set thresholds for your exact environment instead of guessing.
-              </Typography>
-              <Stack spacing={1.5}>
-                {aiFollowUpQuestions.map((question, index) => (
-                  <TextField
-                    key={question.id}
-                    fullWidth
-                    label={`Question ${index + 1}`}
-                    value={aiFollowUpAnswers[question.id] || ''}
-                    onChange={(e) =>
-                      setAiFollowUpAnswers((current) => ({
-                        ...current,
-                        [question.id]: e.target.value,
-                      }))
-                    }
-                    placeholder={question.placeholder}
-                    helperText={question.question}
-                  />
-                ))}
-              </Stack>
-              <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
-                <Button
-                  variant="contained"
-                  disabled={
-                    requestingAi ||
-                    aiFollowUpQuestions.some((question) => !(aiFollowUpAnswers[question.id] || '').trim())
-                  }
-                  onClick={() => requestAiConfiguration(aiFollowUpAnswers)}
-                >
-                  {requestingAi ? 'Finishing...' : 'Continue with AI'}
-                </Button>
-                <Button
-                  variant="outlined"
-                  disabled={requestingAi}
-                  onClick={resetAiFollowUpState}
-                >
-                  Clear Questions
-                </Button>
-              </Stack>
-            </Box>
-          )}
-
           {showAiSuggestions && aiSuggestions && (
-            <Alert severity="success" sx={{ mt: 2 }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
-                AI Configuration Ready
+            <Box sx={{ mt: 2.5, p: 2, borderRadius: 2, bgcolor: '#fffdf8', border: '1px solid rgba(108, 137, 48, 0.3)' }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: 'primary.main' }}>
+                ✓ AI Configuration Ready
               </Typography>
-              <Stack spacing={0.75} sx={{ fontSize: '0.9rem' }}>
-                <Box>Metric: <strong>{aiSuggestions.metric}</strong></Box>
-                <Box>Purpose: <strong>{aiSuggestions.purpose}</strong></Box>
-                <Box>Display: <strong>{aiSuggestions.presentationProfile}</strong></Box>
-                <Box>Alerts: <strong>Warning {aiSuggestions.alertThresholds.warning} | Critical {aiSuggestions.alertThresholds.critical}</strong></Box>
+
+              {/* Explanation from AI */}
+              {aiSuggestions.explanation && (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, lineHeight: 1.6, fontStyle: 'italic' }}>
+                  {aiSuggestions.explanation}
+                </Typography>
+              )}
+
+              {/* Configuration summary */}
+              <Stack spacing={0.5} sx={{ fontSize: '0.875rem', mb: 1.5 }}>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography variant="body2" color="text.secondary" sx={{ minWidth: 60 }}>Metric:</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{aiSuggestions.metric}</Typography>
+                </Stack>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography variant="body2" color="text.secondary" sx={{ minWidth: 60 }}>Purpose:</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{aiSuggestions.purpose}</Typography>
+                </Stack>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography variant="body2" color="text.secondary" sx={{ minWidth: 60 }}>Display:</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{aiSuggestions.presentationProfile}</Typography>
+                </Stack>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography variant="body2" color="text.secondary" sx={{ minWidth: 60 }}>Alerts:</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    Warning {aiSuggestions.alertThresholds.warning} | Critical {aiSuggestions.alertThresholds.critical}
+                  </Typography>
+                </Stack>
               </Stack>
-              <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+
+              {/* Warnings from AI */}
+              {aiSuggestions.warnings && aiSuggestions.warnings.length > 0 && (
+                <Alert severity="warning" sx={{ mb: 1.5, py: 0.25 }}>
+                  <Typography variant="caption">
+                    {aiSuggestions.warnings.join(' • ')}
+                  </Typography>
+                </Alert>
+              )}
+
+              <Stack direction="row" spacing={1}>
                 <Button
                   size="small"
                   variant="contained"
+                  sx={{ fontWeight: 700 }}
                   onClick={() => {
                     applyAiSuggestionToForm(aiSuggestions, aiPrompt);
                     setShowAiSuggestions(false);
+                    setShowAiAssistance(false);
                   }}
                 >
-                  Accept
+                  Accept & Apply
                 </Button>
                 <Button
                   size="small"
                   variant="outlined"
                   onClick={() => setShowAiSuggestions(false)}
                 >
-                  Customize Myself
+                  Discard
                 </Button>
               </Stack>
-            </Alert>
+            </Box>
           )}
           </DialogContent>
           <DialogActions sx={{ px: { xs: 2, sm: 2.5 }, py: 1.5 }}>

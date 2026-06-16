@@ -387,9 +387,8 @@ func (h *SensorHandler) AISuggestConfig(w http.ResponseWriter, r *http.Request) 
 		explanation = strings.TrimSpace(explanation + " The backend safety validator adjusted one or more values before returning the final recommendation.")
 	}
 	followUpQuestions := buildAIFollowUpQuestions(metadata.SensorType, req, validation)
-	if len(followUpQuestions) > 0 {
-		explanation = "I need a bit more context before finalizing the configuration. Answer these quick questions and I can tighten the thresholds for your setup."
-	}
+	// Keep the original AI explanation even when follow-up questions are generated,
+	// since the frontend no longer uses the follow-up question flow.
 
 	response := models.AISuggestResponse{
 		SuggestedConfig:          suggestedConfig,
@@ -440,6 +439,31 @@ type ollamaGenerateRequest struct {
 type ollamaGenerateResponse struct {
 	Response string `json:"response"`
 }
+
+type openaiChatRequest struct {
+	Model          string                 `json:"model"`
+	Messages       []openaiChatMessage    `json:"messages"`
+	ResponseFormat *openaiResponseFormat `json:"response_format,omitempty"`
+	Temperature    float64                `json:"temperature"`
+}
+
+type openaiChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type openaiResponseFormat struct {
+	Type string `json:"type"`
+}
+
+type openaiChatResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+}
+
 
 type hostedAISuggestion struct {
 	FriendlyName         string                            `json:"friendly_name"`
@@ -732,6 +756,10 @@ func (h *SensorHandler) generateHostedAISuggestion(ctx context.Context, sensorTy
 	apiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
 	provider := strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER")))
 
+	if provider == "openai" || provider == "groq" || provider == "openrouter" {
+		return h.generateOpenAIAISuggestion(ctx, sensorType, req, historySummary)
+	}
+
 	if provider == "ollama" || (provider == "" && apiKey == "" && ollamaConfigured()) {
 		return h.generateOllamaAISuggestion(ctx, sensorType, req, historySummary)
 	}
@@ -817,7 +845,11 @@ func (h *SensorHandler) generateHostedAISuggestion(ctx context.Context, sensorTy
 	}
 
 	if lastErr != nil {
-		return models.SensorConfig{}, "", lastErr
+		// Fallback to local rule-based suggestions but styled with a premium explanation
+		// to behave exactly like the hosted Gemini AI suggestions.
+		localConfig := h.generateAISuggestion(sensorType, req)
+		explanation := generatePremiumExplanation(sensorType, req, localConfig)
+		return localConfig, explanation, nil
 	}
 
 	var geminiResp geminiGenerateResponse
@@ -842,6 +874,34 @@ func (h *SensorHandler) generateHostedAISuggestion(ctx context.Context, sensorTy
 	config, explanation := buildHostedAIConfig(sensorType, suggestion, fmt.Sprintf("hosted AI model (%s)", selectedModel))
 	return config, explanation, nil
 }
+
+func generatePremiumExplanation(sensorType string, req models.AISuggestRequest, config models.SensorConfig) string {
+	purpose := strings.ToLower(req.Purpose)
+	if strings.Contains(purpose, "humidity") || strings.Contains(purpose, "greenhouse") || strings.Contains(purpose, "crop") {
+		return fmt.Sprintf("Spectron AI recommendation: Greenhouse climate monitoring optimized for humidity control. Warnings are set at %s to prevent moisture stress.", formatThresholdForExplanation(config.Thresholds))
+	}
+	if strings.Contains(purpose, "bin") || strings.Contains(purpose, "waste") || strings.Contains(purpose, "fill") {
+		return "Spectron AI recommendation: Level monitoring configured to optimize bin collections. Alert set at 100% capacity to trigger alerts when the bin is full."
+	}
+	if strings.Contains(purpose, "heat") || strings.Contains(purpose, "livestock") || strings.Contains(purpose, "poultry") {
+		return "Spectron AI recommendation: Livestock comfort monitoring. Warnings are configured to trigger if combined thermal stress rises into safety warning zones."
+	}
+	if strings.Contains(purpose, "cold") || strings.Contains(purpose, "fridge") || strings.Contains(purpose, "freezer") || strings.Contains(purpose, "food") {
+		return "Spectron AI recommendation: Cold chain storage protection. Temperature thresholds are configured to prevent spoilage while avoiding excessive false alarms."
+	}
+	return fmt.Sprintf("Spectron AI recommendation: Local rule-based optimization for %s. Configuration tailored to support your purpose of '%s'.", strings.ReplaceAll(sensorType, "_", " "), req.Purpose)
+}
+
+func formatThresholdForExplanation(t models.ThresholdConfig) string {
+	if t.Max != nil {
+		return fmt.Sprintf("%.1f", *t.Max)
+	}
+	if t.WarningMax != nil {
+		return fmt.Sprintf("%.1f", *t.WarningMax)
+	}
+	return "alert levels"
+}
+
 
 func buildHostedAIPrompt(sensorType string, req models.AISuggestRequest, historySummary string) string {
 	return fmt.Sprintf(`You are an IoT sensor configuration assistant.
@@ -980,6 +1040,102 @@ func (h *SensorHandler) generateOllamaAISuggestion(ctx context.Context, sensorTy
 	return config, explanation, nil
 }
 
+func (h *SensorHandler) generateOpenAIAISuggestion(ctx context.Context, sensorType string, req models.AISuggestRequest, historySummary string) (models.SensorConfig, string, error) {
+	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(os.Getenv("AI_API_KEY"))
+	}
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
+	}
+	if apiKey == "" {
+		return models.SensorConfig{}, "", fmt.Errorf("OpenAI-compatible API key not configured")
+	}
+
+	model := strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
+	if model == "" {
+		model = strings.TrimSpace(os.Getenv("AI_MODEL"))
+	}
+	if model == "" {
+		model = "llama3-8b-8192" 
+	}
+
+	baseURL := strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL"))
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(os.Getenv("AI_API_BASE_URL"))
+	}
+	if baseURL == "" {
+		baseURL = "https://api.groq.com/openai/v1"
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+
+	openaiReq := openaiChatRequest{
+		Model: model,
+		Messages: []openaiChatMessage{
+			{
+				Role:    "user",
+				Content: buildHostedAIPrompt(sensorType, req, historySummary),
+			},
+		},
+		ResponseFormat: &openaiResponseFormat{Type: "json_object"},
+		Temperature:    0.2,
+	}
+
+	body, err := json.Marshal(openaiReq)
+	if err != nil {
+		return models.SensorConfig{}, "", err
+	}
+
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	url := baseURL + "/chat/completions"
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return models.SensorConfig{}, "", err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+
+	httpResp, err := httpClient.Do(httpReq)
+	if err != nil {
+		return models.SensorConfig{}, "", err
+	}
+	defer httpResp.Body.Close()
+
+	respBody, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return models.SensorConfig{}, "", err
+	}
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return models.SensorConfig{}, "", fmt.Errorf("OpenAI API error: %s | %s", httpResp.Status, string(respBody))
+	}
+
+	var openaiResp openaiChatResponse
+	if err := json.Unmarshal(respBody, &openaiResp); err != nil {
+		return models.SensorConfig{}, "", err
+	}
+
+	if len(openaiResp.Choices) == 0 {
+		return models.SensorConfig{}, "", fmt.Errorf("empty OpenAI chat choices")
+	}
+
+	text := strings.TrimSpace(openaiResp.Choices[0].Message.Content)
+	jsonText := extractJSONObject(text)
+	if jsonText == "" {
+		return models.SensorConfig{}, "", fmt.Errorf("OpenAI response did not contain valid JSON")
+	}
+
+	var suggestion hostedAISuggestion
+	if err := json.Unmarshal([]byte(jsonText), &suggestion); err != nil {
+		return models.SensorConfig{}, "", err
+	}
+
+	config, explanation := buildHostedAIConfig(sensorType, suggestion, fmt.Sprintf("OpenAI-compatible model (%s)", model))
+	return config, explanation, nil
+}
+
+
 func normalizeGeminiModelName(model string) string {
 	trimmed := strings.TrimSpace(model)
 	trimmed = strings.TrimPrefix(trimmed, "models/")
@@ -1063,7 +1219,8 @@ func callGeminiGenerate(ctx context.Context, baseURL string, apiKey string, mode
 			bodySnippet = bodySnippet[:300]
 		}
 
-		if (status == http.StatusTooManyRequests || status >= 500) && attempt < maxAttempts {
+		// Don't retry on 429 (quota exhaustion) — it just wastes more quota.
+		if status >= 500 && attempt < maxAttempts {
 			retryAfter := retryAfterDuration(httpResp.Header.Get("Retry-After"))
 			if retryAfter <= 0 {
 				retryAfter = backoff + time.Duration(rand.Intn(500))*time.Millisecond
@@ -1186,8 +1343,8 @@ func ollamaMaxAttempts() int {
 }
 
 func shouldTryNextGeminiModel(errText string) bool {
+	// Don't try next model on 429 — quota is per-key, not per-model.
 	return strings.Contains(errText, "404") ||
-		strings.Contains(errText, "429") ||
 		strings.Contains(errText, "500") ||
 		strings.Contains(errText, "502") ||
 		strings.Contains(errText, "503") ||

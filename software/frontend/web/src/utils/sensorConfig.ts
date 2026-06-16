@@ -146,30 +146,30 @@ export interface SensorKnowledgeProfile {
 }
 
 const SENSOR_METRIC_MAP: Record<string, SensorMetric[]> = {
-  temperature: [{ key: 'temperature', label: 'Temperature', unit: 'C' }],
+  temperature: [{ key: 'temperature', label: 'Temperature', unit: '°C' }],
   humidity: [{ key: 'humidity', label: 'Humidity', unit: '%RH' }],
   temp_humidity: [
-    { key: 'temperature', label: 'Temperature', unit: 'C' },
+    { key: 'temperature', label: 'Temperature', unit: '°C' },
     { key: 'humidity', label: 'Humidity', unit: '%RH' },
   ],
   temperature_humidity: [
-    { key: 'temperature', label: 'Temperature', unit: 'C' },
+    { key: 'temperature', label: 'Temperature', unit: '°C' },
     { key: 'humidity', label: 'Humidity', unit: '%RH' },
   ],
   dht11: [
-    { key: 'temperature', label: 'Temperature', unit: 'C' },
+    { key: 'temperature', label: 'Temperature', unit: '°C' },
     { key: 'humidity', label: 'Humidity', unit: '%RH' },
   ],
   dht22: [
-    { key: 'temperature', label: 'Temperature', unit: 'C' },
+    { key: 'temperature', label: 'Temperature', unit: '°C' },
     { key: 'humidity', label: 'Humidity', unit: '%RH' },
   ],
   bme280: [
-    { key: 'temperature', label: 'Temperature', unit: 'C' },
+    { key: 'temperature', label: 'Temperature', unit: '°C' },
     { key: 'pressure', label: 'Pressure', unit: 'hPa' },
   ],
   bmp280: [
-    { key: 'temperature', label: 'Temperature', unit: 'C' },
+    { key: 'temperature', label: 'Temperature', unit: '°C' },
     { key: 'pressure', label: 'Pressure', unit: 'hPa' },
   ],
   pressure: [{ key: 'pressure', label: 'Pressure', unit: 'hPa' }],
@@ -920,7 +920,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
     {
       key: 'temperature',
       label: 'Temperature',
-      unit: 'C',
+      unit: '°C',
       description: 'Direct ambient temperature reading from the SHT30 sensor. Accurate to ±0.2 °C.',
       runtime_metric_key: 'temperature',
       use_case: 'climate_monitoring',
@@ -948,7 +948,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
     {
       key: 'heat_index',
       label: 'Heat Index',
-      unit: 'C',
+      unit: '°C',
       description: 'Feels-like temperature combining both temperature and humidity into a single thermal-stress value.',
       runtime_metric_key: 'heat_index',
       use_case: 'climate_monitoring',
@@ -978,7 +978,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
     {
       key: 'dew_point',
       label: 'Dew Point',
-      unit: 'C',
+      unit: '°C',
       description: 'Condensation-risk temperature derived from temperature and humidity readings.',
       runtime_metric_key: 'dew_point',
       use_case: 'climate_monitoring',
@@ -1008,7 +1008,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
     {
       key: 'temperature_spike',
       label: 'Temperature Spike',
-      unit: 'C',
+      unit: '°C',
       description: 'Sudden upward or downward temperature change within a short observation window.',
       runtime_metric_key: 'temperature_spike',
       use_case: 'climate_monitoring',
@@ -1533,7 +1533,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
     {
       key: 'temperature',
       label: 'Temperature',
-      unit: 'C',
+      unit: '°C',
       description: 'Direct ambient temperature reading from the GY-BME280 environmental module.',
       runtime_metric_key: 'temperature',
       use_case: 'climate_monitoring',
@@ -1575,7 +1575,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
     {
       key: 'temperature_spike',
       label: 'Temperature Spike',
-      unit: 'C',
+      unit: '°C',
       description: 'Sudden temperature change detected over a short observation window.',
       runtime_metric_key: 'temperature_spike',
       use_case: 'climate_monitoring',
@@ -1600,7 +1600,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
     {
       key: 'dew_point',
       label: 'Dew Point',
-      unit: 'C',
+      unit: '°C',
       description: 'Condensation-risk temperature derived from the BME280 temperature and humidity readings.',
       runtime_metric_key: 'dew_point',
       use_case: 'climate_monitoring',
@@ -1627,7 +1627,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
     {
       key: 'temperature',
       label: 'Temperature',
-      unit: 'C',
+      unit: '°C',
       description: 'Direct ambient temperature reading from the BMP280 sensor. Note: the BMP280 does not include a humidity sensor — use a BME280 module if humidity is also required.',
       runtime_metric_key: 'temperature',
       use_case: 'climate_monitoring',
@@ -1655,7 +1655,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
     {
       key: 'temperature_spike',
       label: 'Temperature Spike',
-      unit: 'C',
+      unit: '°C',
       description: 'Sudden temperature change detected over a short observation window by the BMP280.',
       runtime_metric_key: 'temperature_spike',
       use_case: 'climate_monitoring',
@@ -2133,12 +2133,12 @@ const metricLabelOverrides: Record<string, string> = {
 };
 
 const metricUnitOverrides: Record<string, string> = {
-  temperature: 'C',
+  temperature: '°C',
   humidity: '%RH',
-  temperature_spike: 'C',
+  temperature_spike: '°C',
   humidity_spike: '%RH',
-  heat_index: 'C',
-  dew_point: 'C',
+  heat_index: '°C',
+  dew_point: '°C',
   distance: 'cm',
   fill_level: '%',
   fill_rate: '%/day',

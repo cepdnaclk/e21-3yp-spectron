@@ -1456,9 +1456,8 @@ func (h *ControllerHandler) AISuggestHardwareSensorConfigAPI(w http.ResponseWrit
 		explanation = strings.TrimSpace(explanation + " The backend safety validator adjusted one or more values before returning the final recommendation.")
 	}
 	followUpQuestions := buildAIFollowUpQuestions(metadata.SensorType, req, validation)
-	if len(followUpQuestions) > 0 {
-		explanation = "I need a bit more context before finalizing the configuration. Answer these quick questions and I can tighten the thresholds for your setup."
-	}
+	// Keep the original AI explanation even when follow-up questions are generated,
+	// since the frontend no longer uses the follow-up question flow.
 
 	json.NewEncoder(w).Encode(models.AISuggestResponse{
 		SuggestedConfig:          suggestedConfig,
