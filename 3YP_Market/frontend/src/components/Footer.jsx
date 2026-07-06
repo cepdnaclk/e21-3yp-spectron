@@ -1,7 +1,7 @@
 import { BriefcaseBusiness, Code2, RadioTower } from 'lucide-react'
 import { navigation } from '../data/siteData.js'
 
-export default function Footer({ onNavigate }) {
+export default function Footer({ onNavigate, copy }) {
   function handleNavigate(event, href) {
     if (!onNavigate) return
     event.preventDefault()
@@ -9,7 +9,7 @@ export default function Footer({ onNavigate }) {
   }
 
   return (
-    <footer className="border-t border-slate-200 bg-[#f7f4ec] py-10">
+    <footer className="border-t border-slate-200 bg-[#f4efe6] py-10">
       <div className="section-shell">
         <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
@@ -21,7 +21,7 @@ export default function Footer({ onNavigate }) {
             />
             <div>
               <p className="font-bold uppercase text-slate-950">SPECTRON</p>
-              <p className="text-sm text-slate-600">A standardized modular IoT adapter kit.</p>
+              <p className="text-sm text-slate-600">{copy.footerCopy}</p>
             </div>
           </div>
 
@@ -41,7 +41,7 @@ export default function Footer({ onNavigate }) {
 
         <div className="mt-8 flex flex-col gap-5 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-slate-500">
-            Copyright 2026 SPECTRON. Modular IoT adapter kit.
+            {copy.footerNote}
           </p>
           <div className="flex gap-2">
             <FooterIcon href="#" label="SPECTRON network">
@@ -66,7 +66,7 @@ function FooterIcon({ href, label, children }) {
       href={href}
       aria-label={label}
       title={label}
-      className="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 bg-white text-slate-700 transition hover:border-teal-400 hover:text-teal-700"
+      className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:border-amber-400 hover:text-amber-700"
     >
       {children}
     </a>

@@ -2,15 +2,15 @@
 export const navigation = [
   { label: 'Home', href: '/' },
   { label: 'Product', href: '/product' },
-  { label: 'Modules', href: '/modules' },
-  { label: 'Pricing', href: '/pricing' },
+  { label: 'Collections', href: '/modules' },
+  { label: 'Bundles', href: '/pricing' },
   { label: 'Contact', href: '/contact' },
 ]
 
 export const heroStats = [
-  { value: '1', label: 'Reusable hardware core' },
-  { value: '6+', label: 'Sensor categories' },
-  { value: 'OTA', label: 'Signed update path' },
+  { value: 'LK', label: 'Built for local growers' },
+  { value: '4+', label: 'Agri bundle options' },
+  { value: '24/7', label: 'Field alert readiness' },
 ]
 
 export const problemPoints = [
@@ -20,9 +20,9 @@ export const problemPoints = [
 ]
 
 export const solutionPoints = [
-  'One standardized adapter accepts multiple sensor modules for different deployments.',
-  'Firmware settings and device behavior are configured through a web dashboard.',
-  'Secure cloud connectivity, real-time alerts, and signed OTA updates support field use.',
+  'One standardized adapter accepts multiple sensor modules for paddy, tea, greenhouse, and storage sites.',
+  'Firmware settings and device behavior are configured through a web dashboard for local operations teams.',
+  'Secure cloud connectivity, real-time alerts, and signed OTA updates support farm field use.',
 ]
 
 export const benefits = [
@@ -44,7 +44,7 @@ export const benefits = [
   {
     icon: 'CloudCog',
     title: 'Cloud ready',
-    text: 'Devices connect into a dashboard, event pipeline, and storage layer built for temperature, humidity, pressure, ultrasonic, gas, and occupancy sensing across many sites.',
+    text: 'Devices connect into a dashboard, event pipeline, and storage layer built for temperature, humidity, pressure, ultrasonic, gas, and occupancy sensing across many Sri Lankan farm sites.',
   },
 ]
 
@@ -52,7 +52,7 @@ export const features = [
   {
     icon: 'Puzzle',
     title: 'Modular sensor compatibility',
-    text: 'Attach temperature, humidity, pressure, ultrasonic, odour/gas, light, motion, attendance, or custom modules to the same reusable device platform.',
+    text: 'Attach temperature, humidity, pressure, ultrasonic, odour/gas, light, motion, attendance, or custom modules to the same reusable device platform for agri use.',
   },
   {
     icon: 'Cpu',
@@ -67,12 +67,12 @@ export const features = [
   {
     icon: 'MonitorSmartphone',
     title: 'Web monitoring dashboard',
-    text: 'Track live device state, sensor readings, alerts, site grouping, and battery health in one interface.',
+    text: 'Track live device state, sensor readings, alerts, site grouping, and battery health in one interface designed for growers and field teams.',
   },
   {
     icon: 'BellRing',
     title: 'Real-time alerts',
-    text: 'Notify operators when readings cross limits, devices lose connectivity, or battery drops below policy.',
+    text: 'Notify operators when readings cross limits, devices lose connectivity, or battery drops below policy across rural sites.',
   },
   {
     icon: 'ShieldCheck',
@@ -86,19 +86,19 @@ export const sensorModules = [
     icon: 'Sprout',
     name: 'SHT30 Temperature + Humidity',
     category: 'Environment',
-    summary: 'Room comfort, greenhouse climate, cold-room, storage, archive, and incubation monitoring.',
+    summary: 'Greenhouse climate, nursery control, cold-room storage, and field shed monitoring.',
     limitations: [
       'Measures temperature and humidity only; it does not measure pressure, gas, light, or occupancy.',
       'Humidity readings can be affected by condensation, very fast airflow changes, or long exposure to harsh environments.',
       'Best suited for environmental monitoring rather than direct process control.',
     ],
-    useCases: ['room comfort', 'greenhouse climate', 'cold-room', 'medicine storage', 'archive preservation', 'museum preservation', 'incubator monitoring'],
+    useCases: ['greenhouse climate', 'nursery control', 'cold-room', 'produce storage', 'seedling monitoring', 'incubator monitoring'],
   },
   {
     icon: 'Factory',
     name: 'BME280 / BMP280 Pressure',
     category: 'Trend monitoring',
-    summary: 'Barometric, sealed-room drift, ventilation/filter condition, and process pressure trends.',
+    summary: 'Barometric, sealed-room drift, ventilation/filter condition, and process pressure trends for agri buildings.',
     limitations: [
       'BMP280 measures pressure and temperature only; it does not measure humidity.',
       'BME280 adds humidity, but it is still best for trends and alerts rather than precision industrial metrology.',
@@ -110,39 +110,39 @@ export const sensorModules = [
     icon: 'Warehouse',
     name: 'Ultrasonic Distance',
     category: 'Level / occupancy',
-    summary: 'Bin fill level, water tank level, silo/container level, queue buildup, and simple occupancy.',
+    summary: 'Water tank level, irrigation tank level, storage bin fill level, and simple occupancy.',
     limitations: [
       'Raw distance must be interpreted into fill-level or occupancy logic.',
       'Performance can drop on soft, angled, or irregular surfaces.',
       'Environmental noise, foam, or heavy dust can reduce measurement quality in some installations.',
     ],
-    useCases: ['garbage bin fill level', 'water tank level', 'silo level', 'parking slot occupancy', 'queue buildup', 'classroom seat presence'],
+    useCases: ['water tank level', 'irrigation tank level', 'silo level', 'storage bin level', 'queue buildup'],
   },
   {
     icon: 'BellRing',
     name: 'Odour / Gas',
     category: 'Air safety',
-    summary: 'Odour escalation, restroom cleaning need, waste-room smell alert, and calibrated gas warnings.',
+    summary: 'Odour escalation, compost area alert, waste-room smell alert, and calibrated gas warnings.',
     limitations: [
       'Odour sensors usually provide relative trend or risk bands, not exact smell or gas concentration names.',
       'Many gas sensors need warm-up and calibration before the readings are trustworthy.',
       'Humidity, temperature, and airflow can affect stability, so threshold tuning is important.',
     ],
-    useCases: ['garbage odor', 'restroom cleaning need', 'kitchen waste room smell', 'sewer odor alert', 'gas leak', 'unsafe air warning'],
+    useCases: ['compost odor', 'store room smell', 'waste room smell', 'gas leak', 'unsafe air warning'],
   },
   {
     icon: 'MonitorSmartphone',
     name: 'Light',
     category: 'Environment',
-    summary: 'Greenhouse daylight, classroom brightness, and site lighting visibility.',
-    useCases: ['greenhouse', 'classroom', 'lighting'],
+    summary: 'Greenhouse daylight, shade-house brightness, and site lighting visibility.',
+    useCases: ['greenhouse', 'shade-house', 'lighting'],
   },
   {
     icon: 'RadioTower',
     name: 'Presence / Motion',
     category: 'Occupancy',
-    summary: 'Class attendance, doorway presence, occupancy, and security-aware motion sensing.',
-    useCases: ['attendance', 'doorway presence', 'occupancy', 'security'],
+    summary: 'Gate presence, doorway occupancy, security-aware motion, and farm entry sensing.',
+    useCases: ['gate presence', 'doorway presence', 'occupancy', 'security'],
   },
 ]
 
@@ -150,7 +150,7 @@ export const workflow = [
   {
     step: '01',
     title: 'Choose a sensor module',
-    text: 'Select the sensor pack for greenhouse, cold storage, pressure trend, ultrasonic level, odour/gas, attendance, motion, light, or a custom use case.',
+    text: 'Select the sensor pack for greenhouse, paddy field support, tea estate storage, pressure trend, ultrasonic level, odour/gas, motion, light, or a custom use case.',
   },
   {
     step: '02',
@@ -160,7 +160,7 @@ export const workflow = [
   {
     step: '03',
     title: 'Configure in the web app',
-    text: 'Set sampling behavior, alert thresholds, data labels, location, access roles, and update policy.',
+    text: 'Set sampling behavior, alert thresholds, data labels, location, access roles, and update policy for farm staff.',
   },
   {
     step: '04',
@@ -173,32 +173,32 @@ export const industries = [
   {
     icon: 'Sprout',
     title: 'Greenhouses',
-    text: 'Temperature, humidity, pressure trend, light, and gas monitoring for controlled agriculture.',
+    text: 'Temperature, humidity, pressure trend, light, and gas monitoring for Sri Lankan protected cultivation.',
   },
   {
     icon: 'Snowflake',
     title: 'Cold storage',
-    text: 'Temperature, humidity, and door-state visibility for perishable inventory and chain-of-custody checks.',
+    text: 'Temperature, humidity, and door-state visibility for export produce and local perishable inventory.',
   },
   {
     icon: 'IdCard',
-    title: 'Class attendance',
-    text: 'Configurable presence or access sensing using the same platform primitives.',
+    title: 'Staff access',
+    text: 'Configurable presence or access sensing using the same platform primitives for farm staff and depots.',
   },
   {
     icon: 'Building2',
     title: 'Facilities',
-    text: 'Motion, air quality, utility, and asset condition monitoring across multiple sites.',
+    text: 'Motion, air quality, utility, and asset condition monitoring across farm offices and storage sites.',
   },
   {
     icon: 'Warehouse',
     title: 'Warehousing',
-    text: 'Ambient, pressure, occupancy, fill-level, and storage-condition signals for operational visibility.',
+    text: 'Ambient, pressure, occupancy, fill-level, and storage-condition signals for agro-distribution visibility.',
   },
   {
     icon: 'Factory',
-    title: 'Industrial pilots',
-    text: 'Reusable field units for fast sensing experiments before committing to custom hardware, including ultrasonic and odour alerts.',
+    title: 'Farm pilots',
+    text: 'Reusable field units for fast sensing experiments before committing to custom hardware, including irrigation and storage alerts.',
   },
 ]
 
@@ -236,31 +236,31 @@ export const testimonials = [
 
 export const pricing = [
   {
-    name: 'Prototype',
+    name: 'Starter farm kit',
     price: 'Custom',
-    description: 'For academic pilots and proof-of-concept monitoring.',
-    features: ['1 reusable core', 'Starter sensor module', 'Dashboard sandbox', 'Email support'],
+    description: 'For small growers, university trials, and first farm deployments.',
+    features: ['1 reusable core', 'Starter sensor module', 'Dashboard setup', 'WhatsApp support'],
   },
   {
-    name: 'Deployment',
+    name: 'Pilot estate kit',
     price: 'Custom',
-    description: 'For teams rolling out multiple devices across real sites.',
+    description: 'For tea estates, paddy support teams, and multi-site pilot rollouts.',
     features: ['Multi-device dashboard', 'Alert policies', 'Signed OTA updates', 'Role-based access'],
     highlighted: true,
   },
   {
-    name: 'Platform',
+    name: 'Agri platform',
     price: 'Custom',
-    description: 'For organizations that need integration support and custom modules.',
+    description: 'For cooperatives, exporters, and larger operations that need integration support and custom modules.',
     features: ['Custom sensor packs', 'API integration', 'Security review', 'Deployment onboarding'],
   },
 ]
 
 export const faqs = [
   {
-    question: 'What makes SPECTRON different from a normal IoT sensor device?',
+    question: 'What makes SPECTRON different from a normal farm sensor device?',
     answer:
-      'Most IoT devices are built for one fixed job. SPECTRON separates the reusable hardware core from the sensor module, so the same platform can support many monitoring applications.',
+      'Most devices are built for one fixed job. SPECTRON separates the reusable hardware core from the sensor module, so the same platform can support many Sri Lankan agriculture applications.',
   },
   {
     question: 'Do users need to rebuild firmware for each deployment?',
@@ -270,7 +270,7 @@ export const faqs = [
   {
     question: 'Which sensors can the platform support?',
     answer:
-      'The concept supports modular sensor packs such as temperature, humidity, pressure, ultrasonic, odour/gas, light, motion, attendance, and other field-specific modules through a standardized adapter approach.',
+      'The concept supports modular sensor packs such as temperature, humidity, pressure, ultrasonic, odour/gas, light, motion, attendance, and other field-specific modules through a standardized adapter approach for farm operations.',
   },
   {
     question: 'How does SPECTRON handle field security?',
@@ -280,6 +280,86 @@ export const faqs = [
   {
     question: 'Is pricing final?',
     answer:
-      'Pricing is intentionally shown as placeholders. The final model can be adjusted around prototype kits, deployment bundles, or platform partnerships.',
+      'Pricing is intentionally shown as placeholders. The final model can be adjusted around starter farm kits, estate bundles, or platform partnerships.',
+  },
+]
+
+export const shopStats = [
+  { value: 'LK', label: 'Sri Lanka market', text: 'Created for local growers and agri teams.' },
+  { value: '04', label: 'Bundle types', text: 'Starter, pilot, estate, and platform options.' },
+  { value: 'සිංහල / தமிழ்', label: 'Regional support', text: 'Friendly enquiry flow for regional buyers.' },
+  { value: '24/7', label: 'Inquiry ready', text: 'Clear contact flow for quotes and pilot requests.' },
+]
+
+export const productSpecs = [
+  {
+    icon: 'ShieldCheck',
+    title: 'Secure product story',
+    text: 'The product page emphasizes device identity, controlled updates, and protected transport.',
+  },
+  {
+    icon: 'CircleGauge',
+    title: 'Readable at a glance',
+    text: 'The single hero image and short spec cards make the product easy to scan quickly for farm buyers.',
+  },
+  {
+    icon: 'Box',
+    title: 'Bundle-ready structure',
+    text: 'Each page supports a simple ecommerce path from product detail to bundles and contact.',
+  },
+  {
+    icon: 'Sparkles',
+    title: 'Premium presentation',
+    text: 'The design uses warm neutrals, stronger typography, and a cleaner product-first layout.',
+  },
+]
+
+export const collections = [
+  {
+    name: 'Paddy starter',
+    summary: 'Best for paddy field demos, early validation, and first-time buyers who need a compact setup.',
+  },
+  {
+    name: 'Tea estate pilot',
+    summary: 'Designed for tea estate field trials with enough room to compare performance across sites.',
+  },
+  {
+    name: 'Greenhouse deployment',
+    summary: 'Prepared for greenhouse rollouts where consistency, support, and maintenance matter.',
+  },
+  {
+    name: 'Irrigation custom build',
+    summary: 'A flexible option for buyers who want their own configuration, branding, or integration needs.',
+  },
+  {
+    name: 'Agri education pack',
+    summary: 'A polished option for university demos, thesis work, and farm training showcases.',
+  },
+  {
+    name: 'Exporter pack',
+    summary: 'Structured for larger teams that want a simple purchase path and a clean product story.',
+  },
+]
+
+export const ecommerceFaqs = [
+  {
+    question: 'What is SPECTRON selling?',
+    answer:
+      'The storefront presents SPECTRON as a reusable hardware product with a simple path to starter, pilot, estate, and platform bundles.',
+  },
+  {
+    question: 'Can buyers request a custom bundle?',
+    answer:
+      'Yes. The contact page is set up for quote requests, pilot orders, and custom build inquiries for Sri Lankan agriculture, with English plus Sinhala/Tamil-friendly support.',
+  },
+  {
+    question: 'Why is there only one product image?',
+    answer:
+      'The layout intentionally reuses the available image in the hero and product sections so the storefront stays consistent and efficient.',
+  },
+  {
+    question: 'How are orders handled?',
+    answer:
+      'Orders are handled through the contact and quote request flow, which keeps the storefront simple and easy to manage.',
   },
 ]
