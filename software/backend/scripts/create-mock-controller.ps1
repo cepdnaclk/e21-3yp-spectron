@@ -1,7 +1,7 @@
-# Create Mock Controller + Sensors for Pairing Tests
-# This script seeds one mock controller and 3 sensors in backend DB.
+# Create Mock Controller + Sensor for Pairing Tests
+# This script seeds one mock controller and one temperature/humidity sensor in backend DB.
 
-Write-Host "Creating mock controller and sensors..." -ForegroundColor Green
+Write-Host "Creating mock controller and sensor..." -ForegroundColor Green
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $projectRoot = Split-Path -Parent $scriptDir
