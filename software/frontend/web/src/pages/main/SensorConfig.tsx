@@ -475,30 +475,7 @@ const getClarificationPrompts = (
     });
   }
 
-  if (
-    [
-      'temperature',
-      'humidity',
-      'heat_index',
-      'dew_point',
-      'climate_condition',
-      'pressure',
-      'gas_level',
-      'aqi',
-      'risk_score',
-      'exposure_state',
-      'unsafe_duration',
-    ].some((metric) => selected.has(metric))
-  ) {
-    prompts.push({
-      key: 'sustainedWindowMinutes',
-      title: 'How patient should alerts be?',
-      label: 'Only alert me if the condition stays unsafe for',
-      helperText: 'Use this to avoid false alarms caused by short spikes or brief door openings.',
-      placeholder: 'e.g. 15',
-      unit: 'minutes',
-    });
-  }
+
 
   return prompts;
 };
