@@ -1,16 +1,16 @@
-const DEPLOYED_API_BASE_URL = 'https://spectroniot.xyz';
+const LOCAL_API_BASE_URL = 'http://localhost:8081';
 
 const configuredApiBaseUrl = process.env.REACT_APP_API_URL?.trim().replace(/\/$/, '');
 
 const normalizeApiBaseUrl = (configuredUrl?: string) => {
   if (!configuredUrl) {
-    return DEPLOYED_API_BASE_URL;
+    return LOCAL_API_BASE_URL;
   }
 
   try {
     const url = new URL(configuredUrl);
     if (url.hostname.endsWith('.elasticbeanstalk.com')) {
-      return DEPLOYED_API_BASE_URL;
+      return LOCAL_API_BASE_URL;
     }
   } catch {
     return configuredUrl;

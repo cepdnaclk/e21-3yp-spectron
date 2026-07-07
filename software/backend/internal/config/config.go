@@ -65,7 +65,7 @@ func Load() (*Config, error) {
 
 	httpPort := getenv("PORT", "")
 	if httpPort == "" {
-		httpPort = getenv("HTTP_PORT", "8080")
+		httpPort = getenv("HTTP_PORT", "8081")
 	}
 	dbURL := os.Getenv("DATABASE_URL")
 	jwtSecret := getenv("JWT_SECRET", DefaultDevJWTSecret)

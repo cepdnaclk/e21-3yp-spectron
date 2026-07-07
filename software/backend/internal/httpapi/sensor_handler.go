@@ -128,6 +128,139 @@ func (h *SensorHandler) ResetAttendance(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+type learningPhaseResponse struct {
+	Phase       string         `json:"phase"`
+	Status      string         `json:"status"`
+	Feedback    *string        `json:"feedback,omitempty"`
+	StartedAt   time.Time      `json:"started_at"`
+	CompletedAt *time.Time     `json:"completed_at,omitempty"`
+	Baseline    map[string]any `json:"baseline,omitempty"`
+}
+
+func (h *SensorHandler) GetLearningPhaseStatus(w http.ResponseWriter, r *http.Request) {
+	sensorIdentifier, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		http.Error(w, "invalid sensor id", http.StatusBadRequest)
+		return
+	}
+
+	accountID := GetAccountID(r).(uuid.UUID)
+	sensorID, err := h.resolveAttendanceSensorID(r.Context(), sensorIdentifier, accountID)
+	if err != nil {
+		http.Error(w, "sensor not found", http.StatusNotFound)
+		return
+	}
+
+	var state learningPhaseResponse
+	err = h.db.QueryRow(r.Context(), `
+		SELECT phase, status, feedback, started_at, completed_at, baseline_json
+		FROM recommendation_learning_state
+		WHERE sensor_id = $1 AND account_id = $2
+	`, sensorID, accountID).Scan(&state.Phase, &state.Status, &state.Feedback, &state.StartedAt, &state.CompletedAt, &state.Baseline)
+	if err == pgx.ErrNoRows {
+		_, err = h.db.Exec(r.Context(), `
+			INSERT INTO recommendation_learning_state (id, account_id, controller_id, sensor_id, phase, status, baseline_json, started_at, updated_at)
+			SELECT $1, $2, c.id, $3, 'LEARNING', 'ACTIVE', '{}'::jsonb, NOW(), NOW()
+			FROM sensors s
+			JOIN controllers c ON c.id = s.controller_id
+			WHERE s.id = $3 AND c.owner_account_id = $2
+		`, uuid.New(), accountID, sensorID)
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		state = learningPhaseResponse{Phase: "LEARNING", Status: "ACTIVE", StartedAt: time.Now().UTC(), Baseline: map[string]any{}}
+	} else if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(state)
+}
+
+func (h *SensorHandler) GetLearningPhaseSuggestions(w http.ResponseWriter, r *http.Request) {
+	sensorIdentifier, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		http.Error(w, "invalid sensor id", http.StatusBadRequest)
+		return
+	}
+
+	accountID := GetAccountID(r).(uuid.UUID)
+	sensorID, err := h.resolveAttendanceSensorID(r.Context(), sensorIdentifier, accountID)
+	if err != nil {
+		http.Error(w, "sensor not found", http.StatusNotFound)
+		return
+	}
+
+	var action string
+	err = h.db.QueryRow(r.Context(), `
+		SELECT action_recommendation
+		FROM recommendation_rules
+		WHERE account_id = $1 AND sensor_id = $2 AND active = true
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, accountID, sensorID).Scan(&action)
+	if err != nil && err != pgx.ErrNoRows {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]any{
+		"message":          "Your 7-day calibration is complete. Did your crop show any signs of disease this week?",
+		"suggested_action": action,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
+}
+
+func (h *SensorHandler) ApplyLearningPhaseSuggestions(w http.ResponseWriter, r *http.Request) {
+	sensorIdentifier, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		http.Error(w, "invalid sensor id", http.StatusBadRequest)
+		return
+	}
+
+	accountID := GetAccountID(r).(uuid.UUID)
+	sensorID, err := h.resolveAttendanceSensorID(r.Context(), sensorIdentifier, accountID)
+	if err != nil {
+		http.Error(w, "sensor not found", http.StatusNotFound)
+		return
+	}
+
+	var req struct {
+		Feedback string `json:"feedback"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	feedback := strings.ToUpper(strings.TrimSpace(req.Feedback))
+	if feedback != "YES" && feedback != "NO" {
+		http.Error(w, "feedback must be YES or NO", http.StatusBadRequest)
+		return
+	}
+
+	completedAt := time.Now().UTC()
+	_, err = h.db.Exec(r.Context(), `
+		UPDATE recommendation_learning_state
+		SET phase = 'CALIBRATED',
+		    status = 'COMPLETED',
+		    feedback = $1,
+		    completed_at = $2,
+		    updated_at = $2
+		WHERE sensor_id = $3 AND account_id = $4
+	`, feedback, completedAt, sensorID, accountID)
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "feedback": feedback, "completed_at": completedAt})
+}
+
 func (h *SensorHandler) List(w http.ResponseWriter, r *http.Request) {
 	controllerID, err := uuid.Parse(chi.URLParam(r, "controllerId"))
 	if err != nil {
@@ -441,10 +574,10 @@ type ollamaGenerateResponse struct {
 }
 
 type openaiChatRequest struct {
-	Model          string                 `json:"model"`
-	Messages       []openaiChatMessage    `json:"messages"`
+	Model          string                `json:"model"`
+	Messages       []openaiChatMessage   `json:"messages"`
 	ResponseFormat *openaiResponseFormat `json:"response_format,omitempty"`
-	Temperature    float64                `json:"temperature"`
+	Temperature    float64               `json:"temperature"`
 }
 
 type openaiChatMessage struct {
@@ -463,7 +596,6 @@ type openaiChatResponse struct {
 		} `json:"message"`
 	} `json:"choices"`
 }
-
 
 type hostedAISuggestion struct {
 	FriendlyName         string                            `json:"friendly_name"`
@@ -902,7 +1034,6 @@ func formatThresholdForExplanation(t models.ThresholdConfig) string {
 	return "alert levels"
 }
 
-
 func buildHostedAIPrompt(sensorType string, req models.AISuggestRequest, historySummary string) string {
 	return fmt.Sprintf(`You are an IoT sensor configuration assistant.
 Generate JSON only for this sensor setup.
@@ -1057,7 +1188,7 @@ func (h *SensorHandler) generateOpenAIAISuggestion(ctx context.Context, sensorTy
 		model = strings.TrimSpace(os.Getenv("AI_MODEL"))
 	}
 	if model == "" {
-		model = "llama3-8b-8192" 
+		model = "llama3-8b-8192"
 	}
 
 	baseURL := strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL"))
@@ -1134,7 +1265,6 @@ func (h *SensorHandler) generateOpenAIAISuggestion(ctx context.Context, sensorTy
 	config, explanation := buildHostedAIConfig(sensorType, suggestion, fmt.Sprintf("OpenAI-compatible model (%s)", model))
 	return config, explanation, nil
 }
-
 
 func normalizeGeminiModelName(model string) string {
 	trimmed := strings.TrimSpace(model)

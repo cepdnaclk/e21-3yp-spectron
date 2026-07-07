@@ -60,6 +60,9 @@ var migration015AdminAuditEvents string
 //go:embed migrations/016_normalize_distance_readings_to_cm.sql
 var migration016NormalizeDistanceReadingsToCM string
 
+//go:embed migrations/017_recommendation_layer.sql
+var migration017RecommendationLayer string
+
 type migration struct {
 	name string
 	sql  string
@@ -82,6 +85,7 @@ var startupMigrations = []migration{
 	{name: "014_distance_attendance_state", sql: migration014DistanceAttendanceState},
 	{name: "015_admin_audit_events", sql: migration015AdminAuditEvents},
 	{name: "016_normalize_distance_readings_to_cm", sql: migration016NormalizeDistanceReadingsToCM},
+	{name: "017_recommendation_layer", sql: migration017RecommendationLayer},
 }
 
 func ApplyStartupMigrations(ctx context.Context, pool *pgxpool.Pool) error {

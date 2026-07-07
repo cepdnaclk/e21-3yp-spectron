@@ -422,7 +422,29 @@ func (p *RawReadingsProcessor) evaluateThresholdAlertWithConfig(ctx context.Cont
 	}
 
 	message := thresholdAlertMessage(input, evaluation)
+	if recommendationMessage, ok := p.recommendationAlertMessage(ctx, tx, input); ok {
+		message = recommendationMessage
+	}
 	return upsertOpenAlert(ctx, tx, input.AccountID, input.ControllerID, input.SensorID, input.SystemID, input.SystemSensorID, "THRESHOLD_BREACH", evaluation.Severity, message)
+}
+
+func (p *RawReadingsProcessor) recommendationAlertMessage(ctx context.Context, tx pgx.Tx, input thresholdAlertInput) (string, bool) {
+	var action string
+	err := tx.QueryRow(ctx, `
+		SELECT action_recommendation
+		FROM recommendation_rules
+		WHERE account_id = $1
+		  AND active = true
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, input.AccountID).Scan(&action)
+	if err != nil {
+		return "", false
+	}
+	if strings.TrimSpace(action) == "" {
+		return "", false
+	}
+	return fmt.Sprintf("Agricultural action required: %s", action), true
 }
 
 type distanceAttendanceConfig struct {
