@@ -6,16 +6,6 @@ const normalizeApiBaseUrl = (configuredUrl?: string) => {
   if (!configuredUrl) {
     return LOCAL_API_BASE_URL;
   }
-
-  try {
-    const url = new URL(configuredUrl);
-    if (url.hostname.endsWith('.elasticbeanstalk.com')) {
-      return LOCAL_API_BASE_URL;
-    }
-  } catch {
-    return configuredUrl;
-  }
-
   return configuredUrl;
 };
 
