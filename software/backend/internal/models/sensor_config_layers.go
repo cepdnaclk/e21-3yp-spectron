@@ -12,6 +12,7 @@ func (cfg *SensorConfig) NormalizeThreeLayer(sensorType string, ctx *SensorConte
 		cfg.PrimaryMetric != "" ||
 		!isEmptyThresholdConfig(cfg.Thresholds) ||
 		len(cfg.MetricThresholds) > 0 ||
+		len(cfg.RecommendationRules) > 0 ||
 		ctx != nil) {
 		cfg.Interpretation = &SensorInterpretationLayer{}
 	}
@@ -167,6 +168,7 @@ func (cfg SensorConfig) HasMeaningfulContent() bool {
 		!isZeroPowerManagement(cfg.PowerManagement) ||
 		!isEmptyThresholdConfig(cfg.Thresholds) ||
 		len(cfg.MetricThresholds) > 0 ||
+		len(cfg.RecommendationRules) > 0 ||
 		len(cfg.HardwareConfig) > 0 ||
 		cfg.Hardware != nil ||
 		cfg.Interpretation != nil ||

@@ -15,7 +15,7 @@ import {
   Snackbar,
   TextField,
 } from '@mui/material';
-import { ArrowBack, Check, Close, DeleteOutline, Edit, Settings, DeviceThermostat, Place, Memory, Tune, Wifi, WifiOff } from '@mui/icons-material';
+import { ArrowBack, Check, Close, DeleteOutline, Edit, Settings, DeviceThermostat, Place, Memory, Tune, Wifi, WifiOff, Grass } from '@mui/icons-material';
 import { Controller } from '../../services/controllerService';
 import { Sensor } from '../../services/sensorService';
 import {
@@ -679,24 +679,57 @@ const ControllerDashboard: React.FC = () => {
             <Chip icon={<Memory />} label={controller.hw_id} sx={{ bgcolor: 'rgba(255, 253, 248, 0.12)', color: '#fffdf8', display: { xs: 'none', sm: 'inline-flex' } }} />
           </Stack>
           {canManageControllers && (
-            <Button
-              variant="outlined"
-              color="inherit"
-              startIcon={<DeleteOutline />}
-              onClick={handleRemoveController}
-              disabled={removing}
-              sx={{
-                mt: 2,
-                color: '#fffdf8',
-                borderColor: 'rgba(255, 253, 248, 0.36)',
-                '&:hover': {
-                  borderColor: '#fffdf8',
-                  bgcolor: 'rgba(255, 253, 248, 0.08)',
-                },
-              }}
-            >
-              {removing ? 'Removing...' : 'Remove from my account'}
-            </Button>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mt: 2 }}>
+              {isHardwareContext && (
+                <Button
+                  variant="contained"
+                  startIcon={<Grass />}
+                  onClick={() => navigate(`/hardware/${activeControllerId}/agri-config`)}
+                  sx={{
+                    bgcolor: '#6c8930',
+                    color: '#fffdf8',
+                    '&:hover': { bgcolor: '#5b7428' },
+                  }}
+                >
+                  AgriAssist
+                </Button>
+              )}
+              {isHardwareContext && (
+                <Button
+                  variant="outlined"
+                  color="inherit"
+                  startIcon={<Grass />}
+                  onClick={() => navigate(`/hardware/${activeControllerId}/agri-dashboard`)}
+                  sx={{
+                    color: '#fffdf8',
+                    borderColor: 'rgba(255, 253, 248, 0.36)',
+                    '&:hover': {
+                      borderColor: '#fffdf8',
+                      bgcolor: 'rgba(255, 253, 248, 0.08)',
+                    },
+                  }}
+                >
+                  Agri Dashboard
+                </Button>
+              )}
+              <Button
+                variant="outlined"
+                color="inherit"
+                startIcon={<DeleteOutline />}
+                onClick={handleRemoveController}
+                disabled={removing}
+                sx={{
+                  color: '#fffdf8',
+                  borderColor: 'rgba(255, 253, 248, 0.36)',
+                  '&:hover': {
+                    borderColor: '#fffdf8',
+                    bgcolor: 'rgba(255, 253, 248, 0.08)',
+                  },
+                }}
+              >
+                {removing ? 'Removing...' : 'Remove from my account'}
+              </Button>
+            </Stack>
           )}
         </CardContent>
       </Card>
@@ -1021,7 +1054,7 @@ const ControllerDashboard: React.FC = () => {
 
                     <Stack direction="row" spacing={1.5} sx={{ mt: 'auto', pt: 2, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
                         <Button
-                          variant={group.config_active ? "outlined" : "contained"}
+                          variant="outlined"
                           color={group.config_active ? "inherit" : "primary"}
                           startIcon={group.config_active ? <Tune /> : <Settings />}
                           onClick={() =>
@@ -1045,7 +1078,7 @@ const ControllerDashboard: React.FC = () => {
                           }
                           sx={group.config_active ? { flexGrow: 1, borderColor: 'rgba(60, 57, 17, 0.2)' } : { flexGrow: 1 }}
                         >
-                          {group.config_active ? 'Review Config' : 'Configure Now'}
+                          {group.config_active ? 'Advanced' : 'Manual'}
                         </Button>
                         {canManageControllers && (
                           <IconButton

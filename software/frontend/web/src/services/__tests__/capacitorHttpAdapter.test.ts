@@ -11,7 +11,7 @@ vi.mock('@capacitor/core', () => ({
 const requestMock = vi.mocked(CapacitorHttp.request);
 
 const createConfig = (): InternalAxiosRequestConfig => ({
-  baseURL: 'https://spectroniot.xyz',
+  baseURL: 'http://spectron-backend-env.eba-3uqs3iea.ap-south-1.elasticbeanstalk.com',
   url: '/auth/login',
   method: 'post',
   data: JSON.stringify({
@@ -34,14 +34,14 @@ describe('capacitorHttpAdapter', () => {
       data: { token: 'token-123' },
       status: 200,
       headers: { 'content-type': 'application/json' },
-      url: 'https://spectroniot.xyz/auth/login',
+      url: 'http://spectron-backend-env.eba-3uqs3iea.ap-south-1.elasticbeanstalk.com/auth/login',
     });
 
     const response = await capacitorHttpAdapter(createConfig());
 
     expect(requestMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: 'https://spectroniot.xyz/auth/login',
+        url: 'http://spectron-backend-env.eba-3uqs3iea.ap-south-1.elasticbeanstalk.com/auth/login',
         method: 'POST',
         data: {
           email: 'owner@spectron.test',
@@ -60,7 +60,7 @@ describe('capacitorHttpAdapter', () => {
       data: { message: 'Invalid email or password' },
       status: 401,
       headers: { 'content-type': 'application/json' },
-      url: 'https://spectroniot.xyz/auth/login',
+      url: 'http://spectron-backend-env.eba-3uqs3iea.ap-south-1.elasticbeanstalk.com/auth/login',
     });
 
     await expect(capacitorHttpAdapter(createConfig())).rejects.toMatchObject({

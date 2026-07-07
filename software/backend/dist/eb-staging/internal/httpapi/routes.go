@@ -58,6 +58,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 	alertHandler := NewAlertHandler(db)
 	dashboardHandler := NewDashboardHandler(db)
 	ingestHandler := NewIngestHandler(db, rawReadingsPublisher)
+	agriHandler := NewAgriHandler()
 
 	// Public routes
 	r.Post("/auth/register", authHandler.Register)
@@ -106,6 +107,12 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 
 		r.Route("/api/systems", func(r chi.Router) {
 			r.Get("/my", controllerHandler.MySystemsAPI)
+		})
+
+		r.Route("/api/agri", func(r chi.Router) {
+			r.Get("/summary", agriHandler.Summary)
+			r.Get("/advisories", agriHandler.Advisories)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/config", agriHandler.BuildConfig)
 		})
 
 		r.Route("/api/admin", func(r chi.Router) {

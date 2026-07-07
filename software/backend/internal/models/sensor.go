@@ -42,6 +42,7 @@ type SensorConfig struct {
 	PrimaryMetric        string                     `json:"primary_metric,omitempty"`
 	Thresholds           ThresholdConfig            `json:"thresholds"`
 	MetricThresholds     map[string]ThresholdConfig `json:"metric_thresholds,omitempty"`
+	RecommendationRules  []RecommendationRule       `json:"recommendation_rules,omitempty"`
 	ReportIntervalPerDay int                        `json:"report_interval_per_day"`
 	PowerManagement      PowerManagementConfig      `json:"power_management"`
 	HardwareConfig       map[string]interface{}     `json:"hardware_config,omitempty"`
@@ -100,6 +101,16 @@ type SensorAlertSetting struct {
 	WarningThreshold  *float64 `json:"warning_threshold,omitempty"`
 	CriticalThreshold *float64 `json:"critical_threshold,omitempty"`
 	Description       string   `json:"description,omitempty"`
+}
+
+type RecommendationRule struct {
+	MetricType           string   `json:"metric_type"`
+	Operator             string   `json:"operator"`
+	ThresholdMin         *float64 `json:"threshold_min,omitempty"`
+	ThresholdMax         *float64 `json:"threshold_max,omitempty"`
+	SustainedMinutes     int      `json:"sustained_minutes"`
+	RiskLevel            string   `json:"risk_level"`
+	ActionRecommendation string   `json:"action_recommendation"`
 }
 
 type SensorOperationalLayer struct {

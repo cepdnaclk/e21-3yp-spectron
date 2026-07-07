@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"spectron-backend/internal/agri"
 	"spectron-backend/internal/models"
 )
 
@@ -441,10 +442,10 @@ type ollamaGenerateResponse struct {
 }
 
 type openaiChatRequest struct {
-	Model          string                 `json:"model"`
-	Messages       []openaiChatMessage    `json:"messages"`
+	Model          string                `json:"model"`
+	Messages       []openaiChatMessage   `json:"messages"`
 	ResponseFormat *openaiResponseFormat `json:"response_format,omitempty"`
-	Temperature    float64                `json:"temperature"`
+	Temperature    float64               `json:"temperature"`
 }
 
 type openaiChatMessage struct {
@@ -464,7 +465,6 @@ type openaiChatResponse struct {
 	} `json:"choices"`
 }
 
-
 type hostedAISuggestion struct {
 	FriendlyName         string                            `json:"friendly_name"`
 	UseCase              string                            `json:"use_case"`
@@ -473,6 +473,8 @@ type hostedAISuggestion struct {
 	ReportIntervalPerDay int                               `json:"report_interval_per_day"`
 	Thresholds           models.ThresholdConfig            `json:"thresholds"`
 	MetricThresholds     map[string]models.ThresholdConfig `json:"metric_thresholds"`
+	RecommendationRules  []models.RecommendationRule       `json:"recommendation_rules"`
+	Rules                []models.RecommendationRule       `json:"rules"`
 	Explanation          string                            `json:"explanation"`
 }
 
@@ -902,8 +904,48 @@ func formatThresholdForExplanation(t models.ThresholdConfig) string {
 	return "alert levels"
 }
 
-
 func buildHostedAIPrompt(sensorType string, req models.AISuggestRequest, historySummary string) string {
+	agriContext := buildAgriculturePromptContext(req)
+	if agriContext != "" {
+		return fmt.Sprintf(`You are the Spectron AgriAssist Rule Architect and IoT sensor configuration assistant.
+Generate JSON only for this sensor setup.
+
+Sensor type: %s
+User purpose: %s
+Structured context: %s
+Historical summary: %s
+CSV Context:
+%s
+
+Rules:
+- Return strict JSON object with keys:
+  friendly_name (string),
+  use_case (string, optional),
+  presentation_profile (string, optional),
+  primary_metric (string, optional),
+  report_interval_per_day (integer 1-288),
+  thresholds (object with optional min,max,warning_min,warning_max numbers),
+  metric_thresholds (object map where each key has same threshold shape),
+  recommendation_rules (array),
+  explanation (string).
+- recommendation_rules must be an array of objects with:
+  metric_type (temp, humidity, or soil_moisture),
+  operator (GREATER_THAN, LESS_THAN, or OUTSIDE_RANGE),
+  threshold_min (number, optional),
+  threshold_max (number, optional),
+  sustained_minutes (integer, default 60),
+  risk_level (LOW, MODERATE, or CRITICAL),
+  action_recommendation (string).
+- Read the CSV Context to identify local crop diseases, pests, and treatments.
+- The CSV does not contain temperature or humidity thresholds. Fill those in using agronomic knowledge.
+- Use exact local treatment names and doses from the CSV Context in action_recommendation.
+- For temperature_humidity sensors, include metric_thresholds for both temperature and humidity.
+- Keep values practical for the environment and asset being monitored.
+- Use the structured context and historical summary when choosing thresholds.
+- Do not include markdown or code fences.
+`, sensorType, req.Purpose, contextSummary(req.Context), historySummary, agriContext)
+	}
+
 	return fmt.Sprintf(`You are an IoT sensor configuration assistant.
 Generate JSON only for this sensor setup.
 
@@ -927,6 +969,31 @@ Rules:
 - Use the structured context and historical summary when choosing thresholds.
 - Do not include markdown or code fences.
 `, sensorType, req.Purpose, contextSummary(req.Context), historySummary)
+}
+
+func buildAgriculturePromptContext(req models.AISuggestRequest) string {
+	if !isAgricultureRequest(req) {
+		return ""
+	}
+
+	advisories, err := agri.LoadEmbeddedAdvisories()
+	if err != nil {
+		log.Printf("failed to load agriculture dataset: %v", err)
+		return ""
+	}
+
+	matches := agri.MatchAdvisories(advisories, req.Purpose+" "+contextSummary(req.Context), 14)
+	return agri.BuildCSVContext(matches)
+}
+
+func isAgricultureRequest(req models.AISuggestRequest) bool {
+	text := strings.ToLower(req.Purpose + " " + contextSummary(req.Context))
+	return strings.Contains(text, "agriculture") ||
+		strings.Contains(text, "farm") ||
+		strings.Contains(text, "crop") ||
+		strings.Contains(text, "paddy") ||
+		strings.Contains(text, "rice") ||
+		strings.Contains(text, "greenhouse")
 }
 
 func buildHostedAIConfig(sensorType string, suggestion hostedAISuggestion, fallbackSource string) (models.SensorConfig, string) {
@@ -962,6 +1029,14 @@ func buildHostedAIConfig(sensorType string, suggestion hostedAISuggestion, fallb
 			break
 		}
 	}
+	recommendationRules := normalizeRecommendationRules(append(suggestion.RecommendationRules, suggestion.Rules...))
+	mergeRecommendationThresholds(metricThresholds, recommendationRules)
+	if thresholds == (models.ThresholdConfig{}) {
+		for _, cfg := range metricThresholds {
+			thresholds = cfg
+			break
+		}
+	}
 
 	config := models.SensorConfig{
 		FriendlyName:         suggestion.FriendlyName,
@@ -970,6 +1045,7 @@ func buildHostedAIConfig(sensorType string, suggestion hostedAISuggestion, fallb
 		PrimaryMetric:        strings.TrimSpace(suggestion.PrimaryMetric),
 		Thresholds:           thresholds,
 		MetricThresholds:     metricThresholds,
+		RecommendationRules:  recommendationRules,
 		ReportIntervalPerDay: suggestion.ReportIntervalPerDay,
 		PowerManagement: models.PowerManagementConfig{
 			BatteryLifeDays:   estimateBatteryLifeDays(suggestion.ReportIntervalPerDay, metricCount),
@@ -983,6 +1059,104 @@ func buildHostedAIConfig(sensorType string, suggestion hostedAISuggestion, fallb
 	}
 
 	return config, explanation
+}
+
+func normalizeRecommendationRules(rules []models.RecommendationRule) []models.RecommendationRule {
+	normalized := make([]models.RecommendationRule, 0, len(rules))
+	seen := map[string]bool{}
+	for _, rule := range rules {
+		rule.MetricType = normalizeRecommendationMetric(rule.MetricType)
+		rule.Operator = strings.ToUpper(strings.TrimSpace(rule.Operator))
+		rule.RiskLevel = strings.ToUpper(strings.TrimSpace(rule.RiskLevel))
+		rule.ActionRecommendation = strings.TrimSpace(rule.ActionRecommendation)
+		if rule.SustainedMinutes <= 0 {
+			rule.SustainedMinutes = 60
+		}
+		if rule.MetricType == "" || rule.Operator == "" || rule.ActionRecommendation == "" {
+			continue
+		}
+		if rule.RiskLevel == "" {
+			rule.RiskLevel = "MODERATE"
+		}
+		key := fmt.Sprintf("%s|%s|%v|%v|%s", rule.MetricType, rule.Operator, rule.ThresholdMin, rule.ThresholdMax, rule.ActionRecommendation)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		normalized = append(normalized, rule)
+	}
+	return normalized
+}
+
+func normalizeRecommendationMetric(metric string) string {
+	switch strings.ToLower(strings.TrimSpace(metric)) {
+	case "temp", "temperature":
+		return "temperature"
+	case "humidity", "relative_humidity":
+		return "humidity"
+	case "soil_moisture", "soil moisture":
+		return "soil_moisture"
+	default:
+		return strings.ToLower(strings.TrimSpace(metric))
+	}
+}
+
+func mergeRecommendationThresholds(metricThresholds map[string]models.ThresholdConfig, rules []models.RecommendationRule) {
+	if metricThresholds == nil {
+		return
+	}
+	for _, rule := range rules {
+		metric := normalizeRecommendationMetric(rule.MetricType)
+		if metric == "" {
+			continue
+		}
+		current := metricThresholds[metric]
+		value := recommendationBoundary(rule)
+		switch rule.Operator {
+		case "GREATER_THAN":
+			if value == nil {
+				continue
+			}
+			if rule.RiskLevel == "CRITICAL" {
+				current.WarningMax = value
+			} else {
+				current.Max = value
+			}
+		case "LESS_THAN":
+			if value == nil {
+				continue
+			}
+			if rule.RiskLevel == "CRITICAL" {
+				current.WarningMin = value
+			} else {
+				current.Min = value
+			}
+		case "OUTSIDE_RANGE":
+			if rule.ThresholdMin != nil {
+				current.Min = cloneFloatPointer(rule.ThresholdMin)
+			}
+			if rule.ThresholdMax != nil {
+				current.Max = cloneFloatPointer(rule.ThresholdMax)
+			}
+		}
+		metricThresholds[metric] = current
+	}
+}
+
+func recommendationBoundary(rule models.RecommendationRule) *float64 {
+	if rule.Operator == "GREATER_THAN" {
+		if rule.ThresholdMax != nil {
+			return cloneFloatPointer(rule.ThresholdMax)
+		}
+		return cloneFloatPointer(rule.ThresholdMin)
+	}
+	if rule.Operator == "LESS_THAN" {
+		if rule.ThresholdMin != nil {
+			return cloneFloatPointer(rule.ThresholdMin)
+		}
+		return cloneFloatPointer(rule.ThresholdMax)
+	}
+	return nil
 }
 
 func (h *SensorHandler) generateOllamaAISuggestion(ctx context.Context, sensorType string, req models.AISuggestRequest, historySummary string) (models.SensorConfig, string, error) {
@@ -1057,7 +1231,11 @@ func (h *SensorHandler) generateOpenAIAISuggestion(ctx context.Context, sensorTy
 		model = strings.TrimSpace(os.Getenv("AI_MODEL"))
 	}
 	if model == "" {
-		model = "llama3-8b-8192" 
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("AI_PROVIDER")), "openrouter") {
+			model = "meta-llama/llama-3.3-70b-instruct:free"
+		} else {
+			model = "llama3-8b-8192"
+		}
 	}
 
 	baseURL := strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL"))
@@ -1065,7 +1243,11 @@ func (h *SensorHandler) generateOpenAIAISuggestion(ctx context.Context, sensorTy
 		baseURL = strings.TrimSpace(os.Getenv("AI_API_BASE_URL"))
 	}
 	if baseURL == "" {
-		baseURL = "https://api.groq.com/openai/v1"
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("AI_PROVIDER")), "openrouter") {
+			baseURL = "https://openrouter.ai/api/v1"
+		} else {
+			baseURL = "https://api.groq.com/openai/v1"
+		}
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 
@@ -1095,6 +1277,10 @@ func (h *SensorHandler) generateOpenAIAISuggestion(ctx context.Context, sensorTy
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	if strings.Contains(baseURL, "openrouter.ai") {
+		httpReq.Header.Set("HTTP-Referer", "https://spectroniot.xyz")
+		httpReq.Header.Set("X-Title", "Spectron AgriAssist")
+	}
 
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
@@ -1134,7 +1320,6 @@ func (h *SensorHandler) generateOpenAIAISuggestion(ctx context.Context, sensorTy
 	config, explanation := buildHostedAIConfig(sensorType, suggestion, fmt.Sprintf("OpenAI-compatible model (%s)", model))
 	return config, explanation, nil
 }
-
 
 func normalizeGeminiModelName(model string) string {
 	trimmed := strings.TrimSpace(model)
@@ -1483,6 +1668,8 @@ func (h *SensorHandler) generateAISuggestion(sensorType string, req models.AISug
 	for key, spec := range specs {
 		metricThresholds[key] = cloneThreshold(spec.Default)
 	}
+	recommendationRules := fallbackAgricultureRecommendationRules(req)
+	mergeRecommendationThresholds(metricThresholds, recommendationRules)
 
 	metricCount := len(metricThresholds)
 	thresholds := metricThresholds[primaryMetric]
@@ -1496,11 +1683,87 @@ func (h *SensorHandler) generateAISuggestion(sensorType string, req models.AISug
 		PrimaryMetric:        normalizedPrimaryMetric,
 		Thresholds:           thresholds,
 		MetricThresholds:     metricThresholds,
+		RecommendationRules:  recommendationRules,
 		ReportIntervalPerDay: reportsPerDay,
 		PowerManagement: models.PowerManagementConfig{
 			BatteryLifeDays:   batteryLifeDays,
 			SamplingFrequency: reportsPerDay,
 		},
+	}
+}
+
+func fallbackAgricultureRecommendationRules(req models.AISuggestRequest) []models.RecommendationRule {
+	if !isAgricultureRequest(req) {
+		return nil
+	}
+
+	advisories, err := agri.LoadEmbeddedAdvisories()
+	if err != nil {
+		log.Printf("failed to load agriculture dataset for fallback rules: %v", err)
+		return nil
+	}
+
+	matches := agri.MatchAdvisories(advisories, req.Purpose+" "+contextSummary(req.Context), 8)
+	rules := make([]models.RecommendationRule, 0, len(matches))
+	for _, advisory := range matches {
+		if advisory.Issue == "" || advisory.Treatment == "" {
+			continue
+		}
+		rules = append(rules, fallbackRuleForAdvisory(advisory))
+		if len(rules) >= 4 {
+			break
+		}
+	}
+	return normalizeRecommendationRules(rules)
+}
+
+func fallbackRuleForAdvisory(advisory agri.Advisory) models.RecommendationRule {
+	issueText := strings.ToLower(advisory.Issue + " " + advisory.Text)
+	metricType := "humidity"
+	operator := "GREATER_THAN"
+	threshold := 85.0
+	risk := "MODERATE"
+
+	switch {
+	case strings.Contains(issueText, "blast"):
+		threshold = 85
+		risk = "CRITICAL"
+	case strings.Contains(issueText, "sheath blight"), strings.Contains(issueText, "sheath rot"), strings.Contains(issueText, "brown spot"), strings.Contains(issueText, "leaf scald"):
+		threshold = 80
+	case strings.Contains(issueText, "bacterial leaf blight"):
+		threshold = 82
+	case strings.Contains(issueText, "thrips"):
+		metricType = "humidity"
+		operator = "LESS_THAN"
+		threshold = 55
+	case strings.Contains(issueText, "borer"), strings.Contains(issueText, "hopper"), strings.Contains(issueText, "midge"), strings.Contains(issueText, "bug"):
+		metricType = "temp"
+		operator = "GREATER_THAN"
+		threshold = 28
+	}
+
+	rule := models.RecommendationRule{
+		MetricType:           metricType,
+		Operator:             operator,
+		SustainedMinutes:     60,
+		RiskLevel:            risk,
+		ActionRecommendation: fmt.Sprintf("%s risk for %s. %s", conditionLabel(metricType, operator), advisory.Issue, advisory.Treatment),
+	}
+	if operator == "GREATER_THAN" {
+		rule.ThresholdMax = &threshold
+	} else {
+		rule.ThresholdMin = &threshold
+	}
+	return rule
+}
+
+func conditionLabel(metricType string, operator string) string {
+	metric := strings.ReplaceAll(metricType, "_", " ")
+	switch operator {
+	case "LESS_THAN":
+		return "Low " + metric
+	default:
+		return "High " + metric
 	}
 }
 

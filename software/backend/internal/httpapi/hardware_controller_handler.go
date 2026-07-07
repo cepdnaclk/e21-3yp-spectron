@@ -922,8 +922,8 @@ func (h *ControllerHandler) DeleteHardwareSensorAPI(w http.ResponseWriter, r *ht
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict) // 409 Conflict
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error": "Cannot delete sensor with existing readings",
-			"message": "This sensor has " + fmt.Sprintf("%d", readingCount) + " readings. It will be preserved in the database so readings are available when the device reconnects.",
+			"error":         "Cannot delete sensor with existing readings",
+			"message":       "This sensor has " + fmt.Sprintf("%d", readingCount) + " readings. It will be preserved in the database so readings are available when the device reconnects.",
 			"reading_count": readingCount,
 		})
 		return
@@ -1131,6 +1131,8 @@ func (h *ControllerHandler) SaveSensorConfigAPI(w http.ResponseWriter, r *http.R
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
+
+	normalizeHardwareSensorConfigRequest(&req)
 
 	req.SensorType = strings.TrimSpace(req.SensorType)
 	req.SystemName = strings.TrimSpace(req.SystemName)
@@ -2592,6 +2594,152 @@ func buildLegacySensorConfig(req models.SaveHardwareSensorConfigRequest) models.
 	}
 	config.NormalizeThreeLayer(req.SensorType, nil)
 	return config
+}
+
+func normalizeHardwareSensorConfigRequest(req *models.SaveHardwareSensorConfigRequest) {
+	if req == nil || req.AppConfig == nil {
+		return
+	}
+	if len(req.Config) > 0 && !looksLikeAppSensorConfigMap(req.Config) {
+		return
+	}
+
+	hardwareConfig := models.CloneHardwareConfigMap(req.AppConfig.HardwareConfig)
+	if req.AppConfig.Hardware != nil && len(req.AppConfig.Hardware.Config) > 0 {
+		hardwareConfig = models.CloneHardwareConfigMap(req.AppConfig.Hardware.Config)
+	}
+	if len(hardwareConfig) == 0 {
+		hardwareConfig = flatHardwareConfigFromAppConfig(*req.AppConfig)
+	}
+	if len(hardwareConfig) == 0 {
+		return
+	}
+
+	for key, value := range hardwareConfig {
+		if value == nil {
+			delete(hardwareConfig, key)
+			continue
+		}
+		if str, ok := value.(string); ok && strings.TrimSpace(str) == "" {
+			delete(hardwareConfig, key)
+		}
+	}
+
+	req.Config = hardwareConfig
+}
+
+func looksLikeAppSensorConfigMap(config map[string]interface{}) bool {
+	for _, key := range []string{
+		"friendly_name",
+		"use_case",
+		"presentation_profile",
+		"primary_metric",
+		"thresholds",
+		"metric_thresholds",
+		"recommendation_rules",
+		"report_interval_per_day",
+		"power_management",
+		"hardware_config",
+		"hardware",
+		"interpretation",
+		"presentation",
+		"settings",
+		"operational",
+	} {
+		if _, ok := config[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func flatHardwareConfigFromAppConfig(config models.SensorConfig) map[string]interface{} {
+	hardwareConfig := map[string]interface{}{}
+
+	reportsPerDay := config.ReportIntervalPerDay
+	if reportsPerDay == 0 && config.Operational != nil {
+		reportsPerDay = config.Operational.ReportIntervalPerDay
+	}
+	if reportsPerDay == 0 && config.Settings != nil {
+		reportsPerDay = config.Settings.ReportIntervalPerDay
+	}
+	if reportsPerDay == 0 {
+		reportsPerDay = 24
+	}
+	hardwareConfig["reportsPerDay"] = reportsPerDay
+
+	batteryLifeDays := config.PowerManagement.BatteryLifeDays
+	if batteryLifeDays == 0 && config.Operational != nil {
+		batteryLifeDays = config.Operational.PowerManagement.BatteryLifeDays
+	}
+	if batteryLifeDays == 0 && config.Settings != nil {
+		batteryLifeDays = config.Settings.PowerManagement.BatteryLifeDays
+	}
+	if batteryLifeDays == 0 {
+		batteryLifeDays = 77
+	}
+	hardwareConfig["estimatedBatteryLifeDays"] = batteryLifeDays
+
+	if flowType := readingFlowTypeFromConfig(config); flowType != "" {
+		hardwareConfig["readingFlowType"] = flowType
+	}
+
+	for metricKey, threshold := range config.MetricThresholds {
+		appendThresholdToHardwareConfig(hardwareConfig, metricKey, threshold)
+	}
+	if len(config.MetricThresholds) == 0 && !isEmptyThreshold(config.Thresholds) {
+		metricKey := strings.TrimSpace(config.PrimaryMetric)
+		if metricKey == "" {
+			metricKey = "temperature"
+		}
+		appendThresholdToHardwareConfig(hardwareConfig, metricKey, config.Thresholds)
+	}
+
+	return hardwareConfig
+}
+
+func appendThresholdToHardwareConfig(config map[string]interface{}, metricKey string, threshold models.ThresholdConfig) {
+	if threshold.Min != nil {
+		config[toHardwareThresholdKey(metricKey, "min")] = *threshold.Min
+	}
+	if threshold.Max != nil {
+		config[toHardwareThresholdKey(metricKey, "max")] = *threshold.Max
+	}
+	if threshold.WarningMin != nil {
+		config[toHardwareThresholdKey(metricKey, "warningMin")] = *threshold.WarningMin
+	}
+	if threshold.WarningMax != nil {
+		config[toHardwareThresholdKey(metricKey, "warningMax")] = *threshold.WarningMax
+	}
+}
+
+func toHardwareThresholdKey(metricKey string, suffix string) string {
+	metricKey = strings.TrimSpace(metricKey)
+	if metricKey == "" {
+		return suffix
+	}
+	parts := strings.Split(metricKey, "_")
+	var b strings.Builder
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		if i == 0 {
+			b.WriteString(part)
+			continue
+		}
+		b.WriteString(strings.ToUpper(part[:1]))
+		if len(part) > 1 {
+			b.WriteString(part[1:])
+		}
+	}
+	if suffix != "" {
+		b.WriteString(strings.ToUpper(suffix[:1]))
+		if len(suffix) > 1 {
+			b.WriteString(suffix[1:])
+		}
+	}
+	return b.String()
 }
 
 func positiveIntOrDefault(value any, fallback int) int {

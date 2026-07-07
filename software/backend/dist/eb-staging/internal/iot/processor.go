@@ -408,6 +408,7 @@ type thresholdAlertEvaluation struct {
 	Condition  string
 	Boundary   string
 	AlertLabel string
+	Action     string
 	Threshold  float64
 }
 
@@ -860,7 +861,8 @@ func evaluateThresholdBreach(sensorType string, value float64, config models.Sen
 			Metric:     metric,
 			Condition:  "below",
 			Boundary:   "below critical minimum",
-			AlertLabel: matchingAlertLabel(config, metric, "below"),
+			AlertLabel: matchingAlertTitle(config, metric, "below"),
+			Action:     matchingAlertAction(config, metric, "below"),
 			Threshold:  *threshold.WarningMin,
 		}
 	case threshold.WarningMax != nil && value > *threshold.WarningMax:
@@ -870,7 +872,8 @@ func evaluateThresholdBreach(sensorType string, value float64, config models.Sen
 			Metric:     metric,
 			Condition:  "above",
 			Boundary:   "above critical maximum",
-			AlertLabel: matchingAlertLabel(config, metric, "above"),
+			AlertLabel: matchingAlertTitle(config, metric, "above"),
+			Action:     matchingAlertAction(config, metric, "above"),
 			Threshold:  *threshold.WarningMax,
 		}
 	case threshold.Min != nil && value < *threshold.Min:
@@ -880,7 +883,8 @@ func evaluateThresholdBreach(sensorType string, value float64, config models.Sen
 			Metric:     metric,
 			Condition:  "below",
 			Boundary:   "below minimum",
-			AlertLabel: matchingAlertLabel(config, metric, "below"),
+			AlertLabel: matchingAlertTitle(config, metric, "below"),
+			Action:     matchingAlertAction(config, metric, "below"),
 			Threshold:  *threshold.Min,
 		}
 	case threshold.Max != nil && value > *threshold.Max:
@@ -890,7 +894,8 @@ func evaluateThresholdBreach(sensorType string, value float64, config models.Sen
 			Metric:     metric,
 			Condition:  "above",
 			Boundary:   "above maximum",
-			AlertLabel: matchingAlertLabel(config, metric, "above"),
+			AlertLabel: matchingAlertTitle(config, metric, "above"),
+			Action:     matchingAlertAction(config, metric, "above"),
 			Threshold:  *threshold.Max,
 		}
 	default:
@@ -898,7 +903,7 @@ func evaluateThresholdBreach(sensorType string, value float64, config models.Sen
 	}
 }
 
-func matchingAlertLabel(config models.SensorConfig, metric string, condition string) string {
+func matchingAlertTitle(config models.SensorConfig, metric string, condition string) string {
 	if config.Settings == nil || len(config.Settings.Alerts) == 0 {
 		return ""
 	}
@@ -908,6 +913,22 @@ func matchingAlertLabel(config models.SensorConfig, metric string, condition str
 			strings.EqualFold(strings.TrimSpace(alert.Condition), strings.TrimSpace(condition)) &&
 			strings.TrimSpace(alert.Label) != "" {
 			return strings.TrimSpace(alert.Label)
+		}
+	}
+
+	return ""
+}
+
+func matchingAlertAction(config models.SensorConfig, metric string, condition string) string {
+	if config.Settings == nil || len(config.Settings.Alerts) == 0 {
+		return ""
+	}
+
+	for _, alert := range config.Settings.Alerts {
+		if strings.TrimSpace(alert.MetricKey) == strings.TrimSpace(metric) &&
+			strings.EqualFold(strings.TrimSpace(alert.Condition), strings.TrimSpace(condition)) &&
+			strings.TrimSpace(alert.Description) != "" {
+			return strings.TrimSpace(alert.Description)
 		}
 	}
 
@@ -947,14 +968,18 @@ func thresholdAlertMessage(input thresholdAlertInput, evaluation thresholdAlertE
 	}
 
 	if evaluation.AlertLabel != "" {
-		return fmt.Sprintf(
-			"%s triggered %s: %.2f crossed %.2f at %s.",
+		message := fmt.Sprintf(
+			"%s: %s. Current reading %.2f crossed %.2f at %s.",
 			sensorLabel,
 			evaluation.AlertLabel,
 			roundForAlert(input.Value),
 			roundForAlert(evaluation.Threshold),
 			input.ReadingAt.Format(time.RFC3339),
 		)
+		if evaluation.Action != "" {
+			message += " Recommended action: " + evaluation.Action
+		}
+		return message
 	}
 
 	return fmt.Sprintf(

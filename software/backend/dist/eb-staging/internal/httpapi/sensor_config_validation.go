@@ -1282,6 +1282,58 @@ func findMatchingAlertSetting(
 	return nil
 }
 
+func appendRecommendationAlerts(alerts []models.SensorAlertSetting, rules []models.RecommendationRule) []models.SensorAlertSetting {
+	for index, rule := range rules {
+		metricKey := normalizeRecommendationMetric(rule.MetricType)
+		condition := recommendationCondition(rule.Operator)
+		if metricKey == "" || condition == "" || strings.TrimSpace(rule.ActionRecommendation) == "" {
+			continue
+		}
+
+		key := fmt.Sprintf("agriassist_%s_%d", metricKey, index+1)
+		label := fmt.Sprintf("AgriAssist %s risk", strings.ToLower(strings.TrimSpace(rule.RiskLevel)))
+		current := models.SensorAlertSetting{
+			Key:         key,
+			Label:       label,
+			MetricKey:   metricKey,
+			Condition:   condition,
+			Unit:        displayUnitForMetric(metricKey),
+			Description: strings.TrimSpace(rule.ActionRecommendation),
+		}
+		if rule.RiskLevel == "CRITICAL" {
+			current.CriticalThreshold = recommendationBoundary(rule)
+		} else {
+			current.WarningThreshold = recommendationBoundary(rule)
+		}
+
+		replaced := false
+		for i := range alerts {
+			if strings.TrimSpace(alerts[i].MetricKey) == metricKey &&
+				strings.EqualFold(strings.TrimSpace(alerts[i].Condition), condition) &&
+				strings.Contains(strings.ToLower(alerts[i].Key), "agriassist") {
+				alerts[i] = current
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			alerts = append(alerts, current)
+		}
+	}
+	return alerts
+}
+
+func recommendationCondition(operator string) string {
+	switch strings.ToUpper(strings.TrimSpace(operator)) {
+	case "GREATER_THAN":
+		return "above"
+	case "LESS_THAN":
+		return "below"
+	default:
+		return ""
+	}
+}
+
 func cloneFloatPointer(value *float64) *float64 {
 	if value == nil {
 		return nil
@@ -1560,6 +1612,11 @@ func validateAndFinalizeConfig(sensorType string, purpose string, ctx *models.Se
 			return config.Settings.Alerts
 		}(),
 	)
+	recommendationRules := normalizeRecommendationRules(config.RecommendationRules)
+	if len(recommendationRules) > 0 {
+		settingsAlerts = appendRecommendationAlerts(settingsAlerts, recommendationRules)
+		appliedRules["agriassist_recommendation_rules"] = true
+	}
 	hardwareConfig := models.CloneHardwareConfigMap(config.HardwareConfig)
 	if config.Hardware != nil && len(config.Hardware.Config) > 0 {
 		hardwareConfig = models.CloneHardwareConfigMap(config.Hardware.Config)
@@ -1596,6 +1653,7 @@ func validateAndFinalizeConfig(sensorType string, purpose string, ctx *models.Se
 		"power_management_alignment",
 		"context_quality_check",
 		"calibration_check",
+		"agriassist_recommendation_rules",
 	} {
 		if appliedRules[rule] {
 			appliedRuleList = append(appliedRuleList, rule)
@@ -1611,6 +1669,7 @@ func validateAndFinalizeConfig(sensorType string, purpose string, ctx *models.Se
 				PrimaryMetric:        finalPrimaryMetric,
 				Thresholds:           finalThresholds,
 				MetricThresholds:     metricThresholds,
+				RecommendationRules:  recommendationRules,
 				ReportIntervalPerDay: reportsPerDay,
 				PowerManagement: models.PowerManagementConfig{
 					BatteryLifeDays:   estimatedBatteryLifeDays,

@@ -63,6 +63,7 @@ export interface SensorConfig {
     warning_min?: number;
     warning_max?: number;
   }>;
+  recommendation_rules?: RecommendationRule[];
   report_interval_per_day: number;
   power_management: {
     battery_life_days: number;
@@ -74,6 +75,16 @@ export interface SensorConfig {
   presentation?: SensorPresentationLayer;
   settings?: SensorSettingsLayer;
   operational?: SensorOperationalLayer;
+}
+
+export interface RecommendationRule {
+  metric_type: string;
+  operator: 'GREATER_THAN' | 'LESS_THAN' | 'OUTSIDE_RANGE' | string;
+  threshold_min?: number;
+  threshold_max?: number;
+  sustained_minutes: number;
+  risk_level: 'LOW' | 'MODERATE' | 'CRITICAL' | string;
+  action_recommendation: string;
 }
 
 export interface SensorHardwareLayer {

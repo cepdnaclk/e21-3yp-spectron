@@ -8,6 +8,7 @@ import {
   Box,
   Button,
   Stack,
+  Alert as MuiAlert,
 } from '@mui/material';
 import { NotificationsActive, DoneAll } from '@mui/icons-material';
 import {
@@ -91,6 +92,18 @@ const Alerts: React.FC = () => {
     return type.replace(/_/g, ' ');
   };
 
+  const splitRecommendedAction = (message: string) => {
+    const marker = 'Recommended action:';
+    const index = message.indexOf(marker);
+    if (index < 0) {
+      return { summary: message, action: '' };
+    }
+    return {
+      summary: message.slice(0, index).trim(),
+      action: message.slice(index + marker.length).trim(),
+    };
+  };
+
   return (
     <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 } }}>
       <AutoDismissAlert open={Boolean(notice)} severity="success" sx={{ mb: 2 }} onCloseAlert={() => setNotice('')}>
@@ -118,71 +131,89 @@ const Alerts: React.FC = () => {
           </CardContent>
         </Card>
       ) : (
-        alerts.map((alert, index) => (
-          <Card
-            key={alert.id}
-            sx={{
-              mb: 2,
-              opacity: alert.acknowledged_at ? 0.7 : 1,
-              borderTop: index === 0 ? '1px solid rgba(60, 57, 17, 0.1)' : undefined,
-            }}
-          >
-            <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
-              <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'flex-start' }} gap={1.5} mb={1}>
-                <Stack direction="row" spacing={1.5} alignItems="center" minWidth={0}>
-                  <Box sx={{ p: { xs: 0.65, sm: 1 }, borderRadius: '50%', bgcolor: 'rgba(235, 79, 18, 0.12)' }}>
-                    <NotificationsActive color="secondary" />
-                  </Box>
-                  <Box>
-                    <Typography variant="h6">
-                      {formatAlertType(alert.type)}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {format(new Date(alert.created_at), 'MMM dd, yyyy HH:mm')}
-                    </Typography>
-                  </Box>
+        alerts.map((alert, index) => {
+          const parsed = splitRecommendedAction(alert.message);
+          return (
+            <Card
+              key={alert.id}
+              sx={{
+                mb: 2,
+                opacity: alert.acknowledged_at ? 0.7 : 1,
+                borderTop: index === 0 ? '1px solid rgba(60, 57, 17, 0.1)' : undefined,
+              }}
+            >
+              <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+                <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'flex-start' }} gap={1.5} mb={1}>
+                  <Stack direction="row" spacing={1.5} alignItems="center" minWidth={0}>
+                    <Box sx={{ p: { xs: 0.65, sm: 1 }, borderRadius: '50%', bgcolor: 'rgba(235, 79, 18, 0.12)', flexShrink: 0 }}>
+                      <NotificationsActive color="secondary" />
+                    </Box>
+                    <Box minWidth={0}>
+                      <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, overflowWrap: 'anywhere' }}>
+                        {formatAlertType(alert.type)}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {format(new Date(alert.created_at), 'MMM dd, yyyy HH:mm')}
+                      </Typography>
+                    </Box>
+                  </Stack>
+                  <Chip
+                    label={alert.severity}
+                    color={getSeverityColor(alert.severity) as any}
+                    size="small"
+                    sx={{ alignSelf: { xs: 'flex-start', sm: 'flex-start' } }}
+                  />
+                </Box>
+                <Stack spacing={1.25} sx={{ mt: 1, pt: 1.25, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
+                  <Typography variant="body2" sx={{ lineHeight: 1.5, overflowWrap: 'anywhere' }}>
+                    {parsed.summary}
+                  </Typography>
+                  {parsed.action && (
+                    <MuiAlert severity={alert.severity === 'CRITICAL' ? 'error' : 'warning'} icon={false} sx={{ py: 0.75 }}>
+                      <Typography variant="subtitle2" fontWeight={700}>
+                        Recommended action
+                      </Typography>
+                      <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
+                        {parsed.action}
+                      </Typography>
+                    </MuiAlert>
+                  )}
                 </Stack>
-                <Chip
-                  label={alert.severity}
-                  color={getSeverityColor(alert.severity) as any}
-                  size="small"
-                  sx={{ alignSelf: 'flex-start' }}
-                />
-              </Box>
-              <Typography variant="body2" sx={{ mt: 1, pt: 1.25, borderTop: '1px solid rgba(60, 57, 17, 0.08)', lineHeight: 1.5 }}>
-                {alert.message}
-              </Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1.5 }} flexWrap="wrap">
-                {!alert.acknowledged_at && alert.type === 'LEARNING_PHASE_RECOMMENDATION' && (
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="secondary"
-                    onClick={() => handleApplyRecommendation(alert.id)}
-                    disabled={busyAlertId === alert.id}
-                  >
-                    {busyAlertId === alert.id ? 'Applying...' : 'Apply recommendation'}
-                  </Button>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1.5 }} flexWrap="wrap">
+                  {!alert.acknowledged_at && alert.type === 'LEARNING_PHASE_RECOMMENDATION' && (
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="secondary"
+                      onClick={() => handleApplyRecommendation(alert.id)}
+                      disabled={busyAlertId === alert.id}
+                      fullWidth={false}
+                      sx={{ width: { xs: '100%', sm: 'auto' } }}
+                    >
+                      {busyAlertId === alert.id ? 'Applying...' : 'Apply recommendation'}
+                    </Button>
+                  )}
+                  {!alert.acknowledged_at && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => handleAcknowledge(alert.id)}
+                      disabled={busyAlertId === alert.id}
+                      sx={{ width: { xs: '100%', sm: 'auto' } }}
+                    >
+                      Acknowledge
+                    </Button>
+                  )}
+                </Stack>
+                {alert.acknowledged_at && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    Acknowledged at {format(new Date(alert.acknowledged_at), 'MMM dd, yyyy HH:mm')}
+                  </Typography>
                 )}
-                {!alert.acknowledged_at && (
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => handleAcknowledge(alert.id)}
-                    disabled={busyAlertId === alert.id}
-                  >
-                    Acknowledge
-                  </Button>
-                )}
-              </Stack>
-              {alert.acknowledged_at && (
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  Acknowledged at {format(new Date(alert.acknowledged_at), 'MMM dd, yyyy HH:mm')}
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        ))
+              </CardContent>
+            </Card>
+          );
+        })
       )}
     </Container>
   );

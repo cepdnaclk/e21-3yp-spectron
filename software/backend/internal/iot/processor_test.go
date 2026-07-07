@@ -191,6 +191,35 @@ func TestThresholdAlertMessageIncludesSensorValueAndTime(t *testing.T) {
 	}
 }
 
+func TestThresholdAlertMessageIncludesRecommendedAction(t *testing.T) {
+	readingAt := time.Date(2026, 7, 6, 12, 30, 0, 0, time.UTC)
+	message := thresholdAlertMessage(
+		thresholdAlertInput{
+			SensorID:   uuid.New(),
+			SensorName: "Paddy Humidity",
+			Value:      91.2,
+			ReadingAt:  readingAt,
+		},
+		thresholdAlertEvaluation{
+			AlertLabel: "AgriAssist critical risk",
+			Action:     "High humidity risk for Blast. Spray Mancozeb 2.0g/lit",
+			Threshold:  85,
+		},
+	)
+
+	for _, expected := range []string{
+		"Paddy Humidity",
+		"AgriAssist critical risk",
+		"91.20",
+		"85.00",
+		"Recommended action: High humidity risk for Blast. Spray Mancozeb 2.0g/lit",
+	} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("expected message %q to contain %q", message, expected)
+		}
+	}
+}
+
 func TestNormalizeVL53L0XMillimetersToCentimeters(t *testing.T) {
 	value, converted := normalizeReadingValue("vl53l0x", 2131)
 	if !converted {
@@ -273,7 +302,7 @@ func TestDistanceAttendanceIgnoresInvalidReading(t *testing.T) {
 
 func TestAttendanceConfigReadsConfiguredDoorDistances(t *testing.T) {
 	config := models.SensorConfig{
-		UseCase:      "attendance_monitoring",
+		UseCase:       "attendance_monitoring",
 		PrimaryMetric: "attendance_count",
 		HardwareConfig: map[string]interface{}{
 			"attendanceBaselineDistanceCm": 250.0,
