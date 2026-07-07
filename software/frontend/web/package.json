@@ -2,6 +2,8 @@
   "name": "spectron-web",
   "version": "1.0.0",
   "private": true,
+  "main": "electron/main.cjs",
+  "homepage": "./",
   "dependencies": {
     "@capacitor/android": "^5.7.8",
     "@emotion/react": "^11.11.1",
@@ -34,6 +36,8 @@
     "@types/react-dom": "^18.2.17",
     "@vitest/coverage-v8": "^4.1.5",
     "@vitest/ui": "^4.1.5",
+    "electron": "^43.0.0",
+    "electron-builder": "^26.15.3",
     "jsdom": "^29.1.0",
     "react-scripts": "5.0.1",
     "rolldown": "^1.0.0-rc.17",
@@ -43,6 +47,10 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "electron": "electron .",
+    "electron:dev": "set ELECTRON_START_URL=http://localhost:3001&& electron .",
+    "electron:pack": "npm run build && electron-builder --win --dir",
+    "electron:dist": "npm run build && electron-builder --win",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
@@ -67,5 +75,38 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "build": {
+    "appId": "lk.spectron.dashboard",
+    "productName": "Spectron",
+    "directories": {
+      "output": "desktop-dist"
+    },
+    "files": [
+      "build/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

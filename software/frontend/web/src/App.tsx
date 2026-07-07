@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme, responsiveFontSizes } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -11,6 +11,8 @@ import Controllers from './pages/main/Controllers';
 import PairController from './pages/main/PairController';
 import ControllerDashboard from './pages/main/ControllerDashboard';
 import SensorConfig from './pages/main/SensorConfig';
+import AgriAssistConfig from './pages/main/AgriAssistConfig';
+import AgriAssistDashboard from './pages/main/AgriAssistDashboard';
 import Monitoring from './pages/main/Monitoring';
 import Alerts from './pages/main/Alerts';
 import Profile from './pages/main/Profile';
@@ -332,6 +334,8 @@ function AppRoutes() {
         <Route path="controllers/pair" element={<PairController />} />
         <Route path="controllers/:id" element={<ControllerDashboard />} />
         <Route path="hardware/:controllerId/sensors" element={<ControllerDashboard />} />
+        <Route path="hardware/:controllerId/agri-config" element={<AgriAssistConfig />} />
+        <Route path="hardware/:controllerId/agri-dashboard" element={<AgriAssistDashboard />} />
         <Route path="hardware/:controllerId/sensors/:sensorId/configure" element={<SensorConfig />} />
         <Route path="sensors/:id/config" element={<SensorConfig />} />
         <Route path="monitoring" element={<Monitoring />} />
@@ -360,6 +364,8 @@ function AppRoutes() {
 }
 
 function App() {
+  const Router = window.location.protocol === 'file:' ? HashRouter : BrowserRouter;
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />

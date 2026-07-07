@@ -90,7 +90,18 @@ $env:MQTT_TOPIC="spectron/controllers/+/raw"
 $env:MQTT_CLIENT_ID="spectron-mqtt-bridge"
 ```
 
-AI sensor suggestions can use Gemini or Ollama. Gemini is selected when `GEMINI_API_KEY` is set. To use Ollama instead:
+AI sensor suggestions can use OpenRouter, Gemini, or Ollama. For AgriAssist crop recommendations, the backend embeds the Sri Lankan paddy/rice advisory CSV and asks the hosted model to generate local monitoring rules with the treatment text from that dataset.
+
+OpenRouter example:
+
+```powershell
+$env:AI_PROVIDER="openrouter"
+$env:AI_API_BASE_URL="https://openrouter.ai/api/v1"
+$env:AI_MODEL="meta-llama/llama-3.3-70b-instruct:free"
+$env:AI_API_KEY="your-openrouter-api-key"
+```
+
+Gemini is selected when `GEMINI_API_KEY` is set. To use Ollama instead:
 
 ```powershell
 $env:AI_PROVIDER="ollama"

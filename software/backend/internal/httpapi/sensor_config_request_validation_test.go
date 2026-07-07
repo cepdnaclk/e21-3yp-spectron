@@ -61,6 +61,51 @@ func TestValidateHardwareSensorConfigRequestAcceptsValidConfigs(t *testing.T) {
 	}
 }
 
+func TestNormalizeHardwareSensorConfigRequestDerivesFlatConfigFromAppConfig(t *testing.T) {
+	tempMax := 32.0
+	humidityMax := 85.0
+	req := models.SaveHardwareSensorConfigRequest{
+		SystemName:    "Paddy Field",
+		SensorType:    "temperature_humidity",
+		SensorName:    "AgriAssist Climate",
+		UsedFor:       "Paddy/Rice Nursery monitoring",
+		DashboardView: "agriassist",
+		Config: map[string]interface{}{
+			"friendly_name":           "AgriAssist Climate",
+			"metric_thresholds":       map[string]interface{}{},
+			"recommendation_rules":    []interface{}{},
+			"report_interval_per_day": 24,
+		},
+		AppConfig: &models.SensorConfig{
+			FriendlyName:         "AgriAssist Climate",
+			PrimaryMetric:        "temperature",
+			ReportIntervalPerDay: 24,
+			PowerManagement: models.PowerManagementConfig{
+				BatteryLifeDays: 77,
+			},
+			MetricThresholds: map[string]models.ThresholdConfig{
+				"temperature": {Max: &tempMax},
+				"humidity":    {Max: &humidityMax},
+			},
+		},
+	}
+
+	normalizeHardwareSensorConfigRequest(&req)
+
+	if err := validateHardwareSensorConfigRequest(req, "temperature_humidity"); err != nil {
+		t.Fatalf("expected normalized config to validate, got %v with config %+v", err, req.Config)
+	}
+	if _, exists := req.Config["metric_thresholds"]; exists {
+		t.Fatalf("expected app-level metric_thresholds to be removed from hardware config: %+v", req.Config)
+	}
+	if req.Config["temperatureMax"] != tempMax {
+		t.Fatalf("expected temperatureMax %.1f, got %#v", tempMax, req.Config["temperatureMax"])
+	}
+	if req.Config["humidityMax"] != humidityMax {
+		t.Fatalf("expected humidityMax %.1f, got %#v", humidityMax, req.Config["humidityMax"])
+	}
+}
+
 func TestValidateHardwareSensorConfigRequestRejectsInvalidInput(t *testing.T) {
 	tests := []struct {
 		name       string
