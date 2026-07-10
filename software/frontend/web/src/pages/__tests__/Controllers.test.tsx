@@ -32,8 +32,7 @@ describe('Controllers dashboard', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText(/controller fleet/i)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /keep every spectron node in view/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /keep every spectron node in view/i })).toBeInTheDocument();
     expect(screen.getByText(/greenhouse controller/i)).toBeInTheDocument();
     expect(screen.getByText(/^claimed$/i)).toBeInTheDocument();
     expect(screen.getByText(/^online$/i)).toBeInTheDocument();

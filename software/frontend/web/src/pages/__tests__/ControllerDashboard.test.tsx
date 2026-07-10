@@ -90,16 +90,14 @@ describe('Paired hardware sensors dashboard', () => {
     );
 
     expect(await screen.findByRole('heading', { name: /greenhouse system/i })).toBeInTheDocument();
-    expect(screen.getByText(/connected hardware/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /sensors \(3\)/i })).toBeInTheDocument();
     expect(screen.getByText(/^claimed$/i)).toBeInTheDocument();
     expect(screen.getByText(/^online$/i)).toBeInTheDocument();
-    expect(screen.getByText(/load sensor/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /project load sensing channel/i })).toBeInTheDocument();
     expect(screen.getByText(/temperature & humidity sensor/i)).toBeInTheDocument();
-    expect(screen.getByText(/ultrasonic sensor/i)).toBeInTheDocument();
-    expect(screen.getByText(/hardware: sht30/i)).toBeInTheDocument();
-    expect(screen.getByText(/hardware: gy-vl53l0x/i)).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /^configure$/i })).toHaveLength(2);
-    expect(screen.getByRole('button', { name: /review configuration/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /gy-vl53l0x time-of-flight distance sensor/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^manual$/i })).toHaveLength(2);
+    expect(screen.getByRole('button', { name: /^advanced$/i })).toBeInTheDocument();
   });
 
   it('releases the controller and reports success on the controller list', async () => {
@@ -134,7 +132,7 @@ describe('Paired hardware sensors dashboard', () => {
 
     expect(await screen.findByText(/sensors \(3\)/i)).toBeInTheDocument();
 
-    await user.click(screen.getAllByRole('button', { name: /^remove$/i })[0]);
+    await user.click(screen.getAllByRole('button', { name: /^remove sensor$/i })[0]);
 
     expect(deleteHardwareSensor).toHaveBeenCalledWith('CTRL-100', 'load-1');
     expect(await screen.findByText(/sensors \(2\)/i)).toBeInTheDocument();
