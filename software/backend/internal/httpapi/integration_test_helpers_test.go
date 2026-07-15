@@ -51,6 +51,10 @@ type testSensor struct {
 	uid string
 }
 
+type testFarm struct {
+	id uuid.UUID
+}
+
 func newIntegrationApp(t *testing.T) *integrationApp {
 	t.Helper()
 
@@ -168,6 +172,61 @@ func (app *integrationApp) createTestUser(t *testing.T, role string) testUser {
 	}
 
 	return testUser{id: userID, accountID: accountID, email: email, token: token}
+}
+
+func (app *integrationApp) createAdminUser(t *testing.T) testUser {
+	t.Helper()
+
+	ctx := context.Background()
+	accountID := uuid.New()
+	userID := uuid.New()
+	email := fmt.Sprintf("admin-%s@spectron.test", uuid.NewString())
+
+	if _, err := app.pool.Exec(ctx, `
+		INSERT INTO accounts (id, name)
+		VALUES ($1, $2)
+	`, accountID, "Admin Account"); err != nil {
+		t.Fatalf("insert admin account: %v", err)
+	}
+
+	hash, err := auth.HashPassword("test-password")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if _, err := app.pool.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, name, account_type, status, is_email_verified)
+		VALUES ($1, $2, $3, 'Admin User', 'ADMIN', 'ACTIVE', true)
+	`, userID, email, hash); err != nil {
+		t.Fatalf("insert admin user: %v", err)
+	}
+
+	token, err := auth.GenerateToken(userID, accountID, email)
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+
+	return testUser{id: userID, accountID: accountID, email: email, token: token}
+}
+
+func (app *integrationApp) createFarm(t *testing.T, owner testUser, name string) testFarm {
+	t.Helper()
+
+	ctx := context.Background()
+	farmID := uuid.New()
+	if _, err := app.pool.Exec(ctx, `
+		INSERT INTO farms (id, name, created_by_user_id, created_at, updated_at)
+		VALUES ($1, $2, $3, NOW(), NOW())
+	`, farmID, name, owner.id); err != nil {
+		t.Fatalf("insert farm: %v", err)
+	}
+	if _, err := app.pool.Exec(ctx, `
+		INSERT INTO farm_access (farm_id, user_id, role, added_at)
+		VALUES ($1, $2, 'owner', NOW())
+	`, farmID, owner.id); err != nil {
+		t.Fatalf("insert farm access: %v", err)
+	}
+
+	return testFarm{id: farmID}
 }
 
 func (app *integrationApp) createController(t *testing.T, accountID uuid.UUID, ownerUserID *uuid.UUID, uid string, status string) testController {

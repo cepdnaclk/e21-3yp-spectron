@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -33,6 +35,16 @@ type farmResponse struct {
 	UpdatedAt string   `json:"updated_at"`
 }
 
+type collaboratorResponse struct {
+	UserID     string     `json:"user_id"`
+	Email      string     `json:"email"`
+	Name       *string    `json:"name,omitempty"`
+	Role       string     `json:"role"`
+	AddedAt    time.Time  `json:"added_at"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+	AccessType string     `json:"access_type"`
+}
+
 type fieldResponse struct {
 	ID           string           `json:"id"`
 	FarmID       string           `json:"farm_id"`
@@ -58,6 +70,11 @@ type saveFieldRequest struct {
 	Longitude    *float64         `json:"longitude,omitempty"`
 	Area         *float64         `json:"area,omitempty"`
 	BoundaryJSON *json.RawMessage `json:"boundary_json,omitempty"`
+}
+
+type saveCollaboratorRequest struct {
+	Email string `json:"email"`
+	Role  string `json:"role"`
 }
 
 type farmAccess struct {
@@ -302,6 +319,225 @@ func (h *FarmHandler) CreateField(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, field)
+}
+
+func (h *FarmHandler) ListCollaborators(w http.ResponseWriter, r *http.Request) {
+	access, ok := h.requireFarmAccess(w, r, false)
+	if !ok {
+		return
+	}
+	if access.role != "owner" && access.role != "viewer" {
+		http.Error(w, "farm access required", http.StatusForbidden)
+		return
+	}
+
+	rows, err := h.db.Query(r.Context(), `
+		SELECT
+			u.id,
+			u.email,
+			u.name,
+			fa.role,
+			fa.added_at,
+			fa.revoked_at,
+			u.account_type
+		FROM farm_access fa
+		JOIN users u ON u.id = fa.user_id
+		WHERE fa.farm_id = $1
+		  AND fa.revoked_at IS NULL
+		ORDER BY
+			CASE fa.role WHEN 'owner' THEN 0 ELSE 1 END,
+			u.created_at DESC
+	`, access.farmID)
+	if err != nil {
+		http.Error(w, "failed to load collaborators", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	collaborators := make([]collaboratorResponse, 0)
+	for rows.Next() {
+		var item collaboratorResponse
+		var userID uuid.UUID
+		var addedAt time.Time
+		var revokedAt *time.Time
+		if err := rows.Scan(&userID, &item.Email, &item.Name, &item.Role, &addedAt, &revokedAt, &item.AccessType); err != nil {
+			http.Error(w, "failed to read collaborators", http.StatusInternalServerError)
+			return
+		}
+		item.UserID = userID.String()
+		item.AddedAt = addedAt
+		item.RevokedAt = revokedAt
+		collaborators = append(collaborators, item)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"collaborators": collaborators})
+}
+
+func (h *FarmHandler) AddCollaborator(w http.ResponseWriter, r *http.Request) {
+	access, ok := h.requireFarmAccess(w, r, true)
+	if !ok {
+		return
+	}
+
+	var req saveCollaboratorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if email == "" {
+		http.Error(w, "email is required", http.StatusBadRequest)
+		return
+	}
+	if strings.ToLower(strings.TrimSpace(req.Role)) != "viewer" {
+		http.Error(w, "only viewer collaborators are supported", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := h.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "failed to start collaborator update", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	var targetUserID uuid.UUID
+	var targetAccountType string
+	var targetStatus string
+	var targetName *string
+	err = tx.QueryRow(r.Context(), `
+		SELECT id, account_type, status, name
+		FROM users
+		WHERE lower(email) = $1
+	`, email).Scan(&targetUserID, &targetAccountType, &targetStatus, &targetName)
+	switch {
+	case err == nil:
+		if targetAccountType == "ADMIN" {
+			http.Error(w, "admin accounts cannot be added to farms", http.StatusForbidden)
+			return
+		}
+		if targetStatus != "ACTIVE" {
+			http.Error(w, "active account required", http.StatusBadRequest)
+			return
+		}
+
+		_, err = tx.Exec(r.Context(), `
+			INSERT INTO farm_access (farm_id, user_id, role, invited_by_user_id, added_at, revoked_at)
+			VALUES ($1, $2, 'viewer', $3, NOW(), NULL)
+			ON CONFLICT (farm_id, user_id) DO UPDATE
+			SET role = 'viewer',
+			    invited_by_user_id = EXCLUDED.invited_by_user_id,
+			    added_at = NOW(),
+			    revoked_at = NULL
+		`, access.farmID, targetUserID, access.userID)
+		if err != nil {
+			http.Error(w, "failed to add collaborator", http.StatusInternalServerError)
+			return
+		}
+
+		if err := tx.Commit(r.Context()); err != nil {
+			http.Error(w, "failed to finish collaborator update", http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"farm_id": access.farmID.String(),
+			"user_id": targetUserID.String(),
+			"role":    "viewer",
+			"status":  "added",
+		})
+	case errors.Is(err, pgx.ErrNoRows):
+		inviteID := uuid.New()
+		token := uuid.NewString()
+		tokenSum := sha256.Sum256([]byte(token))
+		tokenHash := hex.EncodeToString(tokenSum[:])
+		_, err = tx.Exec(r.Context(), `
+			INSERT INTO farm_access_invitations (
+				id,
+				farm_id,
+				email,
+				role,
+				token_hash,
+				invited_by_user_id,
+				expires_at,
+				created_at
+			)
+			VALUES ($1, $2, $3, 'viewer', $4, $5, NOW() + INTERVAL '14 days', NOW())
+		`, inviteID, access.farmID, email, tokenHash, access.userID)
+		if err != nil {
+			http.Error(w, "failed to create invitation", http.StatusInternalServerError)
+			return
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			http.Error(w, "failed to finish invitation", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"farm_id": access.farmID.String(),
+			"email":   email,
+			"role":    "viewer",
+			"status":  "invited",
+		})
+	default:
+		http.Error(w, "failed to look up collaborator", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *FarmHandler) RemoveCollaborator(w http.ResponseWriter, r *http.Request) {
+	access, ok := h.requireFarmAccess(w, r, true)
+	if !ok {
+		return
+	}
+
+	targetUserID, err := uuid.Parse(chi.URLParam(r, "userId"))
+	if err != nil {
+		http.Error(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+
+	var role string
+	err = h.db.QueryRow(r.Context(), `
+		SELECT role
+		FROM farm_access
+		WHERE farm_id = $1
+		  AND user_id = $2
+		  AND revoked_at IS NULL
+	`, access.farmID, targetUserID).Scan(&role)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "collaborator not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load collaborator", http.StatusInternalServerError)
+		return
+	}
+	if role == "owner" {
+		http.Error(w, "owner access cannot be removed", http.StatusBadRequest)
+		return
+	}
+
+	tag, err := h.db.Exec(r.Context(), `
+		UPDATE farm_access
+		SET revoked_at = NOW()
+		WHERE farm_id = $1
+		  AND user_id = $2
+		  AND revoked_at IS NULL
+	`, access.farmID, targetUserID)
+	if err != nil {
+		http.Error(w, "failed to revoke collaborator", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "collaborator not found", http.StatusNotFound)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"farm_id": access.farmID.String(),
+		"user_id": targetUserID.String(),
+		"status":  "revoked",
+	})
 }
 
 func (h *FarmHandler) ensureCustomerAccount(w http.ResponseWriter, r *http.Request, userID uuid.UUID) bool {
