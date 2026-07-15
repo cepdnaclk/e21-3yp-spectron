@@ -34,6 +34,48 @@ export interface Collaborator {
   access_type?: string;
 }
 
+export interface GrowthStage {
+  id: string;
+  name: string;
+  days_after_plant_min?: number | null;
+  days_after_plant_max?: number | null;
+  display_order: number;
+  visual_hint?: string | null;
+}
+
+export interface CropVariety {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
+export interface Crop {
+  id: string;
+  name: string;
+  varieties: CropVariety[];
+  stages: GrowthStage[];
+}
+
+export interface CropInstance {
+  id: string;
+  field_id: string;
+  crop_id: string;
+  crop_name: string;
+  variety_id?: string | null;
+  variety_name?: string | null;
+  planting_date?: string | null;
+  planting_date_precision: 'exact' | 'approximate' | 'unknown';
+  expected_harvest_date?: string | null;
+  current_stage?: GrowthStage | null;
+  stage_source: 'automatic' | 'owner_confirmed' | 'agronomist_confirmed' | 'support_corrected';
+  stage_confidence?: number | null;
+  stage_estimated_at?: string | null;
+  stage_confirmed_at?: string | null;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CreateFarmRequest {
   name: string;
   latitude?: number | null;
@@ -52,6 +94,14 @@ export interface CreateFieldRequest {
 export interface CreateCollaboratorRequest {
   email: string;
   role: 'viewer';
+}
+
+export interface CreateCropInstanceRequest {
+  crop_id: string;
+  variety_id?: string | null;
+  planting_date?: string | null;
+  planting_date_precision?: 'exact' | 'approximate' | 'unknown';
+  expected_harvest_date?: string | null;
 }
 
 export const getFarms = async (): Promise<Farm[]> => {
@@ -105,4 +155,44 @@ export const addFarmCollaborator = async (farmId: string, data: CreateCollaborat
 
 export const removeFarmCollaborator = async (farmId: string, userId: string) => {
   await api.delete(API_ENDPOINTS.FARMS.REMOVE_COLLABORATOR(farmId, userId));
+};
+
+export const getCrops = async (): Promise<Crop[]> => {
+  const response = await api.get<{ crops?: Crop[] } | Crop[]>(API_ENDPOINTS.FARMS.CROPS);
+  if (Array.isArray(response.data)) {
+    return response.data;
+  }
+  return response.data.crops || [];
+};
+
+export const getFieldCropInstances = async (fieldId: string): Promise<CropInstance[]> => {
+  const response = await api.get<{ crop_instances?: CropInstance[] } | CropInstance[]>(
+    API_ENDPOINTS.FARMS.FIELD_CROP_INSTANCES(fieldId),
+  );
+  if (Array.isArray(response.data)) {
+    return response.data;
+  }
+  return response.data.crop_instances || [];
+};
+
+export const createCropInstance = async (fieldId: string, data: CreateCropInstanceRequest): Promise<CropInstance> => {
+  const response = await api.post<CropInstance | { crop_instance: CropInstance }>(
+    API_ENDPOINTS.FARMS.FIELD_CROP_INSTANCES(fieldId),
+    data,
+  );
+  if ('crop_instance' in response.data) {
+    return response.data.crop_instance;
+  }
+  return response.data;
+};
+
+export const confirmCropStage = async (cropInstanceId: string, stageId: string): Promise<CropInstance> => {
+  const response = await api.post<CropInstance | { crop_instance: CropInstance }>(
+    API_ENDPOINTS.FARMS.CONFIRM_STAGE(cropInstanceId),
+    { stage_id: stageId },
+  );
+  if ('crop_instance' in response.data) {
+    return response.data.crop_instance;
+  }
+  return response.data;
 };
