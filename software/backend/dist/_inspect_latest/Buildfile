@@ -1,1 +1,0 @@
-build: mkdir -p bin && go build -o bin/server ./cmd/api && go build -o bin/readings-consumer ./cmd/readings-consumer && go build -o bin/mqtt-bridge ./cmd/mqtt-bridge

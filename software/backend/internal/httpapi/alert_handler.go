@@ -167,7 +167,7 @@ func (h *AlertHandler) GenerateRecommendations(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	rules, err := recommendation.GenerateCropRules(req.FarmerInput, datasetPath, os.Getenv("OPENROUTER_API_KEY"))
+	rules, err := recommendation.GenerateCropRules(req.FarmerInput, datasetPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to generate recommendations: %v", err), http.StatusInternalServerError)
 		return

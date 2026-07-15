@@ -2418,6 +2418,7 @@ hardware/Spectron_Sht30_PayloadApp/build/esp-idf/esp_hal_timg/libesp_hal_timg.a
 3YP_Market/start-spectron.ps1
 3YP_Market/start-spectron.ps1
 *.zip
+/software/backend/dist/
 software/backend/dist/spectron-backend-eb-2026-04-29-assignment-fix.zip
 software/backend/dist/spectron-backend-eb-2026-04-29-bind-fix.zip
 software/backend/dist/spectron-backend-eb-2026-04-29-final.zip

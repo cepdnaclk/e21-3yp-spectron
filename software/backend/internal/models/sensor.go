@@ -103,16 +103,6 @@ type SensorAlertSetting struct {
 	Description       string   `json:"description,omitempty"`
 }
 
-type RecommendationRule struct {
-	MetricType           string   `json:"metric_type"`
-	Operator             string   `json:"operator"`
-	ThresholdMin         *float64 `json:"threshold_min,omitempty"`
-	ThresholdMax         *float64 `json:"threshold_max,omitempty"`
-	SustainedMinutes     int      `json:"sustained_minutes"`
-	RiskLevel            string   `json:"risk_level"`
-	ActionRecommendation string   `json:"action_recommendation"`
-}
-
 type SensorOperationalLayer struct {
 	ReportIntervalPerDay int                   `json:"report_interval_per_day,omitempty"`
 	PowerManagement      PowerManagementConfig `json:"power_management"`
