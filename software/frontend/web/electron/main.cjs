@@ -3,6 +3,7 @@ const path = require('path');
 
 const isDev = !app.isPackaged;
 const devServerUrl = process.env.ELECTRON_START_URL || 'http://localhost:3001';
+const appIcon = path.join(__dirname, 'assets', 'spectron.ico');
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -11,6 +12,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     title: 'Spectron',
+    icon: appIcon,
     backgroundColor: '#faf0ea',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

@@ -756,7 +756,7 @@ func hasCountHint(text string) bool {
 
 func (h *SensorHandler) generateHostedAISuggestion(ctx context.Context, sensorType string, req models.AISuggestRequest, historySummary string) (models.SensorConfig, string, error) {
 	apiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
-	provider := strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER")))
+	provider := configuredAIProvider()
 
 	if provider == "openai" || provider == "groq" || provider == "openrouter" {
 		return h.generateOpenAIAISuggestion(ctx, sensorType, req, historySummary)
@@ -1215,41 +1215,17 @@ func (h *SensorHandler) generateOllamaAISuggestion(ctx context.Context, sensorTy
 }
 
 func (h *SensorHandler) generateOpenAIAISuggestion(ctx context.Context, sensorType string, req models.AISuggestRequest, historySummary string) (models.SensorConfig, string, error) {
-	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-	if apiKey == "" {
-		apiKey = strings.TrimSpace(os.Getenv("AI_API_KEY"))
-	}
-	if apiKey == "" {
-		apiKey = strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
-	}
+	provider := configuredAIProvider()
+	apiKey := openAICompatibleAPIKey(provider)
 	if apiKey == "" {
 		return models.SensorConfig{}, "", fmt.Errorf("OpenAI-compatible API key not configured")
 	}
 
-	model := strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
-	if model == "" {
-		model = strings.TrimSpace(os.Getenv("AI_MODEL"))
-	}
-	if model == "" {
-		if strings.EqualFold(strings.TrimSpace(os.Getenv("AI_PROVIDER")), "openrouter") {
-			model = "meta-llama/llama-3.3-70b-instruct:free"
-		} else {
-			model = "llama3-8b-8192"
-		}
-	}
+	model := openAICompatibleModel(provider)
+	baseURL := openAICompatibleBaseURL(provider)
 
-	baseURL := strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL"))
-	if baseURL == "" {
-		baseURL = strings.TrimSpace(os.Getenv("AI_API_BASE_URL"))
-	}
-	if baseURL == "" {
-		if strings.EqualFold(strings.TrimSpace(os.Getenv("AI_PROVIDER")), "openrouter") {
-			baseURL = "https://openrouter.ai/api/v1"
-		} else {
-			baseURL = "https://api.groq.com/openai/v1"
-		}
-	}
-	baseURL = strings.TrimRight(baseURL, "/")
+	hostedCtx, cancel := context.WithTimeout(ctx, hostedAITimeout())
+	defer cancel()
 
 	openaiReq := openaiChatRequest{
 		Model: model,
@@ -1263,38 +1239,15 @@ func (h *SensorHandler) generateOpenAIAISuggestion(ctx context.Context, sensorTy
 		Temperature:    0.2,
 	}
 
-	body, err := json.Marshal(openaiReq)
+	respBody, err := callOpenAIChatCompletions(hostedCtx, baseURL, apiKey, openaiReq)
 	if err != nil {
-		return models.SensorConfig{}, "", err
-	}
-
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-	url := baseURL + "/chat/completions"
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return models.SensorConfig{}, "", err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
-	if strings.Contains(baseURL, "openrouter.ai") {
-		httpReq.Header.Set("HTTP-Referer", "https://spectroniot.xyz")
-		httpReq.Header.Set("X-Title", "Spectron AgriAssist")
-	}
-
-	httpResp, err := httpClient.Do(httpReq)
-	if err != nil {
-		return models.SensorConfig{}, "", err
-	}
-	defer httpResp.Body.Close()
-
-	respBody, err := io.ReadAll(httpResp.Body)
-	if err != nil {
-		return models.SensorConfig{}, "", err
-	}
-
-	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		return models.SensorConfig{}, "", fmt.Errorf("OpenAI API error: %s | %s", httpResp.Status, string(respBody))
+		if strings.Contains(baseURL, "openrouter.ai") && shouldRetryWithoutJSONResponseFormat(err) {
+			openaiReq.ResponseFormat = nil
+			respBody, err = callOpenAIChatCompletions(hostedCtx, baseURL, apiKey, openaiReq)
+		}
+		if err != nil {
+			return models.SensorConfig{}, "", err
+		}
 	}
 
 	var openaiResp openaiChatResponse
@@ -1319,6 +1272,141 @@ func (h *SensorHandler) generateOpenAIAISuggestion(ctx context.Context, sensorTy
 
 	config, explanation := buildHostedAIConfig(sensorType, suggestion, fmt.Sprintf("OpenAI-compatible model (%s)", model))
 	return config, explanation, nil
+}
+
+func configuredAIProvider() string {
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER")))
+	if provider != "" {
+		return provider
+	}
+	if strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
+		strings.TrimSpace(os.Getenv("OPENROUTER_MODEL")) != "" ||
+		strings.TrimSpace(os.Getenv("AI_API_KEY")) != "" ||
+		strings.TrimSpace(os.Getenv("AI_MODEL")) != "" ||
+		strings.Contains(strings.ToLower(strings.TrimSpace(os.Getenv("AI_API_BASE_URL"))), "openrouter.ai") ||
+		strings.Contains(strings.ToLower(strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL"))), "openrouter.ai") {
+		return "openrouter"
+	}
+	return ""
+}
+
+func openAICompatibleAPIKey(provider string) string {
+	if provider == "openrouter" {
+		if apiKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")); apiKey != "" {
+			return apiKey
+		}
+		if apiKey := strings.TrimSpace(os.Getenv("AI_API_KEY")); apiKey != "" {
+			return apiKey
+		}
+		return strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	}
+
+	if apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY")); apiKey != "" {
+		return apiKey
+	}
+	if apiKey := strings.TrimSpace(os.Getenv("AI_API_KEY")); apiKey != "" {
+		return apiKey
+	}
+	return strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
+}
+
+func openAICompatibleModel(provider string) string {
+	if provider == "openrouter" {
+		if model := strings.TrimSpace(os.Getenv("OPENROUTER_MODEL")); model != "" {
+			return model
+		}
+		if model := strings.TrimSpace(os.Getenv("AI_MODEL")); model != "" {
+			return model
+		}
+		if model := strings.TrimSpace(os.Getenv("OPENAI_MODEL")); model != "" {
+			return model
+		}
+		return "meta-llama/llama-3.3-70b-instruct:free"
+	}
+
+	if model := strings.TrimSpace(os.Getenv("OPENAI_MODEL")); model != "" {
+		return model
+	}
+	if model := strings.TrimSpace(os.Getenv("AI_MODEL")); model != "" {
+		return model
+	}
+	return "llama3-8b-8192"
+}
+
+func openAICompatibleBaseURL(provider string) string {
+	if provider == "openrouter" {
+		if baseURL := strings.TrimSpace(os.Getenv("OPENROUTER_API_BASE_URL")); baseURL != "" {
+			return strings.TrimRight(baseURL, "/")
+		}
+		if baseURL := strings.TrimSpace(os.Getenv("AI_API_BASE_URL")); baseURL != "" {
+			return strings.TrimRight(baseURL, "/")
+		}
+		if baseURL := strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL")); baseURL != "" {
+			return strings.TrimRight(baseURL, "/")
+		}
+		return "https://openrouter.ai/api/v1"
+	}
+
+	if baseURL := strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL")); baseURL != "" {
+		return strings.TrimRight(baseURL, "/")
+	}
+	if baseURL := strings.TrimSpace(os.Getenv("AI_API_BASE_URL")); baseURL != "" {
+		return strings.TrimRight(baseURL, "/")
+	}
+	return "https://api.groq.com/openai/v1"
+}
+
+func callOpenAIChatCompletions(ctx context.Context, baseURL string, apiKey string, request openaiChatRequest) ([]byte, error) {
+	body, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+
+	httpClient := &http.Client{Timeout: hostedAITimeout()}
+	url := strings.TrimRight(baseURL, "/") + "/chat/completions"
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	if strings.Contains(strings.ToLower(baseURL), "openrouter.ai") {
+		httpReq.Header.Set("HTTP-Referer", getenvWithFallback("OPENROUTER_HTTP_REFERER", "https://spectroniot.xyz"))
+		httpReq.Header.Set("X-OpenRouter-Title", getenvWithFallback("OPENROUTER_APP_TITLE", "Spectron"))
+	}
+
+	httpResp, err := httpClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer httpResp.Body.Close()
+
+	respBody, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return nil, fmt.Errorf("OpenAI-compatible API error: %s | %s", httpResp.Status, string(respBody))
+	}
+
+	return respBody, nil
+}
+
+func shouldRetryWithoutJSONResponseFormat(err error) bool {
+	errText := strings.ToLower(sanitizeHostedAIError(err))
+	return strings.Contains(errText, "response_format") ||
+		strings.Contains(errText, "json_object") ||
+		strings.Contains(errText, "structured output") ||
+		strings.Contains(errText, "unsupported parameter")
+}
+
+func getenvWithFallback(key string, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func normalizeGeminiModelName(model string) string {
@@ -1494,7 +1582,10 @@ func callOllamaGenerate(ctx context.Context, baseURL string, model string, reque
 
 func hostedAITimeout() time.Duration {
 	if strings.TrimSpace(os.Getenv("HOSTED_AI_TIMEOUT_MS")) != "" {
-		return durationFromEnvMs("HOSTED_AI_TIMEOUT_MS", 12000, 3000, 60000)
+		return durationFromEnvMs("HOSTED_AI_TIMEOUT_MS", 30000, 3000, 120000)
+	}
+	if configuredAIProvider() == "openrouter" {
+		return durationFromEnvMs("OPENROUTER_TIMEOUT_MS", 30000, 3000, 120000)
 	}
 	return durationFromEnvMs("GEMINI_TIMEOUT_MS", 12000, 3000, 60000)
 }
@@ -1554,6 +1645,8 @@ func hostedAIFallbackExplanation(err error) string {
 	providerLabel := "hosted AI"
 	if strings.Contains(errText, "ollama") || strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER"))) == "ollama" {
 		providerLabel = "Ollama AI"
+	} else if strings.Contains(errText, "openrouter") || configuredAIProvider() == "openrouter" {
+		providerLabel = "OpenRouter AI"
 	} else if strings.Contains(errText, "gemini") || strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "" {
 		providerLabel = "Gemini AI"
 	}

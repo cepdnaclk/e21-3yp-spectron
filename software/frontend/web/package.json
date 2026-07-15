@@ -77,8 +77,14 @@
     ]
   },
   "build": {
+    "extends": null,
     "appId": "lk.spectron.dashboard",
     "productName": "Spectron",
+    "npmRebuild": false,
+    "extraMetadata": {
+      "main": "electron/main.cjs",
+      "dependencies": {}
+    },
     "directories": {
       "output": "desktop-dist"
     },
@@ -88,6 +94,7 @@
       "package.json"
     ],
     "win": {
+      "icon": "electron/assets/spectron.ico",
       "target": [
         {
           "target": "nsis",

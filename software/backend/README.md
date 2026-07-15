@@ -96,9 +96,20 @@ OpenRouter example:
 
 ```powershell
 $env:AI_PROVIDER="openrouter"
-$env:AI_API_BASE_URL="https://openrouter.ai/api/v1"
-$env:AI_MODEL="meta-llama/llama-3.3-70b-instruct:free"
-$env:AI_API_KEY="your-openrouter-api-key"
+$env:OPENROUTER_API_KEY="your-openrouter-api-key"
+$env:OPENROUTER_MODEL="meta-llama/llama-3.3-70b-instruct:free"
+$env:OPENROUTER_API_BASE_URL="https://openrouter.ai/api/v1"
+$env:OPENROUTER_HTTP_REFERER="https://spectroniot.xyz"
+$env:OPENROUTER_APP_TITLE="Spectron"
+```
+
+`OPENROUTER_API_KEY` is enough to auto-select OpenRouter if `AI_PROVIDER` is not set. The older `AI_API_KEY`, `AI_MODEL`, and `AI_API_BASE_URL` names are still supported for compatibility.
+If you already configured only `AI_API_KEY` and `AI_MODEL`, the backend treats them as OpenRouter settings by default.
+
+OpenRouter responses can take longer than Gemini for free/community models. The backend defaults OpenRouter calls to 30 seconds. To increase it:
+
+```powershell
+$env:OPENROUTER_TIMEOUT_MS="60000"
 ```
 
 Gemini is selected when `GEMINI_API_KEY` is set. To use Ollama instead:
