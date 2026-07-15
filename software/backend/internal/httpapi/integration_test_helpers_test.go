@@ -55,6 +55,10 @@ type testFarm struct {
 	id uuid.UUID
 }
 
+type testField struct {
+	id uuid.UUID
+}
+
 func newIntegrationApp(t *testing.T) *integrationApp {
 	t.Helper()
 
@@ -227,6 +231,20 @@ func (app *integrationApp) createFarm(t *testing.T, owner testUser, name string)
 	}
 
 	return testFarm{id: farmID}
+}
+
+func (app *integrationApp) createField(t *testing.T, farm testFarm, name string) testField {
+	t.Helper()
+
+	fieldID := uuid.New()
+	if _, err := app.pool.Exec(context.Background(), `
+		INSERT INTO fields (id, farm_id, name, created_at, updated_at)
+		VALUES ($1, $2, $3, NOW(), NOW())
+	`, fieldID, farm.id, name); err != nil {
+		t.Fatalf("insert field: %v", err)
+	}
+
+	return testField{id: fieldID}
 }
 
 func (app *integrationApp) createController(t *testing.T, accountID uuid.UUID, ownerUserID *uuid.UUID, uid string, status string) testController {

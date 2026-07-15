@@ -66,6 +66,9 @@ var migration017RecommendationLayer string
 //go:embed migrations/018_agriassist_farm_foundation.sql
 var migration018AgriAssistFarmFoundation string
 
+//go:embed migrations/019_agriassist_crop_reference_seed.sql
+var migration019AgriAssistCropReferenceSeed string
+
 type migration struct {
 	name string
 	sql  string
@@ -90,6 +93,7 @@ var startupMigrations = []migration{
 	{name: "016_normalize_distance_readings_to_cm", sql: migration016NormalizeDistanceReadingsToCM},
 	{name: "017_recommendation_layer", sql: migration017RecommendationLayer},
 	{name: "018_agriassist_farm_foundation", sql: migration018AgriAssistFarmFoundation},
+	{name: "019_agriassist_crop_reference_seed", sql: migration019AgriAssistCropReferenceSeed},
 }
 
 func ApplyStartupMigrations(ctx context.Context, pool *pgxpool.Pool) error {

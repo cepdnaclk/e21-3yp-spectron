@@ -129,6 +129,12 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 				r.Post("/fields", farmHandler.CreateField)
 			})
 		})
+		r.Get("/api/crops", farmHandler.ListCrops)
+		r.Route("/api/fields/{fieldId}/crop-instances", func(r chi.Router) {
+			r.Get("/", farmHandler.ListCropInstances)
+			r.Post("/", farmHandler.CreateCropInstance)
+		})
+		r.Post("/api/crop-instances/{cropInstanceId}/stage-confirmation", farmHandler.ConfirmGrowthStage)
 
 		r.Route("/api/admin", func(r chi.Router) {
 			r.Use(RequireSystemAdmin(db))
