@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Backend and frontend tests
@@ -12,37 +15,37 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      # Backend
+      # Backend tests
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
+          go-version-file: software/backend/go.mod
+          cache-dependency-path: software/backend/go.sum
 
       - name: Download backend dependencies
-        working-directory: backend
+        working-directory: software/backend
         run: go mod download
 
       - name: Run backend tests with coverage
-        working-directory: backend
+        working-directory: software/backend
         run: |
           go test -v ./... -coverprofile=coverage.out
           go tool cover -func=coverage.out
 
-      # Frontend
+      # Frontend tests
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: frontend/web/package-lock.json
+          cache-dependency-path: software/frontend/web/package-lock.json
 
       - name: Install frontend dependencies
-        working-directory: frontend/web
+        working-directory: software/frontend/web
         run: npm ci
 
       - name: Run frontend tests
-        working-directory: frontend/web
+        working-directory: software/frontend/web
         run: npm test -- --run
