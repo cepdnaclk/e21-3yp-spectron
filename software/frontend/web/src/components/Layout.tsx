@@ -13,6 +13,7 @@ import {
   useTheme,
 } from '@mui/material';
 import {
+  Agriculture,
   Hub as ChipIcon,
   Dashboard,
   Notifications,
@@ -24,6 +25,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 
 const baseRoutes = [
+  { label: 'Farms', path: '/farms', icon: <Agriculture /> },
   { label: 'Controllers', path: '/controllers', icon: <ChipIcon /> },
   { label: 'Monitoring', path: '/monitoring', icon: <Dashboard /> },
   { label: 'Alerts', path: '/alerts', icon: <Notifications /> },
@@ -59,9 +61,10 @@ const Layout: React.FC = () => {
 
   React.useEffect(() => {
     const path = location.pathname;
-    if (path.startsWith('/controllers')) setValue(0);
-    else if (path.startsWith('/monitoring')) setValue(1);
-    else if (path.startsWith('/alerts')) setValue(2);
+    if (path.startsWith('/farms')) setValue(0);
+    else if (path.startsWith('/controllers')) setValue(1);
+    else if (path.startsWith('/monitoring')) setValue(2);
+    else if (path.startsWith('/alerts')) setValue(3);
     else {
       const currentIndex = routes.findIndex((route) => path.startsWith(route.path));
       setValue(currentIndex >= 0 ? currentIndex : 0);

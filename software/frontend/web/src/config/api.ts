@@ -22,6 +22,15 @@ export const API_ENDPOINTS = {
     GET: (id: string) => `/controllers/${id}`,
     UPDATE: (id: string) => `/controllers/${id}`,
   },
+  FARMS: {
+    LIST: '/api/farms',
+    CREATE: '/api/farms',
+    GET: (id: string) => `/api/farms/${id}`,
+    UPDATE: (id: string) => `/api/farms/${id}`,
+    FIELDS: (id: string) => `/api/farms/${id}/fields`,
+    COLLABORATORS: (id: string) => `/api/farms/${id}/collaborators`,
+    REMOVE_COLLABORATOR: (farmId: string, userId: string) => `/api/farms/${farmId}/collaborators/${userId}`,
+  },
   SENSORS: {
     LIST: (controllerId: string) => `/controllers/${controllerId}/sensors`,
     GET: (id: string) => `/sensors/${id}`,

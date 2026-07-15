@@ -8,6 +8,8 @@ import AdminSignIn from './pages/auth/AdminSignIn';
 import SignUp from './pages/auth/SignUp';
 import VerifyEmail from './pages/auth/VerifyEmail';
 import Controllers from './pages/main/Controllers';
+import Farms from './pages/main/Farms';
+import FarmDetails from './pages/main/FarmDetails';
 import PairController from './pages/main/PairController';
 import ControllerDashboard from './pages/main/ControllerDashboard';
 import SensorConfig from './pages/main/SensorConfig';
@@ -329,7 +331,9 @@ function AppRoutes() {
           </PrivateRoute>
         }
       >
-        <Route index element={<Navigate to="/controllers" replace />} />
+        <Route index element={<Navigate to="/farms" replace />} />
+        <Route path="farms" element={<Farms />} />
+        <Route path="farms/:farmId" element={<FarmDetails />} />
         <Route path="controllers" element={<Controllers />} />
         <Route path="controllers/pair" element={<PairController />} />
         <Route path="controllers/:id" element={<ControllerDashboard />} />

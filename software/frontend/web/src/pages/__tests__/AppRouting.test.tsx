@@ -12,7 +12,7 @@ describe('App routing', () => {
   });
 
   it('redirects protected routes to sign-in when no user token exists', async () => {
-    window.history.pushState({}, '', '/controllers');
+    window.history.pushState({}, '', '/farms');
 
     render(<App />);
 
