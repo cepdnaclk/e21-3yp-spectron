@@ -106,6 +106,8 @@ const emptyModuleForm: ModuleForm = {
   channels: [{ channelKey: 'temperature', measurementType: 'temperature', unit: 'C' }],
 };
 
+const channelKeyPattern = /^[a-z0-9][a-z0-9_-]{0,39}$/;
+
 const FarmDetails: React.FC = () => {
   const { farmId = '' } = useParams<{ farmId: string }>();
   const navigate = useNavigate();
@@ -135,6 +137,7 @@ const FarmDetails: React.FC = () => {
   const [selectedCropInstance, setSelectedCropInstance] = useState<CropInstance | null>(null);
   const [selectedBase, setSelectedBase] = useState<SensorBase | null>(null);
   const [saving, setSaving] = useState(false);
+  const [setupError, setSetupError] = useState('');
   const [fieldForm, setFieldForm] = useState({ name: '', latitude: '', longitude: '', area: '' });
   const [accessForm, setAccessForm] = useState({ email: '' });
   const [cropForm, setCropForm] = useState<CropForm>(emptyCropForm);
@@ -387,7 +390,7 @@ const FarmDetails: React.FC = () => {
     try {
       const controllerId = controllerForm.controllerId.trim();
       if (!controllerId) {
-        setError('Controller ID is required.');
+        setSetupError('Controller ID is required.');
         return;
       }
       setSaving(true);
@@ -397,11 +400,12 @@ const FarmDetails: React.FC = () => {
       });
       setControllers(nextControllers);
       setControllerForm({ controllerId: '', model: '' });
+      setSetupError('');
       setOpenController(false);
       setNotice('Controller linked.');
     } catch (err) {
       console.error(err);
-      setError('Failed to link controller.');
+      setSetupError('Failed to link controller.');
     } finally {
       setSaving(false);
     }
@@ -410,33 +414,44 @@ const FarmDetails: React.FC = () => {
   const submitBase = async () => {
     try {
       if (!baseForm.gatewayId) {
-        setError('Select controller.');
+        setSetupError('Select controller.');
         return;
       }
-      if (!baseForm.serialNumber.trim()) {
-        setError('Base serial is required.');
+      const serialNumber = baseForm.serialNumber.trim().toUpperCase();
+      if (!serialNumber) {
+        setSetupError('Base serial is required.');
+        return;
+      }
+      if (serialNumber.length > 80) {
+        setSetupError('Base serial is too long.');
+        return;
+      }
+      if (sensorBases.some((base) => base.serial_number.toUpperCase() === serialNumber)) {
+        setSetupError('Base serial already exists.');
         return;
       }
       setSaving(true);
       const base = await createSensorBase(farmId, {
         gateway_id: baseForm.gatewayId,
-        serial_number: baseForm.serialNumber.trim(),
+        serial_number: serialNumber,
         label: baseForm.label.trim() || undefined,
       });
       setSensorBases((current) => [base, ...current]);
       setModulesByBase((current) => ({ ...current, [base.id]: [] }));
       setBaseForm({ gatewayId: controllers[0]?.id || '', serialNumber: '', label: '' });
+      setSetupError('');
       setOpenBase(false);
       setNotice('Base added.');
     } catch (err) {
       console.error(err);
-      setError('Failed to add base.');
+      setSetupError('Failed to add base.');
     } finally {
       setSaving(false);
     }
   };
 
   const openAssignDialog = (base: SensorBase) => {
+    setSetupError('');
     setSelectedBase(base);
     setBaseAssignForm({
       fieldId: base.current_assignment?.field_id || fields[0]?.id || '',
@@ -451,7 +466,11 @@ const FarmDetails: React.FC = () => {
     }
     try {
       if (!baseAssignForm.fieldId && !baseAssignForm.monitoringZone.trim()) {
-        setError('Select field or zone.');
+        setSetupError('Select field or zone.');
+        return;
+      }
+      if (baseAssignForm.monitoringZone.trim().length > 80) {
+        setSetupError('Zone is too long.');
         return;
       }
       setSaving(true);
@@ -461,12 +480,13 @@ const FarmDetails: React.FC = () => {
       });
       setSensorBases((current) => current.map((base) => (base.id === updated.id ? updated : base)));
       setControllers(await getFarmControllers(farmId));
+      setSetupError('');
       setOpenAssignBase(false);
       setSelectedBase(null);
       setNotice('Base assigned.');
     } catch (err) {
       console.error(err);
-      setError('Failed to assign base.');
+      setSetupError('Failed to assign base.');
     } finally {
       setSaving(false);
     }
@@ -484,6 +504,7 @@ const FarmDetails: React.FC = () => {
   };
 
   const openModuleDialog = (base: SensorBase) => {
+    setSetupError('');
     setSelectedBase(base);
     setModuleForm({
       ...emptyModuleForm,
@@ -523,21 +544,37 @@ const FarmDetails: React.FC = () => {
     try {
       const slotNumber = Number(moduleForm.slotNumber);
       if (!Number.isInteger(slotNumber) || slotNumber <= 0) {
-        setError('Slot must be positive.');
+        setSetupError('Slot must be positive.');
+        return;
+      }
+      if (modulesForBase(selectedBase.id).some((module) => module.slot_number === slotNumber)) {
+        setSetupError('Slot already exists.');
+        return;
+      }
+      if (moduleForm.channels.length > 12) {
+        setSetupError('Use 12 channels or fewer.');
         return;
       }
       const channels = moduleForm.channels.map((channel) => ({
-        channel_key: channel.channelKey.trim(),
-        measurement_type: channel.measurementType.trim(),
+        channel_key: channel.channelKey.trim().toLowerCase(),
+        measurement_type: channel.measurementType.trim().toLowerCase(),
         unit: channel.unit.trim() || undefined,
       }));
       if (channels.length === 0 || channels.some((channel) => !channel.channel_key || !channel.measurement_type)) {
-        setError('Channels need key and type.');
+        setSetupError('Channels need key and type.');
+        return;
+      }
+      if (channels.some((channel) => !channelKeyPattern.test(channel.channel_key))) {
+        setSetupError('Channel keys need letters, numbers, hyphen, or underscore.');
+        return;
+      }
+      if (channels.some((channel) => channel.measurement_type.length > 80)) {
+        setSetupError('Measurement type is too long.');
         return;
       }
       const keys = new Set(channels.map((channel) => channel.channel_key.toLowerCase()));
       if (keys.size !== channels.length) {
-        setError('Channel keys must be unique.');
+        setSetupError('Channel keys must be unique.');
         return;
       }
       setSaving(true);
@@ -550,12 +587,13 @@ const FarmDetails: React.FC = () => {
         ...current,
         [selectedBase.id]: [...(current[selectedBase.id] || []), module].sort((a, b) => a.slot_number - b.slot_number),
       }));
+      setSetupError('');
       setOpenModule(false);
       setSelectedBase(null);
       setNotice('Module added.');
     } catch (err) {
       console.error(err);
-      setError('Failed to add module.');
+      setSetupError('Failed to add module.');
     } finally {
       setSaving(false);
     }
@@ -926,7 +964,7 @@ const FarmDetails: React.FC = () => {
         </Grid>
       </Box>
 
-      <Dialog open={openField} onClose={() => setOpenField(false)} fullWidth maxWidth="sm">
+      <Dialog open={openField} onClose={() => { setOpenField(false); setSetupError(''); }} fullWidth maxWidth="sm">
         <DialogTitle>
           <Stack direction="row" spacing={1} alignItems="center">
             <span>Add Field</span>
@@ -939,6 +977,9 @@ const FarmDetails: React.FC = () => {
         </DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            <AutoDismissAlert open={Boolean(setupError) && openField} severity="error" onCloseAlert={() => setSetupError('')}>
+              {setupError}
+            </AutoDismissAlert>
             <TextField label="Field name" value={fieldForm.name} onChange={(e) => setFieldForm((c) => ({ ...c, name: e.target.value }))} autoFocus />
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               <TextField label="Latitude" value={fieldForm.latitude} onChange={(e) => setFieldForm((c) => ({ ...c, latitude: e.target.value }))} fullWidth />
@@ -948,14 +989,14 @@ const FarmDetails: React.FC = () => {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenField(false)}>Cancel</Button>
+          <Button onClick={() => { setOpenField(false); setSetupError(''); }}>Cancel</Button>
           <Button variant="contained" onClick={submitField} disabled={saving || !fieldForm.name.trim()}>
             {saving ? 'Saving' : 'Add'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={openAccess} onClose={() => setOpenAccess(false)} fullWidth maxWidth="sm">
+      <Dialog open={openAccess} onClose={() => { setOpenAccess(false); setSetupError(''); }} fullWidth maxWidth="sm">
         <DialogTitle>
           <Stack direction="row" spacing={1} alignItems="center">
             <span>Access</span>
@@ -968,18 +1009,21 @@ const FarmDetails: React.FC = () => {
         </DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            <AutoDismissAlert open={Boolean(setupError) && openAccess} severity="error" onCloseAlert={() => setSetupError('')}>
+              {setupError}
+            </AutoDismissAlert>
             <TextField label="Viewer email" value={accessForm.email} onChange={(e) => setAccessForm({ email: e.target.value })} autoFocus />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenAccess(false)}>Cancel</Button>
+          <Button onClick={() => { setOpenAccess(false); setSetupError(''); }}>Cancel</Button>
           <Button variant="contained" onClick={submitAccess} disabled={saving || !accessForm.email.trim()}>
             {saving ? 'Sending' : 'Invite'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={openController} onClose={() => setOpenController(false)} fullWidth maxWidth="sm">
+      <Dialog open={openController} onClose={() => { setOpenController(false); setSetupError(''); }} fullWidth maxWidth="sm">
         <DialogTitle>
           <Stack direction="row" spacing={1} alignItems="center">
             <span>Controller</span>
@@ -992,19 +1036,22 @@ const FarmDetails: React.FC = () => {
         </DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            <AutoDismissAlert open={Boolean(setupError) && openController} severity="error" onCloseAlert={() => setSetupError('')}>
+              {setupError}
+            </AutoDismissAlert>
             <TextField label="Controller ID" value={controllerForm.controllerId} onChange={(e) => setControllerForm((c) => ({ ...c, controllerId: e.target.value }))} autoFocus />
             <TextField label="Model" value={controllerForm.model} onChange={(e) => setControllerForm((c) => ({ ...c, model: e.target.value }))} />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenController(false)}>Cancel</Button>
+          <Button onClick={() => { setOpenController(false); setSetupError(''); }}>Cancel</Button>
           <Button variant="contained" onClick={submitController} disabled={saving || !controllerForm.controllerId.trim()}>
             {saving ? 'Saving' : 'Link'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={openBase} onClose={() => setOpenBase(false)} fullWidth maxWidth="sm">
+      <Dialog open={openBase} onClose={() => { setOpenBase(false); setSetupError(''); }} fullWidth maxWidth="sm">
         <DialogTitle>
           <Stack direction="row" spacing={1} alignItems="center">
             <span>Base</span>
@@ -1017,6 +1064,9 @@ const FarmDetails: React.FC = () => {
         </DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            <AutoDismissAlert open={Boolean(setupError) && openBase} severity="error" onCloseAlert={() => setSetupError('')}>
+              {setupError}
+            </AutoDismissAlert>
             <FormControl fullWidth>
               <InputLabel>Controller</InputLabel>
               <Select label="Controller" value={baseForm.gatewayId} onChange={(event) => setBaseForm((c) => ({ ...c, gatewayId: event.target.value }))}>
@@ -1030,14 +1080,14 @@ const FarmDetails: React.FC = () => {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenBase(false)}>Cancel</Button>
+          <Button onClick={() => { setOpenBase(false); setSetupError(''); }}>Cancel</Button>
           <Button variant="contained" onClick={submitBase} disabled={saving || !baseForm.gatewayId || !baseForm.serialNumber.trim()}>
             {saving ? 'Saving' : 'Add'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={openAssignBase} onClose={() => setOpenAssignBase(false)} fullWidth maxWidth="sm">
+      <Dialog open={openAssignBase} onClose={() => { setOpenAssignBase(false); setSetupError(''); }} fullWidth maxWidth="sm">
         <DialogTitle>
           <Stack direction="row" spacing={1} alignItems="center">
             <span>Assign Base</span>
@@ -1050,6 +1100,9 @@ const FarmDetails: React.FC = () => {
         </DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            <AutoDismissAlert open={Boolean(setupError) && openAssignBase} severity="error" onCloseAlert={() => setSetupError('')}>
+              {setupError}
+            </AutoDismissAlert>
             <FormControl fullWidth disabled={fields.length === 0}>
               <InputLabel>Field</InputLabel>
               <Select label="Field" value={baseAssignForm.fieldId} onChange={(event) => setBaseAssignForm((c) => ({ ...c, fieldId: event.target.value }))}>
@@ -1063,14 +1116,14 @@ const FarmDetails: React.FC = () => {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenAssignBase(false)}>Cancel</Button>
+          <Button onClick={() => { setOpenAssignBase(false); setSetupError(''); }}>Cancel</Button>
           <Button variant="contained" onClick={submitBaseAssignment} disabled={saving || (!baseAssignForm.fieldId && !baseAssignForm.monitoringZone.trim())}>
             {saving ? 'Saving' : 'Assign'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={openModule} onClose={() => setOpenModule(false)} fullWidth maxWidth="sm">
+      <Dialog open={openModule} onClose={() => { setOpenModule(false); setSetupError(''); }} fullWidth maxWidth="sm">
         <DialogTitle>
           <Stack direction="row" spacing={1} alignItems="center">
             <span>Module</span>
@@ -1083,6 +1136,9 @@ const FarmDetails: React.FC = () => {
         </DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            <AutoDismissAlert open={Boolean(setupError) && openModule} severity="error" onCloseAlert={() => setSetupError('')}>
+              {setupError}
+            </AutoDismissAlert>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               <TextField
                 label="Slot"
@@ -1140,17 +1196,17 @@ const FarmDetails: React.FC = () => {
                 </Card>
               ))}
             </Stack>
-            <Button variant="outlined" startIcon={<Add />} onClick={addModuleChannel}>
+            <Button variant="outlined" startIcon={<Add />} onClick={addModuleChannel} disabled={moduleForm.channels.length >= 12}>
               Channel
             </Button>
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenModule(false)}>Cancel</Button>
+          <Button onClick={() => { setOpenModule(false); setSetupError(''); }}>Cancel</Button>
           <Button
             variant="contained"
             onClick={submitModule}
-            disabled={saving || !moduleForm.slotNumber || moduleForm.channels.some((channel) => !channel.channelKey.trim() || !channel.measurementType.trim())}
+            disabled={saving || !moduleForm.slotNumber || moduleForm.channels.length > 12 || moduleForm.channels.some((channel) => !channel.channelKey.trim() || !channel.measurementType.trim())}
           >
             {saving ? 'Saving' : 'Add'}
           </Button>
