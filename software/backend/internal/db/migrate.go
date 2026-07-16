@@ -69,6 +69,9 @@ var migration018AgriAssistFarmFoundation string
 //go:embed migrations/019_agriassist_crop_reference_seed.sql
 var migration019AgriAssistCropReferenceSeed string
 
+//go:embed migrations/020_crop_instance_active_guard.sql
+var migration020CropInstanceActiveGuard string
+
 type migration struct {
 	name string
 	sql  string
@@ -94,6 +97,7 @@ var startupMigrations = []migration{
 	{name: "017_recommendation_layer", sql: migration017RecommendationLayer},
 	{name: "018_agriassist_farm_foundation", sql: migration018AgriAssistFarmFoundation},
 	{name: "019_agriassist_crop_reference_seed", sql: migration019AgriAssistCropReferenceSeed},
+	{name: "020_crop_instance_active_guard", sql: migration020CropInstanceActiveGuard},
 }
 
 func ApplyStartupMigrations(ctx context.Context, pool *pgxpool.Pool) error {
