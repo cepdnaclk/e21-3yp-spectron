@@ -31,8 +31,9 @@ static const char *TAG = "CTRL_REAL";
  * Hardcoded uplink identity
  * ========================================================= */
 #define DEVICE_ID_STR      "CTRL-REAL-001"
-#define SENSOR_ID_STR      "SEN-TH-001"
 #define SENSOR_TYPE_STR    "temperature_humidity"
+#define TEMP_SENSOR_ID_STR "SEN-TH-001-temp"
+#define HUM_SENSOR_ID_STR  "SEN-TH-001-humidity"
 
 #define TELEMETRY_URL      "http://spectron-backend-env.eba-niaes6bi.ap-south-1.elasticbeanstalk.com/api/iot/upload"
 #define SEND_PERIOD_MS     30000
@@ -93,6 +94,7 @@ static uint32_t g_seq = 0;
 static portMUX_TYPE g_temp_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool g_have_latest_temp = false;
 static float g_latest_temp_c = 0.0f;
+static float g_latest_humidity_rh = 0.0f;
 static uint32_t g_latest_temp_rx_ms = 0;
 
 /* =========================================================
@@ -186,16 +188,17 @@ static void add_peer_if_needed(const uint8_t *mac)
     }
 }
 
-static void set_latest_temp(float temp_c)
+static void set_latest_temp(float temp_c, float humidity_rh)
 {
     portENTER_CRITICAL(&g_temp_lock);
     g_latest_temp_c = temp_c;
+    g_latest_humidity_rh = humidity_rh;
     g_latest_temp_rx_ms = ms_now();
     g_have_latest_temp = true;
     portEXIT_CRITICAL(&g_temp_lock);
 }
 
-static bool get_latest_temp(float *temp_c, uint32_t *rx_ms)
+static bool get_latest_temp(float *temp_c, float *humidity_rh, uint32_t *rx_ms)
 {
     bool ok;
 
@@ -203,6 +206,7 @@ static bool get_latest_temp(float *temp_c, uint32_t *rx_ms)
     ok = g_have_latest_temp;
     if (ok) {
         *temp_c = g_latest_temp_c;
+        *humidity_rh = g_latest_humidity_rh;
         *rx_ms = g_latest_temp_rx_ms;
     }
     portEXIT_CRITICAL(&g_temp_lock);
@@ -564,23 +568,29 @@ static bool http_post_json(const char *json_payload)
 /* =========================================================
  * JSON payload
  * ========================================================= */
-static int build_payload_json(float temp_value, char *buf, size_t buf_len)
+static int build_payload_json(float temp_value, float humidity_rh, char *buf, size_t buf_len)
 {
     return snprintf(
         buf, buf_len,
         "{"
-          "\"deviceId\":\"" DEVICE_ID_STR "\","
+          "\"deviceId\":\"" DEVICE_ID_STR "\"," 
           "\"ts\":%lu,"
           "\"sensors\":["
             "{"
-              "\"id\":\"" SENSOR_ID_STR "\","
+              "\"id\":\"" TEMP_SENSOR_ID_STR "\","
               "\"type\":\"" SENSOR_TYPE_STR "\","
+              "\"v\":%.1f"
+            "},"
+            "{"
+              "\"id\":\"" HUM_SENSOR_ID_STR "\","
+              "\"type\":\"humidity\","
               "\"v\":%.1f"
             "}"
           "]"
         "}",
         (unsigned long)ts_now_seconds(),
-        temp_value
+        temp_value,
+        humidity_rh
     );
 }
 
@@ -783,7 +793,7 @@ static void handle_sensor_data(const uint8_t *mac, const mproto_frame_t *f)
              pl.alert_flags,
              (unsigned long)pl.uptime_s);
 
-    set_latest_temp(temp_c);
+    set_latest_temp(temp_c, pl.humidity_rh_x100 / 100.0f);
 }
 
 static void handle_config_ack(const mproto_frame_t *f)
@@ -868,17 +878,18 @@ static void uploader_task(void *arg)
         }
 
         float temp_value;
+        float humidity_rh;
         uint32_t rx_ms;
 
-        if (!get_latest_temp(&temp_value, &rx_ms)) {
-            ESP_LOGI(TAG, "No temperature received yet; waiting...");
+        if (!get_latest_temp(&temp_value, &humidity_rh, &rx_ms)) {
+            ESP_LOGI(TAG, "No sensor reading received yet; waiting...");
             vTaskDelay(pdMS_TO_TICKS(5000));
             continue;
         }
 
-        int n = build_payload_json(temp_value, g_http_post_body, sizeof(g_http_post_body));
+        int n = build_payload_json(temp_value, humidity_rh, g_http_post_body, sizeof(g_http_post_body));
         if (n > 0) {
-            ESP_LOGI(TAG, "Sending latest temperature v=%.1f", temp_value);
+            ESP_LOGI(TAG, "Sending latest readings temp=%.1fC humidity=%.1f%%", temp_value, humidity_rh);
             if (!http_post_json(g_http_post_body)) {
                 ESP_LOGW(TAG, "POST failed");
             }
@@ -914,8 +925,9 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Controller ready");
     ESP_LOGI(TAG, "Hardcoded deviceId=%s", DEVICE_ID_STR);
-    ESP_LOGI(TAG, "Hardcoded sensorId=%s", SENSOR_ID_STR);
-    ESP_LOGI(TAG, "Uploading only latest temperature every 30 seconds");
+    ESP_LOGI(TAG, "Hardcoded tempSensorId=%s", TEMP_SENSOR_ID_STR);
+    ESP_LOGI(TAG, "Hardcoded humiditySensorId=%s", HUM_SENSOR_ID_STR);
+    ESP_LOGI(TAG, "Uploading latest temperature and humidity every 30 seconds");
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
