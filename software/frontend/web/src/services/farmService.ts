@@ -133,6 +133,29 @@ export interface SensorModule {
   updated_at: string;
 }
 
+export interface FarmAlert {
+  id: string;
+  farm_id: string;
+  field_id?: string | null;
+  field_name?: string | null;
+  sensor_base_id?: string | null;
+  crop_instance_id?: string | null;
+  type: string;
+  severity: 'info' | 'warning' | 'critical' | 'INFO' | 'WARN' | 'CRITICAL';
+  message: string;
+  source_ref?: string | null;
+  status: 'open' | 'acknowledged' | 'dismissed' | 'resolved' | string;
+  created_at: string;
+  acknowledged_at?: string | null;
+  expires_at?: string | null;
+}
+
+export interface FarmAlertFilters {
+  field_id?: string;
+  severity?: string;
+  status?: string;
+}
+
 export interface CreateFarmRequest {
   name: string;
   latitude?: number | null;
@@ -352,5 +375,23 @@ export const createSensorModule = async (
   data: CreateSensorModuleRequest,
 ): Promise<SensorModule> => {
   const response = await api.post<SensorModule>(API_ENDPOINTS.FARMS.SENSOR_MODULES(baseId), data);
+  return response.data;
+};
+
+export const getFarmAlerts = async (farmId: string, filters?: FarmAlertFilters): Promise<FarmAlert[]> => {
+  const response = await api.get<{ alerts?: FarmAlert[] } | FarmAlert[]>(API_ENDPOINTS.FARMS.ALERTS(farmId), {
+    params: filters,
+  });
+  if (Array.isArray(response.data)) {
+    return response.data;
+  }
+  return response.data.alerts || [];
+};
+
+export const acknowledgeFarmAlert = async (farmId: string, alertId: string): Promise<FarmAlert> => {
+  const response = await api.post<FarmAlert | { alert: FarmAlert }>(API_ENDPOINTS.FARMS.ACK_ALERT(farmId, alertId));
+  if ('alert' in response.data) {
+    return response.data.alert;
+  }
   return response.data;
 };

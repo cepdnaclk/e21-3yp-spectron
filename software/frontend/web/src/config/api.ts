@@ -36,6 +36,8 @@ export const API_ENDPOINTS = {
     ASSIGN_SENSOR_BASE: (baseId: string) => `/api/sensor-bases/${baseId}/assignment`,
     SENSOR_BASE_ASSIGNMENTS: (baseId: string) => `/api/sensor-bases/${baseId}/assignments`,
     SENSOR_MODULES: (baseId: string) => `/api/sensor-bases/${baseId}/modules`,
+    ALERTS: (farmId: string) => `/api/farms/${farmId}/alerts`,
+    ACK_ALERT: (farmId: string, alertId: string) => `/api/farms/${farmId}/alerts/${alertId}/ack`,
     COLLABORATORS: (id: string) => `/api/farms/${id}/collaborators`,
     REMOVE_COLLABORATOR: (farmId: string, userId: string) => `/api/farms/${farmId}/collaborators/${userId}`,
   },

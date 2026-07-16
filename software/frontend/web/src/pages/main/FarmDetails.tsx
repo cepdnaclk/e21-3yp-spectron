@@ -35,11 +35,13 @@ import {
   Place,
   Router,
   Sensors,
+  WarningAmber,
 } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { PageHeaderSkeleton } from '../../components/LoadingSkeletons';
 import {
   addFarmCollaborator,
+  acknowledgeFarmAlert,
   assignSensorBase,
   attachFarmController,
   Collaborator,
@@ -50,11 +52,13 @@ import {
   createSensorModule,
   Crop,
   CropInstance,
+  FarmAlert,
   FarmController,
   Field,
   Farm,
   getCrops,
   getFarm,
+  getFarmAlerts,
   getFarmCollaborators,
   getFarmControllers,
   getFarmFields,
@@ -113,6 +117,7 @@ const FarmDetails: React.FC = () => {
   const [controllers, setControllers] = useState<FarmController[]>([]);
   const [sensorBases, setSensorBases] = useState<SensorBase[]>([]);
   const [modulesByBase, setModulesByBase] = useState<Record<string, SensorModule[]>>({});
+  const [farmAlerts, setFarmAlerts] = useState<FarmAlert[]>([]);
   const [assignmentHistory, setAssignmentHistory] = useState<SensorBaseAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
@@ -143,13 +148,14 @@ const FarmDetails: React.FC = () => {
   const load = async () => {
     try {
       setLoading(true);
-      const [nextFarm, nextFields, nextCollaborators, nextCrops, nextControllers, nextBases] = await Promise.all([
+      const [nextFarm, nextFields, nextCollaborators, nextCrops, nextControllers, nextBases, nextAlerts] = await Promise.all([
         getFarm(farmId),
         getFarmFields(farmId),
         getFarmCollaborators(farmId),
         getCrops(),
         getFarmControllers(farmId),
         getFarmSensorBases(farmId),
+        getFarmAlerts(farmId, { status: 'open' }),
       ]);
       const cropPairs = await Promise.all(
         nextFields.map(async (field) => {
@@ -180,6 +186,7 @@ const FarmDetails: React.FC = () => {
       setControllers(nextControllers);
       setSensorBases(nextBases);
       setModulesByBase(nextModulesByBase);
+      setFarmAlerts(nextAlerts);
     } catch (err) {
       console.error(err);
       setError('Failed to load farm.');
@@ -195,6 +202,7 @@ const FarmDetails: React.FC = () => {
   const fieldCount = useMemo(() => fields.length, [fields]);
   const collaboratorCount = useMemo(() => collaborators.length, [collaborators]);
   const baseCount = useMemo(() => sensorBases.length, [sensorBases]);
+  const openAlertCount = useMemo(() => farmAlerts.filter((alert) => alert.status !== 'acknowledged').length, [farmAlerts]);
   const activeCropCount = useMemo(
     () => Object.values(cropInstances).filter((items) => items.some((item) => item.active)).length,
     [cropInstances],
@@ -211,6 +219,16 @@ const FarmDetails: React.FC = () => {
   const fieldNameById = (fieldId?: string | null) => fields.find((field) => field.id === fieldId)?.name || 'Field';
   const controllerNameById = (gatewayId: string) => controllers.find((controller) => controller.id === gatewayId)?.serial_number || 'Controller';
   const modulesForBase = (baseId: string) => modulesByBase[baseId] || [];
+  const alertSeverityColor = (severity: FarmAlert['severity']) => {
+    const normalized = String(severity).toLowerCase();
+    if (normalized === 'critical') {
+      return 'error' as const;
+    }
+    if (normalized === 'warning' || normalized === 'warn') {
+      return 'warning' as const;
+    }
+    return 'info' as const;
+  };
 
   const parseOptionalNumber = (value: string, label: string, min?: number, max?: number) => {
     if (!value.trim()) {
@@ -543,6 +561,20 @@ const FarmDetails: React.FC = () => {
     }
   };
 
+  const acknowledgeAlert = async (alertId: string) => {
+    try {
+      setSaving(true);
+      const updated = await acknowledgeFarmAlert(farmId, alertId);
+      setFarmAlerts((current) => current.map((alert) => (alert.id === updated.id ? updated : alert)));
+      setNotice('Alert acknowledged.');
+    } catch (err) {
+      console.error(err);
+      setError('Failed to acknowledge alert.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return <PageHeaderSkeleton />;
   }
@@ -590,7 +622,7 @@ const FarmDetails: React.FC = () => {
           <Card><CardContent><Typography color="text.secondary">Crops</Typography><Typography variant="h4">{activeCropCount}</Typography></CardContent></Card>
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <Card><CardContent><Typography color="text.secondary">Bases</Typography><Typography variant="h4">{baseCount}</Typography></CardContent></Card>
+          <Card><CardContent><Typography color="text.secondary">Alerts</Typography><Typography variant="h4">{openAlertCount}</Typography></CardContent></Card>
         </Grid>
       </Grid>
 
@@ -738,12 +770,62 @@ const FarmDetails: React.FC = () => {
 
       <Box sx={{ mt: 4 }}>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+          <Typography variant="h6">Alerts</Typography>
+          <Tooltip title="Farm alerts are scoped to fields, bases, and crops.">
+            <IconButton size="small" aria-label="Farm alerts help">
+              <Info fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Chip size="small" label={openAlertCount} />
+        </Stack>
+        {farmAlerts.length === 0 ? (
+          <Box sx={{ py: 4, textAlign: 'center', border: 1, borderColor: 'divider', borderRadius: 1 }}>
+            <WarningAmber color="primary" sx={{ fontSize: 36 }} />
+            <Typography sx={{ mt: 1 }}>No alerts</Typography>
+          </Box>
+        ) : (
+          <Grid container spacing={2}>
+            {farmAlerts.slice(0, 4).map((alert) => (
+              <Grid item xs={12} md={6} key={alert.id}>
+                <Card variant="outlined">
+                  <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                    <Stack direction="row" justifyContent="space-between" spacing={1.5} alignItems="flex-start">
+                      <Box sx={{ minWidth: 0 }}>
+                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                          <Chip size="small" color={alertSeverityColor(alert.severity)} label={String(alert.severity).toLowerCase()} />
+                          <Chip size="small" variant="outlined" label={alert.status} />
+                          {alert.field_name && <Chip size="small" variant="outlined" label={alert.field_name} />}
+                        </Stack>
+                        <Typography sx={{ mt: 1 }} fontWeight={800}>
+                          {alert.message}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {new Date(alert.created_at).toLocaleDateString()}
+                        </Typography>
+                      </Box>
+                      {ownerMode && alert.status !== 'acknowledged' && (
+                        <Button size="small" onClick={() => acknowledgeAlert(alert.id)} disabled={saving}>
+                          Ack
+                        </Button>
+                      )}
+                    </Stack>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        )}
+      </Box>
+
+      <Box sx={{ mt: 4 }}>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
           <Typography variant="h6">Hardware</Typography>
           <Tooltip title="Controllers belong to the farm. Fields are linked through sensor bases.">
             <IconButton size="small" aria-label="Hardware help">
               <Info fontSize="small" />
             </IconButton>
           </Tooltip>
+          <Chip size="small" label={baseCount} />
         </Stack>
         <Grid container spacing={2}>
           <Grid item xs={12} md={5}>
