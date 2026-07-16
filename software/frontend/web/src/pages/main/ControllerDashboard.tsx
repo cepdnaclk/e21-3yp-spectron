@@ -1049,14 +1049,14 @@ const ControllerDashboard: React.FC = () => {
                                   controllerId: activeControllerId,
                                   sensorId: group.primarySensor.id,
                                   sensorType: group.primarySensor.type,
-                                  sensorName: group.name,
-                                  configured: Boolean(group.config_active),
-                                  returnTo: isHardwareContext
-                                    ? `/hardware/${activeControllerId}/sensors`
-                                    : `/controllers/${activeControllerId}`,
-                                },
-                              }
-                            )
+                                    sensorName: group.name,
+                                    configured: Boolean(group.config_active),
+                                    returnTo: isHardwareContext
+                                      ? `/hardware/${activeControllerId}/sensors`
+                                      : '/farms',
+                                  },
+                                }
+                              )
                           }
                           sx={group.config_active ? { flexGrow: 1, borderColor: 'rgba(60, 57, 17, 0.2)' } : { flexGrow: 1 }}
                         >

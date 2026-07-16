@@ -2902,9 +2902,12 @@ const SensorConfig: React.FC = () => {
         return;
       }
 
-      navigate(`/controllers/${sensor.controller_id}`, {
+      navigate('/farms', {
         replace: true,
-        state: successState,
+        state: {
+          ...successState,
+          message: 'Sensor configuration saved.',
+        },
       });
     } catch (error: any) {
       setPageError(

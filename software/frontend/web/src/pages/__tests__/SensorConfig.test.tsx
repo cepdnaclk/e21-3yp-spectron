@@ -51,7 +51,7 @@ const renderSensorConfig = (
     >
       <Routes>
         <Route path="/hardware/:controllerId/sensors/:sensorId/configure" element={<SensorConfig />} />
-        <Route path="/hardware/:controllerId/sensors" element={<div>Back to sensors</div>} />
+        <Route path="/farms" element={<div>Back to farms</div>} />
         <Route path="/monitoring" element={<div>Back to monitoring</div>} />
       </Routes>
     </MemoryRouter>
@@ -69,7 +69,7 @@ describe('SensorConfig', () => {
 
     expect(await screen.findByRole('heading', { name: /configure temperature_humidity sensor/i })).toBeInTheDocument();
     expect(screen.getByText(/step 1 of 2/i)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /^setup$/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^core setup$/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /^your sensor$/i })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: /sensor name/i })).toBeInTheDocument();
     expect(screen.getByText(/what to measure/i)).toBeInTheDocument();
@@ -103,7 +103,7 @@ describe('SensorConfig', () => {
       expect(screen.getAllByText(matcher).length).toBeGreaterThan(0);
     }
     await user.click(screen.getByRole('button', { name: /next/i }));
-    expect(await screen.findByRole('heading', { name: /^alerts$/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /^alert rules$/i })).toBeInTheDocument();
   });
 
   it('walks through the wizard flow for known sensors', async () => {
@@ -116,7 +116,7 @@ describe('SensorConfig', () => {
 
     await user.click(screen.getByRole('button', { name: /next/i }));
     expect(await screen.findByText(/step 4: alerts/i)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /^alerts$/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^alert rules$/i })).toBeInTheDocument();
 
     const alertThresholds = screen.getAllByRole('spinbutton');
     await user.clear(alertThresholds[0]);
@@ -179,7 +179,7 @@ describe('SensorConfig', () => {
     });
 
     await user.click(screen.getByRole('button', { name: /next/i }));
-    expect(await screen.findByRole('heading', { name: /^Alerts$/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /^Alert Rules$/i })).toBeInTheDocument();
   });
 
   it('returns to monitoring after saving a config opened from monitoring', async () => {
@@ -229,6 +229,6 @@ describe('SensorConfig', () => {
         })
       );
     });
-    expect(await screen.findByText(/back to sensors/i)).toBeInTheDocument();
+    expect(await screen.findByText(/back to farms/i)).toBeInTheDocument();
   });
 });

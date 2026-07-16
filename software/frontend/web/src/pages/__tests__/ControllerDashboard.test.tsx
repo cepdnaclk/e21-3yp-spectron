@@ -26,7 +26,7 @@ vi.mock('../../services/hardwarePairingService', () => ({
   releaseHardwareController: vi.fn(),
 }));
 
-const ControllersDestination = () => {
+const FarmsDestination = () => {
   const location = useLocation();
   const state = location.state as { message?: string } | null;
   return <div>{state?.message}</div>;
@@ -84,7 +84,7 @@ describe('Paired hardware sensors dashboard', () => {
       <MemoryRouter initialEntries={['/hardware/CTRL-100/sensors']}>
         <Routes>
           <Route path="/hardware/:controllerId/sensors" element={<ControllerDashboard />} />
-          <Route path="/controllers" element={<ControllersDestination />} />
+          <Route path="/farms" element={<FarmsDestination />} />
         </Routes>
       </MemoryRouter>
     );
@@ -107,7 +107,7 @@ describe('Paired hardware sensors dashboard', () => {
       <MemoryRouter initialEntries={['/hardware/CTRL-100/sensors']}>
         <Routes>
           <Route path="/hardware/:controllerId/sensors" element={<ControllerDashboard />} />
-          <Route path="/controllers" element={<ControllersDestination />} />
+          <Route path="/farms" element={<FarmsDestination />} />
         </Routes>
       </MemoryRouter>
     );
@@ -125,7 +125,7 @@ describe('Paired hardware sensors dashboard', () => {
       <MemoryRouter initialEntries={['/hardware/CTRL-100/sensors']}>
         <Routes>
           <Route path="/hardware/:controllerId/sensors" element={<ControllerDashboard />} />
-          <Route path="/controllers" element={<ControllersDestination />} />
+          <Route path="/farms" element={<FarmsDestination />} />
         </Routes>
       </MemoryRouter>
     );
