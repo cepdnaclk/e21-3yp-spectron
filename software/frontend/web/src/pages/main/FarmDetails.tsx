@@ -27,12 +27,14 @@ import {
   Agriculture,
   ArrowBack,
   CheckCircle,
+  Delete,
   History,
   Hub,
   Info,
   PersonRemove,
   Place,
   Router,
+  Sensors,
 } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { PageHeaderSkeleton } from '../../components/LoadingSkeletons';
@@ -45,6 +47,7 @@ import {
   createCropInstance,
   createField,
   createSensorBase,
+  createSensorModule,
   Crop,
   CropInstance,
   FarmController,
@@ -58,9 +61,11 @@ import {
   getFarmSensorBases,
   getFieldCropInstances,
   getSensorBaseAssignments,
+  getSensorModules,
   removeFarmCollaborator,
   SensorBase,
   SensorBaseAssignment,
+  SensorModule,
 } from '../../services/farmService';
 
 type CropForm = {
@@ -71,12 +76,30 @@ type CropForm = {
   expectedHarvestDate: string;
 };
 
+type ModuleChannelForm = {
+  channelKey: string;
+  measurementType: string;
+  unit: string;
+};
+
+type ModuleForm = {
+  slotNumber: string;
+  model: string;
+  channels: ModuleChannelForm[];
+};
+
 const emptyCropForm: CropForm = {
   cropId: '',
   varietyId: '',
   plantingDate: '',
   plantingDatePrecision: 'exact',
   expectedHarvestDate: '',
+};
+
+const emptyModuleForm: ModuleForm = {
+  slotNumber: '1',
+  model: '',
+  channels: [{ channelKey: 'temperature', measurementType: 'temperature', unit: 'C' }],
 };
 
 const FarmDetails: React.FC = () => {
@@ -89,6 +112,7 @@ const FarmDetails: React.FC = () => {
   const [cropInstances, setCropInstances] = useState<Record<string, CropInstance[]>>({});
   const [controllers, setControllers] = useState<FarmController[]>([]);
   const [sensorBases, setSensorBases] = useState<SensorBase[]>([]);
+  const [modulesByBase, setModulesByBase] = useState<Record<string, SensorModule[]>>({});
   const [assignmentHistory, setAssignmentHistory] = useState<SensorBaseAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
@@ -100,6 +124,7 @@ const FarmDetails: React.FC = () => {
   const [openController, setOpenController] = useState(false);
   const [openBase, setOpenBase] = useState(false);
   const [openAssignBase, setOpenAssignBase] = useState(false);
+  const [openModule, setOpenModule] = useState(false);
   const [openHistory, setOpenHistory] = useState(false);
   const [selectedField, setSelectedField] = useState<Field | null>(null);
   const [selectedCropInstance, setSelectedCropInstance] = useState<CropInstance | null>(null);
@@ -111,6 +136,7 @@ const FarmDetails: React.FC = () => {
   const [controllerForm, setControllerForm] = useState({ controllerId: '', model: '' });
   const [baseForm, setBaseForm] = useState({ gatewayId: '', serialNumber: '', label: '' });
   const [baseAssignForm, setBaseAssignForm] = useState({ fieldId: '', monitoringZone: '' });
+  const [moduleForm, setModuleForm] = useState<ModuleForm>(emptyModuleForm);
 
   const ownerMode = farm?.role === 'owner';
 
@@ -131,9 +157,19 @@ const FarmDetails: React.FC = () => {
           return [field.id, instances] as const;
         }),
       );
+      const modulePairs = await Promise.all(
+        nextBases.map(async (base) => {
+          const modules = await getSensorModules(base.id);
+          return [base.id, modules] as const;
+        }),
+      );
       const nextCropInstances: Record<string, CropInstance[]> = {};
       cropPairs.forEach(([fieldID, instances]) => {
         nextCropInstances[fieldID] = instances;
+      });
+      const nextModulesByBase: Record<string, SensorModule[]> = {};
+      modulePairs.forEach(([baseID, modules]) => {
+        nextModulesByBase[baseID] = modules;
       });
 
       setFarm(nextFarm);
@@ -143,6 +179,7 @@ const FarmDetails: React.FC = () => {
       setCropInstances(nextCropInstances);
       setControllers(nextControllers);
       setSensorBases(nextBases);
+      setModulesByBase(nextModulesByBase);
     } catch (err) {
       console.error(err);
       setError('Failed to load farm.');
@@ -173,6 +210,7 @@ const FarmDetails: React.FC = () => {
   const activeCropForField = (fieldId: string) => cropInstances[fieldId]?.find((instance) => instance.active);
   const fieldNameById = (fieldId?: string | null) => fields.find((field) => field.id === fieldId)?.name || 'Field';
   const controllerNameById = (gatewayId: string) => controllers.find((controller) => controller.id === gatewayId)?.serial_number || 'Controller';
+  const modulesForBase = (baseId: string) => modulesByBase[baseId] || [];
 
   const parseOptionalNumber = (value: string, label: string, min?: number, max?: number) => {
     if (!value.trim()) {
@@ -368,6 +406,7 @@ const FarmDetails: React.FC = () => {
         label: baseForm.label.trim() || undefined,
       });
       setSensorBases((current) => [base, ...current]);
+      setModulesByBase((current) => ({ ...current, [base.id]: [] }));
       setBaseForm({ gatewayId: controllers[0]?.id || '', serialNumber: '', label: '' });
       setOpenBase(false);
       setNotice('Base added.');
@@ -423,6 +462,84 @@ const FarmDetails: React.FC = () => {
     } catch (err) {
       console.error(err);
       setError('Failed to load history.');
+    }
+  };
+
+  const openModuleDialog = (base: SensorBase) => {
+    setSelectedBase(base);
+    setModuleForm({
+      ...emptyModuleForm,
+      slotNumber: String((modulesByBase[base.id]?.length || 0) + 1),
+      channels: emptyModuleForm.channels.map((channel) => ({ ...channel })),
+    });
+    setOpenModule(true);
+  };
+
+  const updateModuleChannel = (index: number, patch: Partial<ModuleChannelForm>) => {
+    setModuleForm((current) => ({
+      ...current,
+      channels: current.channels.map((channel, channelIndex) => (
+        channelIndex === index ? { ...channel, ...patch } : channel
+      )),
+    }));
+  };
+
+  const addModuleChannel = () => {
+    setModuleForm((current) => ({
+      ...current,
+      channels: [...current.channels, { channelKey: '', measurementType: '', unit: '' }],
+    }));
+  };
+
+  const removeModuleChannel = (index: number) => {
+    setModuleForm((current) => ({
+      ...current,
+      channels: current.channels.filter((_, channelIndex) => channelIndex !== index),
+    }));
+  };
+
+  const submitModule = async () => {
+    if (!selectedBase) {
+      return;
+    }
+    try {
+      const slotNumber = Number(moduleForm.slotNumber);
+      if (!Number.isInteger(slotNumber) || slotNumber <= 0) {
+        setError('Slot must be positive.');
+        return;
+      }
+      const channels = moduleForm.channels.map((channel) => ({
+        channel_key: channel.channelKey.trim(),
+        measurement_type: channel.measurementType.trim(),
+        unit: channel.unit.trim() || undefined,
+      }));
+      if (channels.length === 0 || channels.some((channel) => !channel.channel_key || !channel.measurement_type)) {
+        setError('Channels need key and type.');
+        return;
+      }
+      const keys = new Set(channels.map((channel) => channel.channel_key.toLowerCase()));
+      if (keys.size !== channels.length) {
+        setError('Channel keys must be unique.');
+        return;
+      }
+      setSaving(true);
+      const module = await createSensorModule(selectedBase.id, {
+        slot_number: slotNumber,
+        model: moduleForm.model.trim() || undefined,
+        channels,
+      });
+      setModulesByBase((current) => ({
+        ...current,
+        [selectedBase.id]: [...(current[selectedBase.id] || []), module].sort((a, b) => a.slot_number - b.slot_number),
+      }));
+      setOpenModule(false);
+      setSelectedBase(null);
+      setNotice('Module added.');
+    } catch (err) {
+      console.error(err);
+      setError('Failed to add module.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -676,8 +793,29 @@ const FarmDetails: React.FC = () => {
                             }
                           />
                         </Stack>
+                        {modulesForBase(base.id).length > 0 && (
+                          <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap">
+                            {modulesForBase(base.id).flatMap((module) =>
+                              module.channels.map((channel) => (
+                                <Chip
+                                  key={channel.id}
+                                  size="small"
+                                  variant="outlined"
+                                  label={channel.unit ? `${channel.measurement_type} ${channel.unit}` : channel.measurement_type}
+                                />
+                              )),
+                            )}
+                          </Stack>
+                        )}
                       </Box>
                       <Stack direction="row" spacing={0.5} alignItems="center">
+                        {ownerMode && (
+                          <Tooltip title="Module">
+                            <IconButton size="small" onClick={() => openModuleDialog(base)} aria-label="Add module">
+                              <Sensors fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         {ownerMode && (
                           <Tooltip title="Assign">
                             <IconButton size="small" onClick={() => openAssignDialog(base)} aria-label="Assign base">
@@ -846,6 +984,93 @@ const FarmDetails: React.FC = () => {
           <Button onClick={() => setOpenAssignBase(false)}>Cancel</Button>
           <Button variant="contained" onClick={submitBaseAssignment} disabled={saving || (!baseAssignForm.fieldId && !baseAssignForm.monitoringZone.trim())}>
             {saving ? 'Saving' : 'Assign'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={openModule} onClose={() => setOpenModule(false)} fullWidth maxWidth="sm">
+        <DialogTitle>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <span>Module</span>
+            <Tooltip title="One physical module can expose multiple channels.">
+              <IconButton size="small" aria-label="Module help">
+                <Info fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <TextField
+                label="Slot"
+                value={moduleForm.slotNumber}
+                onChange={(e) => setModuleForm((current) => ({ ...current, slotNumber: e.target.value }))}
+                fullWidth
+              />
+              <TextField
+                label="Model"
+                value={moduleForm.model}
+                onChange={(e) => setModuleForm((current) => ({ ...current, model: e.target.value }))}
+                fullWidth
+              />
+            </Stack>
+            <Stack spacing={1.25}>
+              {moduleForm.channels.map((channel, index) => (
+                <Card key={`${index}-${channel.channelKey}`} variant="outlined">
+                  <CardContent sx={{ py: 1.25, '&:last-child': { pb: 1.25 } }}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                      <TextField
+                        label="Key"
+                        value={channel.channelKey}
+                        onChange={(e) => updateModuleChannel(index, { channelKey: e.target.value })}
+                        size="small"
+                        fullWidth
+                      />
+                      <TextField
+                        label="Type"
+                        value={channel.measurementType}
+                        onChange={(e) => updateModuleChannel(index, { measurementType: e.target.value })}
+                        size="small"
+                        fullWidth
+                      />
+                      <TextField
+                        label="Unit"
+                        value={channel.unit}
+                        onChange={(e) => updateModuleChannel(index, { unit: e.target.value })}
+                        size="small"
+                        sx={{ minWidth: { sm: 92 } }}
+                      />
+                      <Tooltip title="Remove">
+                        <span>
+                          <IconButton
+                            size="small"
+                            onClick={() => removeModuleChannel(index)}
+                            disabled={moduleForm.channels.length === 1}
+                            aria-label="Remove channel"
+                          >
+                            <Delete fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              ))}
+            </Stack>
+            <Button variant="outlined" startIcon={<Add />} onClick={addModuleChannel}>
+              Channel
+            </Button>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenModule(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={submitModule}
+            disabled={saving || !moduleForm.slotNumber || moduleForm.channels.some((channel) => !channel.channelKey.trim() || !channel.measurementType.trim())}
+          >
+            {saving ? 'Saving' : 'Add'}
           </Button>
         </DialogActions>
       </Dialog>

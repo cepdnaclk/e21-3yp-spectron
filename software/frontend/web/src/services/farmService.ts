@@ -111,6 +111,28 @@ export interface SensorBase {
   updated_at: string;
 }
 
+export interface SensorChannel {
+  id: string;
+  module_id: string;
+  channel_key: string;
+  measurement_type: string;
+  unit?: string | null;
+  calibration_json: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SensorModule {
+  id: string;
+  base_id: string;
+  slot_number: number;
+  model?: string | null;
+  status: 'live' | 'offline' | 'retired' | 'error';
+  channels: SensorChannel[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CreateFarmRequest {
   name: string;
   latitude?: number | null;
@@ -153,6 +175,19 @@ export interface CreateSensorBaseRequest {
 export interface AssignSensorBaseRequest {
   field_id?: string | null;
   monitoring_zone?: string | null;
+}
+
+export interface CreateSensorChannelRequest {
+  channel_key: string;
+  measurement_type: string;
+  unit?: string | null;
+  calibration_json?: Record<string, unknown>;
+}
+
+export interface CreateSensorModuleRequest {
+  slot_number: number;
+  model?: string | null;
+  channels: CreateSensorChannelRequest[];
 }
 
 export const getFarms = async (): Promise<Farm[]> => {
@@ -300,4 +335,22 @@ export const getSensorBaseAssignments = async (baseId: string): Promise<SensorBa
     return response.data;
   }
   return response.data.assignments || [];
+};
+
+export const getSensorModules = async (baseId: string): Promise<SensorModule[]> => {
+  const response = await api.get<{ modules?: SensorModule[] } | SensorModule[]>(
+    API_ENDPOINTS.FARMS.SENSOR_MODULES(baseId),
+  );
+  if (Array.isArray(response.data)) {
+    return response.data;
+  }
+  return response.data.modules || [];
+};
+
+export const createSensorModule = async (
+  baseId: string,
+  data: CreateSensorModuleRequest,
+): Promise<SensorModule> => {
+  const response = await api.post<SensorModule>(API_ENDPOINTS.FARMS.SENSOR_MODULES(baseId), data);
+  return response.data;
 };
