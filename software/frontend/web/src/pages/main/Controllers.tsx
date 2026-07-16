@@ -1,32 +1,122 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  Container,
-  Grid,
-  Card,
-  Typography,
   Box,
-  Fab,
-  Stack,
   Button,
+  Card,
+  CardContent,
+  Chip,
+  Container,
+  FormControl,
+  Grid,
+  IconButton,
+  InputLabel,
+  MenuItem,
+  Select,
+  Stack,
+  Tooltip,
+  Typography,
 } from '@mui/material';
-import { Add, Hub as ChipIcon, Place, Sensors, ArrowForward } from '@mui/icons-material';
-import { Controller } from '../../services/controllerService';
-import { getMyHardwareControllers } from '../../services/hardwarePairingService';
-import { ControllersSkeleton } from '../../components/LoadingSkeletons';
+import { Agriculture, DeviceHub, DoneAll, InfoOutlined, Sensors, SettingsInputAntenna } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
+import { ControllersSkeleton } from '../../components/LoadingSkeletons';
+import {
+  Farm,
+  FarmController,
+  getFarmControllers,
+  getFarmSensorBases,
+  getFarms,
+  getSensorModules,
+  SensorBase,
+  SensorModule,
+} from '../../services/farmService';
+
+type ControllerRow = {
+  farm: Farm;
+  controller: FarmController;
+  bases: SensorBase[];
+  modulesByBase: Record<string, SensorModule[]>;
+};
+
+const statusColor = (status?: string) => {
+  const normalized = (status || '').toLowerCase();
+  if (normalized === 'online' || normalized === 'live') {
+    return 'success' as const;
+  }
+  if (normalized === 'pending_setup' || normalized === 'waiting_setup') {
+    return 'warning' as const;
+  }
+  if (normalized === 'offline' || normalized === 'error') {
+    return 'error' as const;
+  }
+  return 'default' as const;
+};
+
+const humanize = (value?: string | null) =>
+  (value || 'Unknown').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+
+const formatDateTime = (value?: string | null) => {
+  if (!value) {
+    return 'No update';
+  }
+  return new Date(value).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
 
 const Controllers: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const navigationMessage = (location.state as { message?: string } | null)?.message || '';
-  const [controllers, setControllers] = useState<Controller[]>([]);
+  const [farms, setFarms] = useState<Farm[]>([]);
+  const [rows, setRows] = useState<ControllerRow[]>([]);
+  const [farmFilter, setFarmFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [successMessage, setSuccessMessage] = useState(navigationMessage);
+  const [error, setError] = useState('');
+
+  const loadControllers = useCallback(async () => {
+    try {
+      setLoading(true);
+      const nextFarms = await getFarms();
+      setFarms(nextFarms);
+      const selectedFarms = farmFilter === 'all' ? nextFarms : nextFarms.filter((farm) => farm.id === farmFilter);
+
+      const nextRows = await Promise.all(
+        selectedFarms.map(async (farm) => {
+          const [controllers, bases] = await Promise.all([
+            getFarmControllers(farm.id),
+            getFarmSensorBases(farm.id),
+          ]);
+          const modulePairs = await Promise.all(
+            bases.map(async (base) => [base.id, await getSensorModules(base.id)] as const),
+          );
+          const modulesByBase = Object.fromEntries(modulePairs);
+
+          return controllers.map((controller) => ({
+            farm,
+            controller,
+            bases: bases.filter((base) => base.gateway_id === controller.id),
+            modulesByBase,
+          }));
+        }),
+      );
+
+      setRows(nextRows.flat().sort((a, b) => a.farm.name.localeCompare(b.farm.name)));
+    } catch (err) {
+      console.error(err);
+      setError('Failed to load controllers.');
+    } finally {
+      setLoading(false);
+    }
+  }, [farmFilter]);
 
   useEffect(() => {
     loadControllers();
-  }, []);
+  }, [loadControllers]);
 
   useEffect(() => {
     if (navigationMessage) {
@@ -34,423 +124,197 @@ const Controllers: React.FC = () => {
     }
   }, [location.pathname, navigate, navigationMessage]);
 
-  const loadControllers = async () => {
-    try {
-      const data = await getMyHardwareControllers();
-      setControllers(data);
-    } catch (error) {
-      console.error('Error loading controllers:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'ONLINE':    return { bg: 'rgba(108, 137, 48, 0.14)', text: '#4a6220', border: 'rgba(108,137,48,0.28)' };
-      case 'OFFLINE':   return { bg: 'rgba(218, 54, 8, 0.10)',   text: '#b02a06', border: 'rgba(218,54,8,0.22)' };
-      case 'PENDING_CONFIG': return { bg: 'rgba(219, 160, 72, 0.14)', text: '#8a5f10', border: 'rgba(219,160,72,0.3)' };
-      default:          return { bg: 'rgba(60, 57, 17, 0.08)',   text: '#6a624f', border: 'rgba(60,57,17,0.18)' };
-    }
-  };
+  const totals = useMemo(
+    () =>
+      rows.reduce(
+        (acc, row) => {
+          const channels = row.bases.reduce(
+            (sum, base) =>
+              sum + (row.modulesByBase[base.id] || []).reduce((moduleSum, module) => moduleSum + module.channels.length, 0),
+            0,
+          );
+          acc.controllers += 1;
+          acc.bases += row.bases.length;
+          acc.channels += channels;
+          if (row.controller.status === 'online') {
+            acc.online += 1;
+          }
+          return acc;
+        },
+        { controllers: 0, bases: 0, channels: 0, online: 0 },
+      ),
+    [rows],
+  );
 
   if (loading) {
     return <ControllersSkeleton />;
   }
 
   return (
-    <Container maxWidth="xl" sx={{ py: { xs: 2, md: 3 } }}>
-      {/* ── Hero Banner ─────────────────────────────────────────────── */}
-      <Box
-        sx={{
-          mb: { xs: 2.5, md: 3 },
-          p: { xs: '20px 20px 22px', md: '28px 32px 32px' },
-          borderRadius: { xs: 3, md: 3 },
-          bgcolor: '#3c3911',
-          color: '#fffdf8',
-          overflow: 'hidden',
-          position: 'relative',
-          border: '1px solid rgba(255, 253, 248, 0.07)',
-          boxShadow: '0 4px 24px rgba(60, 57, 17, 0.18)',
-        }}
-      >
-        {/* decorative blob */}
-        <Box
-          sx={{
-            position: 'absolute',
-            right: { xs: -20, md: 40 },
-            top: { xs: -50, md: 10 },
-            width: { xs: 180, md: 240 },
-            height: { xs: 180, md: 240 },
-            borderRadius: '50%',
-            bgcolor: 'rgba(235, 79, 18, 0.20)',
-            pointerEvents: 'none',
-          }}
-        />
-        <Stack
-          direction={{ xs: 'column', md: 'row' }}
-          spacing={{ xs: 2, md: 2 }}
-          justifyContent="space-between"
-          sx={{ position: 'relative' }}
-        >
-          <Box sx={{ maxWidth: { xs: '100%', md: 640 } }}>
-            <Typography
-              variant="h4"
-              sx={{
-                fontWeight: 900,
-                lineHeight: 1.2,
-                fontSize: { xs: '1.45rem', sm: '1.75rem', md: '2rem' },
-                wordBreak: 'break-word',
-              }}
-            >
-              Keep every Spectron node in view.
-            </Typography>
-            <Typography
-              sx={{
-                mt: 1,
-                color: 'rgba(255, 253, 248, 0.72)',
-                fontSize: { xs: '0.82rem', sm: '0.95rem' },
-                display: { xs: 'none', sm: 'block' },
-                maxWidth: 580,
-              }}
-            >
-              Add, configure, and monitor your connected sensing hardware from one calm workspace.
-            </Typography>
-          </Box>
-          <Button
-            variant="contained"
-            color="secondary"
-            startIcon={<Add />}
-            onClick={() => navigate('/controllers/pair')}
-            sx={{
-              alignSelf: { xs: 'stretch', md: 'flex-end' },
-              display: { xs: 'none', md: 'inline-flex' },
-              flexShrink: 0,
-            }}
-          >
-            Add Controller
-          </Button>
-        </Stack>
-      </Box>
-
-      <AutoDismissAlert
-        open={Boolean(successMessage)}
-        severity="success"
-        sx={{ mb: 2 }}
-        onCloseAlert={() => setSuccessMessage('')}
-      >
+    <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 } }}>
+      <AutoDismissAlert open={Boolean(successMessage)} severity="success" sx={{ mb: 2 }} onCloseAlert={() => setSuccessMessage('')}>
         {successMessage}
       </AutoDismissAlert>
+      <AutoDismissAlert open={Boolean(error)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setError('')}>
+        {error}
+      </AutoDismissAlert>
 
-      {/* ── Controller Cards ─────────────────────────────────────────── */}
-      <Grid container spacing={{ xs: 1.5, sm: 2 }}>
-        {controllers.length === 0 ? (
-          <Grid item xs={12}>
-            <Card sx={{ borderRadius: 3 }}>
-              <Box sx={{ py: 7, textAlign: 'center', px: 2 }}>
-                <Sensors color="primary" sx={{ fontSize: 48, mb: 1.5, opacity: 0.7 }} />
-                <Typography variant="h6" fontWeight={800}>No controllers paired yet</Typography>
-                <Typography color="text.secondary" sx={{ mt: 0.75, mb: 2.5, fontSize: '0.9rem' }}>
-                  Add your first controller to start collecting field data.
-                </Typography>
-                <Button
-                  variant="contained"
-                  color="secondary"
-                  startIcon={<Add />}
-                  onClick={() => navigate('/controllers/pair')}
-                >
-                  Add Controller
-                </Button>
-              </Box>
-            </Card>
-          </Grid>
-        ) : (
-          controllers.map((controller) => {
-            const rawStatus = controller.operational_status || controller.status;
-            const statusColors = getStatusColor(rawStatus);
-            const claimStatus = controller.claim_status || 'CLAIMED';
-            const isOnline = rawStatus === 'ONLINE';
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} justifyContent="space-between" sx={{ mb: 2.5 }}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography variant="h4">Controllers</Typography>
+          <Tooltip title="Controllers belong to farms. Field links come from sensor base assignments.">
+            <IconButton size="small" aria-label="Controller details">
+              <InfoOutlined fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+          <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 220 } }}>
+            <InputLabel id="controller-farm-filter-label">Farm</InputLabel>
+            <Select
+              labelId="controller-farm-filter-label"
+              label="Farm"
+              value={farmFilter}
+              onChange={(event) => setFarmFilter(event.target.value)}
+            >
+              <MenuItem value="all">All farms</MenuItem>
+              {farms.map((farm) => (
+                <MenuItem key={farm.id} value={farm.id}>
+                  {farm.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Button variant="contained" color="secondary" onClick={() => navigate('/farms')}>
+            Farm Setup
+          </Button>
+        </Stack>
+      </Stack>
+
+      <Grid container spacing={1.5} sx={{ mb: 2.5 }}>
+        <Grid item xs={6} md={3}>
+          <Card variant="outlined">
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Typography variant="caption" color="text.secondary">Controllers</Typography>
+              <Typography variant="h5">{totals.controllers}</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={6} md={3}>
+          <Card variant="outlined">
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Typography variant="caption" color="text.secondary">Online</Typography>
+              <Typography variant="h5">{totals.online}</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={6} md={3}>
+          <Card variant="outlined">
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Typography variant="caption" color="text.secondary">Bases</Typography>
+              <Typography variant="h5">{totals.bases}</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={6} md={3}>
+          <Card variant="outlined">
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Typography variant="caption" color="text.secondary">Channels</Typography>
+              <Typography variant="h5">{totals.channels}</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {farms.length === 0 ? (
+        <Card variant="outlined">
+          <CardContent sx={{ py: 6, textAlign: 'center' }}>
+            <Agriculture color="primary" sx={{ fontSize: 44, mb: 1 }} />
+            <Typography variant="h6">No farms</Typography>
+            <Button variant="contained" color="secondary" sx={{ mt: 2 }} onClick={() => navigate('/farms')}>
+              Farm Setup
+            </Button>
+          </CardContent>
+        </Card>
+      ) : rows.length === 0 ? (
+        <Card variant="outlined">
+          <CardContent sx={{ py: 6, textAlign: 'center' }}>
+            <DoneAll color="primary" sx={{ fontSize: 44, mb: 1 }} />
+            <Typography variant="h6">No controllers</Typography>
+            <Button variant="contained" color="secondary" sx={{ mt: 2 }} onClick={() => navigate('/farms')}>
+              Farm Setup
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <Grid container spacing={1.5}>
+          {rows.map(({ farm, controller, bases, modulesByBase }) => {
+            const fieldNames = Array.from(
+              new Set(
+                bases
+                  .map((base) => base.current_assignment?.field_name || base.current_assignment?.monitoring_zone)
+                  .filter(Boolean),
+              ),
+            ) as string[];
+            const channelCount = bases.reduce(
+              (sum, base) =>
+                sum + (modulesByBase[base.id] || []).reduce((moduleSum, module) => moduleSum + module.channels.length, 0),
+              0,
+            );
 
             return (
-              <Grid item xs={12} sm={6} md={4} key={controller.id}>
-                <Card
-                  sx={{
-                    cursor: 'pointer',
-                    height: '100%',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    borderRadius: '20px',
-                    border: '1.5px solid rgba(60, 57, 17, 0.09)',
-                    boxShadow: '0 2px 16px rgba(60, 57, 17, 0.07)',
-                    overflow: 'hidden',
-                    background: '#fffdf8',
-                    transition: 'box-shadow 220ms ease, transform 220ms ease, border-color 220ms ease',
-                    '&:hover': {
-                      boxShadow: '0 10px 32px rgba(60, 57, 17, 0.14)',
-                      borderColor: `${statusColors.border}`,
-                      transform: 'translateY(-3px)',
-                    },
-                    '&:active': { transform: 'translateY(-1px)' },
-                  }}
-                  onClick={() => navigate(`/controllers/${controller.id}`)}
-                >
-                  {/* ── Coloured accent bar at top ── */}
-                  <Box
-                    sx={{
-                      height: 5,
-                      background: isOnline
-                        ? 'linear-gradient(90deg, #3c3910 0%, #6a6820 100%)'
-                        : rawStatus === 'OFFLINE'
-                        ? 'linear-gradient(90deg, #da3608 0%, #f37b3f 100%)'
-                        : 'linear-gradient(90deg, #dba048 0%, #f0c97a 100%)',
-                    }}
-                  />
-
-                  {/* ── Card body ── */}
-                  <Box sx={{ p: { xs: '18px 18px 14px', sm: '20px 22px 16px' }, flexGrow: 1 }}>
-
-                    {/* Icon + name row */}
-                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.75, mb: 2 }}>
-
-                      {/* Glassy icon bubble */}
-                      <Box
-                        sx={{
-                          flexShrink: 0,
-                          width: 50,
-                          height: 50,
-                          borderRadius: '14px',
-                          background: 'linear-gradient(145deg, rgba(60,57,16,0.16) 0%, rgba(60,57,16,0.06) 100%)',
-                          border: '1.5px solid rgba(60,57,16,0.22)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7)',
-                        }}
-                      >
-                        <ChipIcon sx={{ color: 'primary.main', fontSize: 24 }} />
-                      </Box>
-
-                      {/* Name + hw_id */}
-                      <Box sx={{ flex: 1, minWidth: 0, pt: 0.25 }}>
-                        <Typography
-                          sx={{
-                            fontWeight: 900,
-                            fontSize: { xs: '1.05rem', sm: '1.1rem' },
-                            lineHeight: 1.2,
-                            color: 'text.primary',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            letterSpacing: '-0.01em',
-                          }}
-                        >
-                          {controller.name || 'Unnamed Controller'}
-                        </Typography>
-                        <Typography
-                          sx={{
-                            mt: 0.4,
-                            fontSize: '0.7rem',
-                            color: 'text.secondary',
-                            fontFamily: 'monospace',
-                            letterSpacing: '0.02em',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          {controller.hw_id}
-                        </Typography>
-                      </Box>
-                    </Box>
-
-                    {/* Purpose */}
-                    {controller.purpose && (
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{
-                          mb: 1.75,
-                          fontSize: '0.82rem',
-                          lineHeight: 1.55,
-                          display: { xs: 'none', sm: '-webkit-box' },
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {controller.purpose}
-                      </Typography>
-                    )}
-
-                    {/* ── Badge row ── */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: controller.purpose ? 0 : 0.5 }}>
-
-                      {/* Claim badge */}
-                      <Box
-                        component="span"
-                        sx={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '5px',
-                          px: '10px',
-                          py: '4px',
-                          borderRadius: '999px',
-                          background: 'linear-gradient(135deg, rgba(60,57,16,0.15) 0%, rgba(60,57,16,0.07) 100%)',
-                          border: '1px solid rgba(60,57,16,0.30)',
-                          color: '#3c3910',
-                          fontSize: '0.63rem',
-                          fontWeight: 800,
-                          letterSpacing: '0.08em',
-                          textTransform: 'uppercase',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {claimStatus}
-                      </Box>
-
-                      {/* Status badge with live dot */}
-                      <Box
-                        component="span"
-                        sx={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '5px',
-                          px: '10px',
-                          py: '4px',
-                          borderRadius: '999px',
-                          background: `linear-gradient(135deg, ${statusColors.bg} 0%, ${statusColors.bg.replace('0.14','0.06').replace('0.10','0.04').replace('0.08','0.03')} 100%)`,
-                          border: `1px solid ${statusColors.border}`,
-                          color: statusColors.text,
-                          fontSize: '0.63rem',
-                          fontWeight: 800,
-                          letterSpacing: '0.08em',
-                          textTransform: 'uppercase',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {/* Live pulse dot */}
-                        <Box
-                          component="span"
-                          sx={{
-                            width: 6,
-                            height: 6,
-                            borderRadius: '50%',
-                            bgcolor: statusColors.text,
-                            flexShrink: 0,
-                            ...(isOnline && {
-                              animation: 'pulse-dot 1.8s ease-in-out infinite',
-                              '@keyframes pulse-dot': {
-                                '0%, 100%': { opacity: 1, transform: 'scale(1)' },
-                                '50%': { opacity: 0.45, transform: 'scale(0.7)' },
-                              },
-                            }),
-                          }}
-                        />
-                        {rawStatus}
-                      </Box>
-
-                      {/* Location pill (if present) */}
-                      {controller.location && (
-                        <Box
-                          component="span"
-                          sx={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            px: '8px',
-                            py: '4px',
-                            borderRadius: '999px',
-                            bgcolor: 'rgba(60,57,17,0.06)',
-                            border: '1px solid rgba(60,57,17,0.12)',
-                            color: 'text.secondary',
-                            fontSize: '0.63rem',
-                            fontWeight: 700,
-                            letterSpacing: '0.04em',
-                            whiteSpace: 'nowrap',
-                            maxWidth: '120px',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          <Place sx={{ fontSize: 10, flexShrink: 0 }} />
-                          {controller.location}
+              <Grid item xs={12} md={6} key={controller.id}>
+                <Card variant="outlined" sx={{ height: '100%' }}>
+                  <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
+                    <Stack direction="row" spacing={1.25} justifyContent="space-between" alignItems="flex-start">
+                      <Stack direction="row" spacing={1.25} sx={{ minWidth: 0 }}>
+                        <Box sx={{ p: 0.75, borderRadius: 1, bgcolor: 'rgba(108, 137, 48, 0.12)', flexShrink: 0 }}>
+                          <DeviceHub color="primary" fontSize="small" />
                         </Box>
-                      )}
-                    </Box>
-                  </Box>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="h6" sx={{ overflowWrap: 'anywhere' }}>
+                            {controller.serial_number}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {farm.name}
+                          </Typography>
+                        </Box>
+                      </Stack>
+                      <Chip size="small" label={humanize(controller.status)} color={statusColor(controller.status)} />
+                    </Stack>
 
-                  {/* ── Touch-friendly footer CTA ── */}
-                  <Box
-                    sx={{
-                      minHeight: 46,
-                      px: { xs: 2.25, sm: 2.75 },
-                      borderTop: '1.5px solid rgba(60, 57, 17, 0.07)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      background: 'linear-gradient(90deg, rgba(60,57,16,0.06) 0%, rgba(60,57,16,0.02) 100%)',
-                      transition: 'background 220ms ease',
-                      '&:hover': {
-                        background: 'linear-gradient(90deg, rgba(60,57,16,0.12) 0%, rgba(60,57,16,0.05) 100%)',
-                      },
-                    }}
-                  >
-                    <Typography
-                      sx={{
-                        fontSize: '0.75rem',
-                        fontWeight: 700,
-                        color: '#3c3910',
-                        letterSpacing: '0.04em',
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      View Dashboard
-                    </Typography>
-                    <Box
-                      sx={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: '50%',
-                        bgcolor: '#3c3910',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: '0 2px 8px rgba(60,57,16,0.35)',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <ArrowForward sx={{ fontSize: 14, color: '#fffdf8' }} />
+                    <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
+                      <Chip size="small" icon={<Sensors />} label={`${bases.length} bases`} />
+                      <Chip size="small" icon={<SettingsInputAntenna />} label={`${channelCount} channels`} />
+                      {controller.model && <Chip size="small" label={controller.model} variant="outlined" />}
+                    </Stack>
+
+                    <Box sx={{ mt: 1.5, pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
+                      <Typography variant="caption" color="text.secondary">Fields</Typography>
+                      <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mt: 0.5 }}>
+                        {fieldNames.length ? (
+                          fieldNames.slice(0, 5).map((name) => <Chip key={name} size="small" label={name} variant="outlined" />)
+                        ) : (
+                          <Chip size="small" label="No field link" variant="outlined" />
+                        )}
+                      </Stack>
                     </Box>
-                  </Box>
+
+                    <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center" sx={{ mt: 1.5 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        {formatDateTime(controller.last_seen)}
+                      </Typography>
+                      <Button size="small" variant="outlined" onClick={() => navigate(`/farms/${farm.id}`)}>
+                        Open Farm
+                      </Button>
+                    </Stack>
+                  </CardContent>
                 </Card>
               </Grid>
             );
-          })
-        )}
-      </Grid>
-
-      {/* ── FAB ────────────────────────────────────────────────────── */}
-      <Fab
-        color="secondary"
-        aria-label="add"
-        sx={{
-          position: 'fixed',
-          bottom: { xs: 'calc(76px + env(safe-area-inset-bottom))', md: 28 },
-          right: { xs: 16, md: 24 },
-          width: { xs: 52, md: 56 },
-          height: { xs: 52, md: 56 },
-          boxShadow: '0 6px 20px rgba(235, 79, 18, 0.38)',
-          transition: 'transform 160ms ease, box-shadow 160ms ease',
-          '&:hover': {
-            transform: 'scale(1.06)',
-            boxShadow: '0 8px 28px rgba(235, 79, 18, 0.48)',
-          },
-          '&:active': { transform: 'scale(0.97)' },
-        }}
-        onClick={() => navigate('/controllers/pair')}
-      >
-        <Add />
-      </Fab>
+          })}
+        </Grid>
+      )}
     </Container>
   );
 };
