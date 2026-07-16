@@ -48,6 +48,28 @@ type sensorBaseResponse struct {
 	UpdatedAt         string                        `json:"updated_at"`
 }
 
+type sensorChannelResponse struct {
+	ID              string          `json:"id"`
+	ModuleID        string          `json:"module_id"`
+	ChannelKey      string          `json:"channel_key"`
+	MeasurementType string          `json:"measurement_type"`
+	Unit            *string         `json:"unit,omitempty"`
+	CalibrationJSON json.RawMessage `json:"calibration_json"`
+	CreatedAt       string          `json:"created_at"`
+	UpdatedAt       string          `json:"updated_at"`
+}
+
+type sensorModuleResponse struct {
+	ID         string                  `json:"id"`
+	BaseID     string                  `json:"base_id"`
+	SlotNumber int                     `json:"slot_number"`
+	Model      *string                 `json:"model,omitempty"`
+	Status     string                  `json:"status"`
+	Channels   []sensorChannelResponse `json:"channels"`
+	CreatedAt  string                  `json:"created_at"`
+	UpdatedAt  string                  `json:"updated_at"`
+}
+
 type attachFarmControllerRequest struct {
 	ControllerID string  `json:"controller_id"`
 	Model        *string `json:"model,omitempty"`
@@ -62,6 +84,19 @@ type createSensorBaseRequest struct {
 type assignSensorBaseRequest struct {
 	FieldID        *string `json:"field_id,omitempty"`
 	MonitoringZone *string `json:"monitoring_zone,omitempty"`
+}
+
+type saveSensorModuleRequest struct {
+	SlotNumber int                        `json:"slot_number"`
+	Model      *string                    `json:"model,omitempty"`
+	Channels   []saveSensorChannelRequest `json:"channels"`
+}
+
+type saveSensorChannelRequest struct {
+	ChannelKey      string          `json:"channel_key"`
+	MeasurementType string          `json:"measurement_type"`
+	Unit            *string         `json:"unit,omitempty"`
+	CalibrationJSON json.RawMessage `json:"calibration_json,omitempty"`
 }
 
 func (h *FarmHandler) ListFarmControllers(w http.ResponseWriter, r *http.Request) {
@@ -315,6 +350,96 @@ func (h *FarmHandler) ListSensorBaseAssignments(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, map[string]any{"assignments": assignments})
 }
 
+func (h *FarmHandler) ListSensorModules(w http.ResponseWriter, r *http.Request) {
+	_, baseID, ok := h.requireSensorBaseAccess(w, r, false)
+	if !ok {
+		return
+	}
+
+	modules, err := h.loadSensorModules(r.Context(), baseID)
+	if err != nil {
+		http.Error(w, "failed to load sensor modules", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"modules": modules})
+}
+
+func (h *FarmHandler) CreateSensorModule(w http.ResponseWriter, r *http.Request) {
+	_, baseID, ok := h.requireSensorBaseAccess(w, r, true)
+	if !ok {
+		return
+	}
+
+	var req saveSensorModuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := validateSensorModuleRequest(req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	tx, err := h.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "failed to start module setup", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	moduleID := uuid.New()
+	if _, err := tx.Exec(r.Context(), `
+		INSERT INTO sensor_modules (id, base_id, slot_number, model, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, 'live', NOW(), NOW())
+	`, moduleID, baseID, req.SlotNumber, cleanOptionalString(req.Model)); err != nil {
+		http.Error(w, "failed to create sensor module", http.StatusInternalServerError)
+		return
+	}
+
+	seenChannels := map[string]bool{}
+	for _, channel := range req.Channels {
+		channelKey := strings.ToLower(strings.TrimSpace(channel.ChannelKey))
+		if seenChannels[channelKey] {
+			http.Error(w, "channel keys must be unique", http.StatusBadRequest)
+			return
+		}
+		seenChannels[channelKey] = true
+
+		calibration := json.RawMessage(`{}`)
+		if len(channel.CalibrationJSON) > 0 {
+			calibration = channel.CalibrationJSON
+		}
+		if _, err := tx.Exec(r.Context(), `
+			INSERT INTO sensor_channels (
+				id,
+				module_id,
+				channel_key,
+				measurement_type,
+				unit,
+				calibration_json,
+				created_at,
+				updated_at
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+		`, uuid.New(), moduleID, channelKey, strings.ToLower(strings.TrimSpace(channel.MeasurementType)), cleanOptionalString(channel.Unit), calibration); err != nil {
+			http.Error(w, "failed to create sensor channel", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to finish module setup", http.StatusInternalServerError)
+		return
+	}
+
+	module, err := h.loadSensorModuleResponse(r.Context(), moduleID)
+	if err != nil {
+		http.Error(w, "failed to load sensor module", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusCreated, module)
+}
+
 func (h *FarmHandler) requireSensorBaseAccess(w http.ResponseWriter, r *http.Request, ownerOnly bool) (farmAccess, uuid.UUID, bool) {
 	userID, ok := GetUserID(r).(uuid.UUID)
 	if !ok {
@@ -349,6 +474,98 @@ func (h *FarmHandler) requireSensorBaseAccess(w http.ResponseWriter, r *http.Req
 
 	access, ok := h.requireFarmAccessByID(w, r, farmID, userID, ownerOnly)
 	return access, baseID, ok
+}
+
+func (h *FarmHandler) loadSensorModules(ctx context.Context, baseID uuid.UUID) ([]sensorModuleResponse, error) {
+	rows, err := h.db.Query(ctx, `
+		SELECT id
+		FROM sensor_modules
+		WHERE base_id = $1
+		ORDER BY slot_number
+	`, baseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	modules := make([]sensorModuleResponse, 0)
+	for rows.Next() {
+		var moduleID uuid.UUID
+		if err := rows.Scan(&moduleID); err != nil {
+			return nil, err
+		}
+		module, err := h.loadSensorModuleResponse(ctx, moduleID)
+		if err != nil {
+			return nil, err
+		}
+		modules = append(modules, module)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return modules, nil
+}
+
+func (h *FarmHandler) loadSensorModuleResponse(ctx context.Context, moduleID uuid.UUID) (sensorModuleResponse, error) {
+	var module sensorModuleResponse
+	var id uuid.UUID
+	var baseID uuid.UUID
+	var createdAt time.Time
+	var updatedAt time.Time
+	if err := h.db.QueryRow(ctx, `
+		SELECT id, base_id, slot_number, model, status, created_at, updated_at
+		FROM sensor_modules
+		WHERE id = $1
+	`, moduleID).Scan(&id, &baseID, &module.SlotNumber, &module.Model, &module.Status, &createdAt, &updatedAt); err != nil {
+		return sensorModuleResponse{}, err
+	}
+	module.ID = id.String()
+	module.BaseID = baseID.String()
+	module.CreatedAt = createdAt.Format(time.RFC3339)
+	module.UpdatedAt = updatedAt.Format(time.RFC3339)
+	module.Channels = []sensorChannelResponse{}
+
+	rows, err := h.db.Query(ctx, `
+		SELECT id, module_id, channel_key, measurement_type, unit, calibration_json, created_at, updated_at
+		FROM sensor_channels
+		WHERE module_id = $1
+		ORDER BY channel_key
+	`, moduleID)
+	if err != nil {
+		return sensorModuleResponse{}, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var channel sensorChannelResponse
+		var channelID uuid.UUID
+		var scannedModuleID uuid.UUID
+		var calibration []byte
+		var channelCreatedAt time.Time
+		var channelUpdatedAt time.Time
+		if err := rows.Scan(
+			&channelID,
+			&scannedModuleID,
+			&channel.ChannelKey,
+			&channel.MeasurementType,
+			&channel.Unit,
+			&calibration,
+			&channelCreatedAt,
+			&channelUpdatedAt,
+		); err != nil {
+			return sensorModuleResponse{}, err
+		}
+		channel.ID = channelID.String()
+		channel.ModuleID = scannedModuleID.String()
+		channel.CalibrationJSON = json.RawMessage(calibration)
+		channel.CreatedAt = channelCreatedAt.Format(time.RFC3339)
+		channel.UpdatedAt = channelUpdatedAt.Format(time.RFC3339)
+		module.Channels = append(module.Channels, channel)
+	}
+	if err := rows.Err(); err != nil {
+		return sensorModuleResponse{}, err
+	}
+	return module, nil
 }
 
 func (h *FarmHandler) loadFarmControllers(ctx context.Context, farmID uuid.UUID) ([]farmControllerResponse, error) {
@@ -564,6 +781,38 @@ func (h *FarmHandler) fieldBelongsToFarm(ctx context.Context, fieldID uuid.UUID,
 		)
 	`, fieldID, farmID).Scan(&exists)
 	return err == nil && exists
+}
+
+func validateSensorModuleRequest(req saveSensorModuleRequest) error {
+	if req.SlotNumber <= 0 {
+		return errors.New("slot number must be positive")
+	}
+	if len(req.Channels) == 0 {
+		return errors.New("at least one channel is required")
+	}
+	if len(req.Channels) > 12 {
+		return errors.New("too many channels")
+	}
+	for _, channel := range req.Channels {
+		channelKey := strings.TrimSpace(channel.ChannelKey)
+		if channelKey == "" {
+			return errors.New("channel key is required")
+		}
+		if len(channelKey) > 40 {
+			return errors.New("channel key is too long")
+		}
+		measurementType := strings.TrimSpace(channel.MeasurementType)
+		if measurementType == "" {
+			return errors.New("measurement type is required")
+		}
+		if len(measurementType) > 80 {
+			return errors.New("measurement type is too long")
+		}
+		if len(channel.CalibrationJSON) > 0 && !json.Valid(channel.CalibrationJSON) {
+			return errors.New("calibration must be valid JSON")
+		}
+	}
+	return nil
 }
 
 func cleanOptionalString(value *string) *string {

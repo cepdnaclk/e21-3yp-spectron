@@ -114,6 +114,100 @@ func TestFarmHardwareAssignments(t *testing.T) {
 	}
 }
 
+func TestSensorModuleChannels(t *testing.T) {
+	app := newIntegrationApp(t)
+	owner := app.createTestUser(t, "OWNER")
+	viewer := app.createTestUser(t, "VIEWER")
+	farm := app.createFarm(t, owner, "Module Farm")
+	controller := app.createController(t, owner.accountID, &owner.id, "CTRL-MODULE-HW", "paired")
+
+	if _, err := app.pool.Exec(t.Context(), `
+		INSERT INTO farm_access (farm_id, user_id, role, invited_by_user_id, added_at)
+		VALUES ($1, $2, 'viewer', $3, NOW())
+	`, farm.id, viewer.id, owner.id); err != nil {
+		t.Fatalf("insert viewer farm access: %v", err)
+	}
+
+	attach := executeRequest(app.rr, jsonRequest(t, http.MethodPost, "/api/farms/"+farm.id.String()+"/controllers", owner.token, map[string]any{
+		"controller_id": controller.uid,
+	}))
+	if attach.Code != http.StatusCreated {
+		t.Fatalf("attach controller status = %d, body = %s", attach.Code, attach.Body.String())
+	}
+	var attachPayload struct {
+		Controllers []farmControllerResponse `json:"controllers"`
+	}
+	if err := json.Unmarshal(attach.Body.Bytes(), &attachPayload); err != nil {
+		t.Fatalf("decode attach response: %v", err)
+	}
+
+	createBase := executeRequest(app.rr, jsonRequest(t, http.MethodPost, "/api/farms/"+farm.id.String()+"/sensor-bases", owner.token, map[string]any{
+		"gateway_id":    attachPayload.Controllers[0].ID,
+		"serial_number": "BASE-MODULE-001",
+	}))
+	if createBase.Code != http.StatusCreated {
+		t.Fatalf("create base status = %d, body = %s", createBase.Code, createBase.Body.String())
+	}
+	var base sensorBaseResponse
+	if err := json.Unmarshal(createBase.Body.Bytes(), &base); err != nil {
+		t.Fatalf("decode base response: %v", err)
+	}
+
+	createModule := executeRequest(app.rr, jsonRequest(t, http.MethodPost, "/api/sensor-bases/"+base.ID+"/modules", owner.token, map[string]any{
+		"slot_number": 1,
+		"model":       "DHT22",
+		"channels": []map[string]any{
+			{"channel_key": "temperature", "measurement_type": "temperature", "unit": "C"},
+			{"channel_key": "humidity", "measurement_type": "humidity", "unit": "%RH"},
+		},
+	}))
+	if createModule.Code != http.StatusCreated {
+		t.Fatalf("create module status = %d, body = %s", createModule.Code, createModule.Body.String())
+	}
+	var module sensorModuleResponse
+	if err := json.Unmarshal(createModule.Body.Bytes(), &module); err != nil {
+		t.Fatalf("decode module response: %v", err)
+	}
+	if module.SlotNumber != 1 || len(module.Channels) != 2 {
+		t.Fatalf("expected one physical module with two channels, got %+v", module)
+	}
+
+	viewerCreate := executeRequest(app.rr, jsonRequest(t, http.MethodPost, "/api/sensor-bases/"+base.ID+"/modules", viewer.token, map[string]any{
+		"slot_number": 2,
+		"channels": []map[string]any{
+			{"channel_key": "temperature", "measurement_type": "temperature"},
+		},
+	}))
+	if viewerCreate.Code != http.StatusForbidden {
+		t.Fatalf("viewer create module status = %d, body = %s", viewerCreate.Code, viewerCreate.Body.String())
+	}
+
+	viewerList := executeRequest(app.rr, jsonRequest(t, http.MethodGet, "/api/sensor-bases/"+base.ID+"/modules", viewer.token, nil))
+	if viewerList.Code != http.StatusOK {
+		t.Fatalf("viewer list modules status = %d, body = %s", viewerList.Code, viewerList.Body.String())
+	}
+	var listPayload struct {
+		Modules []sensorModuleResponse `json:"modules"`
+	}
+	if err := json.Unmarshal(viewerList.Body.Bytes(), &listPayload); err != nil {
+		t.Fatalf("decode module list: %v", err)
+	}
+	if len(listPayload.Modules) != 1 || len(listPayload.Modules[0].Channels) != 2 {
+		t.Fatalf("expected listed module with channels, got %+v", listPayload.Modules)
+	}
+
+	invalidModule := executeRequest(app.rr, jsonRequest(t, http.MethodPost, "/api/sensor-bases/"+base.ID+"/modules", owner.token, map[string]any{
+		"slot_number": 2,
+		"channels": []map[string]any{
+			{"channel_key": "temperature", "measurement_type": "temperature"},
+			{"channel_key": "temperature", "measurement_type": "humidity"},
+		},
+	}))
+	if invalidModule.Code != http.StatusBadRequest {
+		t.Fatalf("duplicate channel status = %d, body = %s", invalidModule.Code, invalidModule.Body.String())
+	}
+}
+
 func TestFarmHardwareAccessValidation(t *testing.T) {
 	app := newIntegrationApp(t)
 	owner := app.createTestUser(t, "OWNER")

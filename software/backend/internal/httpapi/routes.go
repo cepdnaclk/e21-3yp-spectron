@@ -135,6 +135,8 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		})
 		r.Post("/api/sensor-bases/{baseId}/assignment", farmHandler.AssignSensorBase)
 		r.Get("/api/sensor-bases/{baseId}/assignments", farmHandler.ListSensorBaseAssignments)
+		r.Get("/api/sensor-bases/{baseId}/modules", farmHandler.ListSensorModules)
+		r.Post("/api/sensor-bases/{baseId}/modules", farmHandler.CreateSensorModule)
 		r.Get("/api/crops", farmHandler.ListCrops)
 		r.Route("/api/fields/{fieldId}/crop-instances", func(r chi.Router) {
 			r.Get("/", farmHandler.ListCropInstances)
