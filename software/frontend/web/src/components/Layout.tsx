@@ -107,7 +107,7 @@ const Layout: React.FC = () => {
           component="aside"
           sx={{
             width: 268,
-            p: 2,
+            p: 1.75,
             position: 'fixed',
             inset: '0 auto 0 0',
           }}
@@ -115,16 +115,17 @@ const Layout: React.FC = () => {
           <Box
             sx={{
               height: '100%',
-              bgcolor: 'transparent',
-              borderRight: '1px solid rgba(60, 57, 17, 0.1)',
-              borderRadius: 0,
+              bgcolor: 'rgba(255, 253, 248, 0.76)',
+              border: '1px solid rgba(60, 57, 17, 0.1)',
+              borderRadius: 4,
               p: 2,
-              boxShadow: 'none',
+              boxShadow: '0 18px 44px rgba(60, 57, 17, 0.08)',
+              backdropFilter: 'blur(16px)',
               display: 'flex',
               flexDirection: 'column',
             }}
           >
-            <Box sx={{ mb: 4 }}>
+            <Box sx={{ mb: 3.5, px: 0.5 }}>
               <Box
                 component="img"
                 src="/assets/spectron-logo-full.svg"
@@ -145,13 +146,16 @@ const Layout: React.FC = () => {
                     gap: 1.5,
                     px: 1.5,
                     py: 1.25,
-                    borderRadius: 999,
+                    borderRadius: 2.5,
                     color: value === index ? '#fffdf8' : 'text.secondary',
                     bgcolor: value === index ? 'primary.dark' : 'transparent',
+                    boxShadow: value === index ? '0 10px 22px rgba(60, 57, 17, 0.18)' : 'none',
+                    transition: 'background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
                     textDecoration: 'none',
                     '&:hover': {
                       bgcolor: value === index ? 'primary.dark' : 'rgba(108, 137, 48, 0.1)',
                       textDecoration: 'none',
+                      transform: 'translateX(2px)',
                     },
                     '& .MuiSvgIcon-root': {
                       color: value === index ? 'secondary.light' : 'primary.main',
@@ -173,13 +177,14 @@ const Layout: React.FC = () => {
               sx={{
                 mt: 'auto',
                 p: 1.5,
-                borderRadius: 0,
-                bgcolor: 'transparent',
-                borderTop: '1px solid rgba(60, 57, 17, 0.1)',
+                borderRadius: 3,
+                bgcolor: 'rgba(255, 253, 248, 0.72)',
+                border: '1px solid rgba(60, 57, 17, 0.1)',
                 display: 'block',
                 textAlign: 'left',
                 color: 'inherit',
                 textDecoration: 'none',
+                boxShadow: '0 10px 24px rgba(60, 57, 17, 0.05)',
               }}
             >
               <Typography variant="caption" color="text.secondary">
@@ -216,7 +221,7 @@ const Layout: React.FC = () => {
                 color="primary"
                 startIcon={<Logout />}
                 onClick={handleLogout}
-                sx={{ mt: 2 }}
+                sx={{ mt: 2, bgcolor: 'rgba(255, 253, 248, 0.76)' }}
               >
                 Logout
               </Button>

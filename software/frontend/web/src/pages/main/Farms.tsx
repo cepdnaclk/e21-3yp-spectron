@@ -11,7 +11,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControlLabel,
   Grid,
   IconButton,
   Stack,
@@ -20,7 +19,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { Add, ArrowForward, Info, Place } from '@mui/icons-material';
+import { Add, Agriculture, ArrowForward, Info, Place, Refresh, Terrain, VisibilityOutlined } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { PageHeaderSkeleton } from '../../components/LoadingSkeletons';
 import { createFarm, Farm, getFarms } from '../../services/farmService';
@@ -128,7 +127,24 @@ const Farms: React.FC = () => {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ py: { xs: 2, md: 3 } }}>
+    <Container
+      maxWidth="xl"
+      sx={{
+        py: { xs: 2, md: 3 },
+        position: 'relative',
+        '&::before': {
+          content: '""',
+          position: 'absolute',
+          inset: { xs: '12px 12px auto 12px', md: '16px 24px auto 24px' },
+          height: { xs: 110, md: 140 },
+          borderRadius: 4,
+          background:
+            'linear-gradient(90deg, rgba(235, 79, 18, 0.08), rgba(108, 137, 48, 0.08) 55%, rgba(51, 122, 133, 0.06))',
+          pointerEvents: 'none',
+          zIndex: 0,
+        },
+      }}
+    >
       <AutoDismissAlert open={Boolean(notice)} severity="success" sx={{ mb: 2 }} onCloseAlert={() => setNotice('')}>
         {notice}
       </AutoDismissAlert>
@@ -136,83 +152,201 @@ const Farms: React.FC = () => {
         {error}
       </AutoDismissAlert>
 
-      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} sx={{ mb: 3 }}>
-        <Box>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="h4">My Farms</Typography>
-            <Tooltip title="Farms hold the customer side of the system.">
-              <IconButton size="small" aria-label="Farm help">
-                <Info fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Stack>
-          <Typography color="text.secondary" sx={{ mt: 0.5 }}>
-            Short list. Fast access.
-          </Typography>
-        </Box>
-
-        <Button
-          startIcon={<Add />}
-          variant="contained"
-          onClick={() => {
-            setFormError('');
-            setOpenCreate(true);
-          }}
-          sx={{ alignSelf: 'flex-start' }}
+      <Box
+        sx={{
+          position: 'relative',
+          zIndex: 1,
+          mb: 3,
+          p: { xs: 2, md: 2.5 },
+          borderRadius: 4,
+          border: '1px solid rgba(60, 57, 17, 0.1)',
+          bgcolor: 'rgba(255, 253, 248, 0.9)',
+          backdropFilter: 'blur(14px)',
+          boxShadow: '0 16px 40px rgba(60, 57, 17, 0.08)',
+        }}
+      >
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          justifyContent="space-between"
+          alignItems={{ xs: 'stretch', md: 'center' }}
+          spacing={2}
         >
-          Add Farm
-        </Button>
-      </Stack>
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0 }}>
+            <Box
+              sx={{
+                width: 48,
+                height: 48,
+                borderRadius: 2,
+                display: 'grid',
+                placeItems: 'center',
+                bgcolor: 'rgba(108, 137, 48, 0.12)',
+                color: 'primary.main',
+                flexShrink: 0,
+              }}
+            >
+              <Agriculture />
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                <Typography variant="h4" sx={{ overflowWrap: 'anywhere' }}>
+                  My Farms
+                </Typography>
+                <Tooltip title="Farms hold the customer side of the system.">
+                  <IconButton size="small" aria-label="Farm help">
+                    <Info fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+              <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+                Short list. Fast access.
+              </Typography>
+            </Box>
+          </Stack>
 
-      <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} sx={{ alignSelf: { xs: 'stretch', md: 'auto' } }}>
+            <Button startIcon={<Refresh />} variant="outlined" onClick={load} sx={{ minWidth: { xs: '100%', sm: 0 } }}>
+              Refresh
+            </Button>
+            <Button
+              startIcon={<Add />}
+              variant="contained"
+              onClick={() => {
+                setFormError('');
+                setOpenCreate(true);
+              }}
+              sx={{ minWidth: { xs: '100%', sm: 0 } }}
+            >
+              Add Farm
+            </Button>
+          </Stack>
+        </Stack>
+      </Box>
+
+      <Grid container spacing={1.5} sx={{ mb: 2.5, position: 'relative', zIndex: 1 }}>
+        {[
+          { label: 'Farms', value: farms.length, icon: <Terrain fontSize="small" />, tone: 'primary.main' },
+          { label: 'Owned', value: ownerCount, icon: <Agriculture fontSize="small" />, tone: 'secondary.main' },
+          { label: 'Viewed', value: viewerCount, icon: <VisibilityOutlined fontSize="small" />, tone: 'info.main' },
+        ].map((item) => (
+          <Grid item xs={12} sm={6} md={3} key={item.label}>
+            <Card
+              variant="outlined"
+              sx={{
+                height: '100%',
+                bgcolor: 'rgba(255,253,248,0.92)',
+                borderColor: 'rgba(60, 57, 17, 0.1)',
+                boxShadow: '0 10px 24px rgba(60, 57, 17, 0.06)',
+              }}
+            >
+              <CardContent sx={{ p: 2 }}>
+                <Stack direction="row" spacing={1.25} alignItems="center">
+                  <Box
+                    sx={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 2,
+                      display: 'grid',
+                      placeItems: 'center',
+                      bgcolor: 'rgba(108, 137, 48, 0.12)',
+                      color: item.tone,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {item.icon}
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      {item.label}
+                    </Typography>
+                    <Typography variant="h4" sx={{ lineHeight: 1 }}>
+                      {item.value}
+                    </Typography>
+                  </Box>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
         <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary">Farms</Typography>
-              <Typography variant="h4">{farms.length}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary">Owned</Typography>
-              <Typography variant="h4">{ownerCount}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary">Viewed</Typography>
-              <Typography variant="h4">{viewerCount}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <FormControlLabel
-                control={<Switch checked={showCoords} onChange={(e) => setShowCoords(e.target.checked)} />}
-                label="Show coords"
+          <Card
+            variant="outlined"
+            sx={{
+              height: '100%',
+              bgcolor: 'rgba(255,253,248,0.92)',
+              borderColor: 'rgba(60, 57, 17, 0.1)',
+              boxShadow: '0 10px 24px rgba(60, 57, 17, 0.06)',
+            }}
+          >
+            <CardContent sx={{ p: 2 }}>
+              <Stack direction="row" spacing={1.25} justifyContent="space-between" alignItems="center">
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Map detail
+                  </Typography>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                    Show coords
+                  </Typography>
+                </Box>
+                <Tooltip title="Reveal latitude and longitude on each farm card.">
+                  <IconButton size="small" aria-label="Coords help">
+                    <Info fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+              <Switch
+                checked={showCoords}
+                onChange={(e) => setShowCoords(e.target.checked)}
+                inputProps={{ 'aria-label': 'Show coordinates' }}
+                sx={{ mt: 1 }}
               />
             </CardContent>
           </Card>
         </Grid>
       </Grid>
 
-      <Grid container spacing={2}>
+      <Grid container spacing={2} sx={{ position: 'relative', zIndex: 1 }}>
         {farms.length === 0 ? (
           <Grid item xs={12}>
-            <Card>
-              <CardContent sx={{ py: 6, textAlign: 'center' }}>
-                <Place color="primary" sx={{ fontSize: 44 }} />
-                <Typography variant="h6" sx={{ mt: 1 }}>
+            <Card
+              variant="outlined"
+              sx={{
+                borderStyle: 'dashed',
+                bgcolor: 'rgba(255,253,248,0.86)',
+                boxShadow: '0 10px 24px rgba(60, 57, 17, 0.05)',
+              }}
+            >
+              <CardContent sx={{ py: { xs: 6, md: 8 }, textAlign: 'center' }}>
+                <Box
+                  sx={{
+                    width: 72,
+                    height: 72,
+                    mx: 'auto',
+                    borderRadius: '50%',
+                    display: 'grid',
+                    placeItems: 'center',
+                    bgcolor: 'rgba(108, 137, 48, 0.1)',
+                    color: 'primary.main',
+                  }}
+                >
+                  <Place sx={{ fontSize: 38 }} />
+                </Box>
+                <Typography variant="h6" sx={{ mt: 2 }}>
                   No farms yet
                 </Typography>
                 <Typography color="text.secondary" sx={{ mt: 0.5 }}>
                   Add one to begin.
                 </Typography>
+                <Button
+                  startIcon={<Add />}
+                  variant="contained"
+                  sx={{ mt: 2.5 }}
+                  onClick={() => {
+                    setFormError('');
+                    setOpenCreate(true);
+                  }}
+                >
+                  Add Farm
+                </Button>
               </CardContent>
             </Card>
           </Grid>
@@ -223,29 +357,61 @@ const Farms: React.FC = () => {
                 sx={{
                   height: '100%',
                   cursor: 'pointer',
+                  overflow: 'hidden',
+                  bgcolor: 'rgba(255,253,248,0.94)',
                   border: '1px solid rgba(60,57,17,0.1)',
-                  '&:hover': { borderColor: 'rgba(108,137,48,0.35)' },
+                  boxShadow: '0 12px 28px rgba(60, 57, 17, 0.06)',
+                  transition: 'transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease',
+                  '&:hover': {
+                    borderColor: 'rgba(108,137,48,0.35)',
+                    boxShadow: '0 18px 36px rgba(60, 57, 17, 0.1)',
+                    transform: 'translateY(-2px)',
+                  },
                 }}
                 onClick={() => navigate(`/farms/${farm.id}`)}
               >
-                <CardContent>
-                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
-                    <Box>
-                      <Typography variant="h6" sx={{ lineHeight: 1.2 }}>
-                        {farm.name}
-                      </Typography>
-                      <Chip size="small" label={roleLabel(farm.role)} sx={{ mt: 1 }} />
-                    </Box>
-                    <ArrowForward color="action" />
+                <Box sx={{ height: 6, bgcolor: farm.role === 'owner' ? 'primary.main' : 'info.main' }} />
+                <CardContent sx={{ p: 2 }}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1.25}>
+                    <Stack direction="row" spacing={1.25} alignItems="flex-start" sx={{ minWidth: 0 }}>
+                      <Box
+                        sx={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 2,
+                          display: 'grid',
+                          placeItems: 'center',
+                          bgcolor: 'rgba(108, 137, 48, 0.12)',
+                          color: 'primary.main',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Place fontSize="small" />
+                      </Box>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="h6" sx={{ lineHeight: 1.2, overflowWrap: 'anywhere' }}>
+                          {farm.name}
+                        </Typography>
+                        <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mt: 0.75 }}>
+                          <Chip size="small" label={roleLabel(farm.role)} />
+                          <Chip size="small" label={farm.area ? `${farm.area} ha` : 'Area n/a'} variant="outlined" />
+                        </Stack>
+                      </Box>
+                    </Stack>
+                    <ArrowForward color="action" sx={{ mt: 0.25 }} />
                   </Stack>
-                  <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap">
-                    <Chip size="small" label={farm.area ? `${farm.area} ha` : 'Area n/a'} />
+                  <Stack direction="row" spacing={1} sx={{ mt: 1.75 }} flexWrap="wrap">
                     {showCoords && (
                       <>
-                        <Chip size="small" label={`Lat ${shortPoint(farm.latitude)}`} />
-                        <Chip size="small" label={`Lon ${shortPoint(farm.longitude)}`} />
+                        <Chip size="small" label={`Lat ${shortPoint(farm.latitude)}`} variant="outlined" />
+                        <Chip size="small" label={`Lon ${shortPoint(farm.longitude)}`} variant="outlined" />
                       </>
                     )}
+                  </Stack>
+                  <Stack direction="row" justifyContent="flex-end" alignItems="center" sx={{ mt: 1.75 }}>
+                    <Button size="small" variant="outlined">
+                      Open Farm
+                    </Button>
                   </Stack>
                 </CardContent>
               </Card>
