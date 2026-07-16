@@ -628,7 +628,33 @@ const FarmDetails: React.FC = () => {
   }
 
   if (!farm) {
-    return null;
+    return (
+      <Container maxWidth="md" sx={{ py: { xs: 2, md: 3 } }}>
+        <PageShell>
+          <Card
+            variant="outlined"
+            sx={{
+              bgcolor: 'rgba(255,253,248,0.94)',
+              boxShadow: '0 12px 28px rgba(60, 57, 17, 0.06)',
+            }}
+          >
+            <CardContent sx={{ p: { xs: 2.5, md: 3 } }}>
+              <Stack spacing={2}>
+                <Box>
+                  <Typography variant="h5">Farm unavailable</Typography>
+                  <Typography color="text.secondary" sx={{ mt: 0.75 }}>
+                    {error || 'This farm could not be opened.'}
+                  </Typography>
+                </Box>
+                <Button variant="contained" onClick={() => navigate('/farms')} sx={{ alignSelf: 'flex-start' }}>
+                  Back to Farms
+                </Button>
+              </Stack>
+            </CardContent>
+          </Card>
+        </PageShell>
+      </Container>
+    );
   }
 
   return (
