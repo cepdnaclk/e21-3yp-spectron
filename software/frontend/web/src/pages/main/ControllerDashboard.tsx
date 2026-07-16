@@ -684,32 +684,14 @@ const ControllerDashboard: React.FC = () => {
                 <Button
                   variant="contained"
                   startIcon={<Grass />}
-                  onClick={() => navigate(`/hardware/${activeControllerId}/agri-config`)}
+                  onClick={() => navigate('/farms')}
                   sx={{
                     bgcolor: '#6c8930',
                     color: '#fffdf8',
                     '&:hover': { bgcolor: '#5b7428' },
                   }}
                 >
-                  AgriAssist
-                </Button>
-              )}
-              {isHardwareContext && (
-                <Button
-                  variant="outlined"
-                  color="inherit"
-                  startIcon={<Grass />}
-                  onClick={() => navigate(`/hardware/${activeControllerId}/agri-dashboard`)}
-                  sx={{
-                    color: '#fffdf8',
-                    borderColor: 'rgba(255, 253, 248, 0.36)',
-                    '&:hover': {
-                      borderColor: '#fffdf8',
-                      bgcolor: 'rgba(255, 253, 248, 0.08)',
-                    },
-                  }}
-                >
-                  Agri Dashboard
+                  Farm Setup
                 </Button>
               )}
               <Button

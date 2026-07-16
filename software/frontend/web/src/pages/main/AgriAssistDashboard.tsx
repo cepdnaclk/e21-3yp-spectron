@@ -290,8 +290,8 @@ const AgriAssistDashboard: React.FC = () => {
             <Button variant="outlined" startIcon={<Download />} onClick={handleDownloadPdf} sx={{ width: { xs: '100%', sm: 'auto' } }}>
               Download guide
             </Button>
-            <Button variant="outlined" startIcon={<Settings />} onClick={() => navigate(`/hardware/${controllerId}/agri-config`)} sx={{ width: { xs: '100%', sm: 'auto' } }}>
-              Edit AgriAssist
+            <Button variant="outlined" startIcon={<Settings />} onClick={() => navigate('/farms')} sx={{ width: { xs: '100%', sm: 'auto' } }}>
+              Farm Setup
             </Button>
           </Stack>
         </Stack>
@@ -311,7 +311,7 @@ const AgriAssistDashboard: React.FC = () => {
 
         {configuredSensors.length === 0 && (
           <Alert severity="info">
-            AgriAssist is in advisory mode. Enable a crop-stage setup to show sensor-based alert actions.
+            AgriAssist is in advisory mode. Use farm setup for crop and stage confirmation.
           </Alert>
         )}
 
@@ -392,4 +392,3 @@ const AgriAssistDashboard: React.FC = () => {
 };
 
 export default AgriAssistDashboard;
-
