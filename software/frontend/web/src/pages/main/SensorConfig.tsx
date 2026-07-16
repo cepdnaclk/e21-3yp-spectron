@@ -10,38 +10,20 @@ import {
   Typography,
   Box,
   Grid,
-  FormControl,
   IconButton,
-  InputLabel,
-  MenuItem,
-  Select,
   Alert,
   Stack,
   Chip,
   Popover,
-  Stepper,
-  Step,
-  StepButton,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Switch,
-  FormControlLabel,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   Checkbox,
 } from '@mui/material';
-import { alpha } from '@mui/material/styles';
 import {
   ArrowBack,
   Close,
-  ShowChart as ShowChartIcon,
-  BarChart as BarChartIcon,
-  Speed as SpeedIcon,
-  Timeline as TimelineIcon,
-  ExpandMore as ExpandMoreIcon,
   Info as InfoIcon,
 } from '@mui/icons-material';
 import {
@@ -60,10 +42,7 @@ import {
 import {
   buildPresentationAlertSettings,
   estimateBatteryLifeDays,
-  formatHardwareMetricRange,
   getPresentationMetadata,
-  getPresentationConfigFields,
-  getPresentationConfigOption,
   getPresentationMetrics,
   getPresentationProfileDefinitions,
   getConfigurableDerivedMetrics,
@@ -80,7 +59,6 @@ import {
   ObservableMetricDefinition,
   PresentationConfigValue,
   PresentationProfileKey,
-  PresentationVisualizationMethod,
 } from '../../utils/sensorConfig';
 import { SensorConfigSkeleton } from '../../components/LoadingSkeletons';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
@@ -511,12 +489,6 @@ const sectionTitleSx = {
   pb: 0.75,
 } as const;
 
-const sectionIntroSx = {
-  color: 'text.secondary',
-  lineHeight: 1.6,
-  maxWidth: 820,
-} as const;
-
 const fieldGroupTitleSx = {
   mb: 1,
   color: 'text.primary',
@@ -524,19 +496,6 @@ const fieldGroupTitleSx = {
   borderLeft: '4px solid rgba(108, 137, 48, 0.55)',
   pl: 1.25,
   lineHeight: 1.35,
-} as const;
-
-const fieldGroupIntroSx = {
-  mb: 1.5,
-  color: 'text.secondary',
-  lineHeight: 1.55,
-} as const;
-
-const captionTextSx = {
-  color: 'text.secondary',
-  display: 'block',
-  lineHeight: 1.5,
-  mt: -0.25,
 } as const;
 
 const alertTitleSx = {
@@ -561,685 +520,6 @@ const CONFIGURATION_STEPS: Array<{
   },
 ];
 
-type MetricPreviewSnapshot = {
-  headline: string;
-  comparison: string;
-  detail: string;
-  status: string;
-};
-
-type MetricPreviewReading = {
-  label: string;
-  value: string;
-};
-
-type MetricPreviewSampleData = {
-  trend: number[];
-  readings: MetricPreviewReading[];
-  trendLabel: string;
-  sampleWindowLabel: string;
-  gaugePercent?: number;
-};
-
-const METRIC_PREVIEW_SNAPSHOTS: Record<string, MetricPreviewSnapshot> = {
-  temperature: {
-    headline: '28.4 C',
-    comparison: '2.4 C above the lower comfort band',
-    detail: 'The recent trend shows a gradual daytime rise.',
-    status: 'Comfortable',
-  },
-  humidity: {
-    headline: '68 %RH',
-    comparison: '4 %RH above the dry threshold',
-    detail: 'Humidity has remained stable through the last few readings.',
-    status: 'Balanced',
-  },
-  temperature_spike: {
-    headline: '+3.2 C / 10 min',
-    comparison: 'Higher than the normal change pattern',
-    detail: 'This preview highlights sudden short-window changes.',
-    status: 'Rapid rise',
-  },
-  humidity_spike: {
-    headline: '+8 %RH / 10 min',
-    comparison: 'Above the expected humidity swing',
-    detail: 'Useful when sudden moisture changes matter more than absolute humidity.',
-    status: 'Sudden increase',
-  },
-  heat_index: {
-    headline: '31.5 C feel-like',
-    comparison: 'Feels warmer than the direct temperature reading',
-    detail: 'Combines temperature and humidity into one stress-oriented metric.',
-    status: 'Heat stress watch',
-  },
-  dew_point: {
-    headline: '21.7 C',
-    comparison: 'Approaching the condensation risk zone',
-    detail: 'Shows when moisture may begin condensing on surfaces.',
-    status: 'Condensation watch',
-  },
-  climate_condition: {
-    headline: 'Warm and Humid',
-    comparison: 'Outside the ideal comfort balance',
-    detail: 'A summarized climate state for simple operator dashboards.',
-    status: 'Needs attention',
-  },
-  distance: {
-    headline: '92 cm',
-    comparison: 'Within the configured monitoring corridor',
-    detail: 'Useful for direct clearance or proximity review.',
-    status: 'Stable distance',
-  },
-  fill_level: {
-    headline: '76 % full',
-    comparison: '16 % below the urgent service threshold',
-    detail: 'The container is trending toward service capacity.',
-    status: 'Near capacity',
-  },
-  occupancy_count: {
-    headline: '18 people',
-    comparison: '6 below the crowded threshold',
-    detail: 'The count is rising but still under the limit.',
-    status: 'Moderately busy',
-  },
-  attendance_count: {
-    headline: '42 present',
-    comparison: '3 below the session target',
-    detail: 'Attendance is slightly under the expected turnout.',
-    status: 'Almost on target',
-  },
-  fill_rate: {
-    headline: '+4 % / hour',
-    comparison: 'Faster than the usual refill pattern',
-    detail: 'Highlights how quickly the level is changing over time.',
-    status: 'Fast accumulation',
-  },
-  remaining_capacity_percent: {
-    headline: '24 % free',
-    comparison: 'Below the preferred spare-capacity band',
-    detail: 'Useful for service scheduling and capacity planning.',
-    status: 'Limited capacity',
-  },
-  occupancy_spike: {
-    headline: '+7 people / 5 min',
-    comparison: 'Higher than the normal entry rate',
-    detail: 'Designed for rush detection rather than steady occupancy.',
-    status: 'Crowd surge',
-  },
-  peak_occupancy: {
-    headline: '53 max',
-    comparison: 'Above the planned utilization peak',
-    detail: 'Shows the highest crowd level reached in the chosen window.',
-    status: 'Peak pressure',
-  },
-  weight: {
-    headline: '13.6 kg',
-    comparison: '2.1 kg below the heavy-load threshold',
-    detail: 'Live weight remains inside the preferred operating band.',
-    status: 'Within load band',
-  },
-  utilization_percent: {
-    headline: '68 % utilized',
-    comparison: '12 % below the preferred capacity ceiling',
-    detail: 'Focuses on how much of the supported capacity is in use.',
-    status: 'Healthy utilization',
-  },
-  load_change_rate: {
-    headline: '-1.1 kg / hour',
-    comparison: 'Faster than the normal depletion pattern',
-    detail: 'Useful when rate-of-change matters more than the current weight.',
-    status: 'Dropping steadily',
-  },
-  overload_risk: {
-    headline: 'Moderate risk',
-    comparison: 'Above the safe handling comfort zone',
-    detail: 'Summarizes live load exposure as a risk-oriented signal.',
-    status: 'Watch load',
-  },
-  depletion_rate: {
-    headline: '-2.4 kg / day',
-    comparison: 'Higher than the usual consumption pace',
-    detail: 'Useful for refill planning and stock forecasting.',
-    status: 'Depleting quickly',
-  },
-  gas_level: {
-    headline: '320 ppm',
-    comparison: '80 ppm below the warning threshold',
-    detail: 'The live reading is elevated but still under the configured alert band.',
-    status: 'Caution zone',
-  },
-  gas_spike: {
-    headline: '+85 ppm / 5 min',
-    comparison: 'Higher than the recent background change rate',
-    detail: 'Highlights sudden concentration jumps for incident review.',
-    status: 'Sudden gas rise',
-  },
-  risk_score: {
-    headline: '72 / 100',
-    comparison: 'Above the preferred safety score band',
-    detail: 'A normalized safety view for operator dashboards.',
-    status: 'Elevated risk',
-  },
-  exposure_state: {
-    headline: 'Caution',
-    comparison: 'One step above the normal safe state',
-    detail: 'A traffic-light style summary of gas exposure.',
-    status: 'Caution',
-  },
-  unsafe_duration: {
-    headline: '12 min unsafe',
-    comparison: 'Longer than the preferred exposure window',
-    detail: 'Tracks how long the environment stays above a danger boundary.',
-    status: 'Extended exposure',
-  },
-  aqi: {
-    headline: '68 AQI',
-    comparison: 'Inside the moderate air-quality band',
-    detail: 'Useful for a more human-readable safety interpretation.',
-    status: 'Moderate air quality',
-  },
-};
-
-const getMetricPreviewSnapshot = (metricKey?: string): MetricPreviewSnapshot => {
-  if (!metricKey) {
-    return {
-      headline: 'Preview pending',
-      comparison: 'Choose an observed metric to see the end-state preview.',
-      detail: 'The final preview updates as each layer is configured.',
-      status: 'Not configured',
-    };
-  }
-
-  return (
-    METRIC_PREVIEW_SNAPSHOTS[metricKey] || {
-      headline: `${getMetricLabel(metricKey)} preview`,
-      comparison: 'Comparison details will follow the selected presentation mode.',
-      detail: 'This preview uses the selected metric, profile, and thresholds.',
-      status: 'Configured',
-    }
-  );
-};
-
-const getMetricPreviewSampleData = (metricKey?: string): MetricPreviewSampleData => {
-  switch (metricKey) {
-    case 'temperature':
-    case 'temperature_spike':
-    case 'heat_index':
-    case 'dew_point':
-    case 'climate_condition':
-      return {
-        trend: [38, 46, 54, 61, 68, 73, 66],
-        readings: [
-          { label: '08:00', value: '26.8 C' },
-          { label: '10:00', value: '27.6 C' },
-          { label: '12:00', value: '28.4 C' },
-          { label: '14:00', value: '28.1 C' },
-        ],
-        trendLabel: 'Sample daytime warming pattern across the last 6 hours.',
-        sampleWindowLabel: 'Sample last 6 hours',
-      };
-    case 'humidity':
-    case 'humidity_spike':
-      return {
-        trend: [62, 58, 64, 67, 65, 69, 68],
-        readings: [
-          { label: '08:00', value: '63 %RH' },
-          { label: '10:00', value: '66 %RH' },
-          { label: '12:00', value: '68 %RH' },
-          { label: '14:00', value: '67 %RH' },
-        ],
-        trendLabel: 'Sample humidity behavior with mild fluctuation through the day.',
-        sampleWindowLabel: 'Sample last 6 hours',
-      };
-    case 'distance':
-      return {
-        trend: [74, 71, 69, 66, 63, 61, 60],
-        readings: [
-          { label: '09:00', value: '98 cm' },
-          { label: '10:00', value: '95 cm' },
-          { label: '11:00', value: '93 cm' },
-          { label: '12:00', value: '92 cm' },
-        ],
-        trendLabel: 'Sample direct-distance trend showing a gradual approach.',
-        sampleWindowLabel: 'Sample last 4 readings',
-      };
-    case 'fill_level':
-    case 'fill_rate':
-    case 'remaining_capacity_percent':
-      return {
-        trend: [42, 49, 57, 63, 69, 73, 76],
-        readings: [
-          { label: '07:00', value: '61 %' },
-          { label: '09:00', value: '67 %' },
-          { label: '11:00', value: '72 %' },
-          { label: '13:00', value: '76 %' },
-        ],
-        trendLabel: 'Sample level build-up toward service capacity.',
-        sampleWindowLabel: 'Sample last 8 hours',
-        gaugePercent: metricKey === 'remaining_capacity_percent' ? 24 : 76,
-      };
-    case 'occupancy_count':
-    case 'attendance_count':
-    case 'occupancy_spike':
-    case 'peak_occupancy':
-      return {
-        trend: [18, 24, 37, 48, 56, 52, 44],
-        readings: [
-          { label: '09:00', value: '12' },
-          { label: '10:00', value: '16' },
-          { label: '11:00', value: '18' },
-          { label: '12:00', value: '15' },
-        ],
-        trendLabel: 'Sample crowd pattern with a mid-window rise and a slight release after the peak.',
-        sampleWindowLabel: 'Sample session window',
-      };
-    case 'weight':
-    case 'utilization_percent':
-    case 'load_change_rate':
-    case 'overload_risk':
-    case 'depletion_rate':
-      return {
-        trend: [72, 70, 67, 65, 62, 59, 56],
-        readings: [
-          { label: '08:00', value: '15.1 kg' },
-          { label: '10:00', value: '14.7 kg' },
-          { label: '12:00', value: '14.1 kg' },
-          { label: '14:00', value: '13.6 kg' },
-        ],
-        trendLabel: 'Sample inventory drawdown trend across the recent reporting window.',
-        sampleWindowLabel: 'Sample last 6 hours',
-        gaugePercent:
-          metricKey === 'utilization_percent' ? 68 : metricKey === 'overload_risk' ? 72 : undefined,
-      };
-    case 'gas_level':
-    case 'gas_spike':
-    case 'risk_score':
-    case 'exposure_state':
-    case 'unsafe_duration':
-    case 'aqi':
-      return {
-        trend: [28, 33, 38, 46, 54, 63, 58],
-        readings: [
-          { label: '08:00', value: '250 ppm' },
-          { label: '10:00', value: '280 ppm' },
-          { label: '12:00', value: '320 ppm' },
-          { label: '14:00', value: '305 ppm' },
-        ],
-        trendLabel: 'Sample safety reading trend with a recent rise and mild recovery.',
-        sampleWindowLabel: 'Sample incident window',
-        gaugePercent:
-          metricKey === 'risk_score' ? 72 : metricKey === 'aqi' ? 68 : undefined,
-      };
-    default:
-      return {
-        trend: [36, 41, 47, 53, 58, 62, 59],
-        readings: [
-          { label: 'T-3', value: 'Sample 1' },
-          { label: 'T-2', value: 'Sample 2' },
-          { label: 'T-1', value: 'Sample 3' },
-          { label: 'Now', value: 'Sample 4' },
-        ],
-        trendLabel: 'Sample preview data for the selected metric.',
-        sampleWindowLabel: 'Sample history',
-      };
-  }
-};
-
-const visualizationMethodIcon = (method?: PresentationVisualizationMethod) => {
-  switch (method) {
-    case 'area_trend':
-      return ShowChartIcon;
-    case 'gauge_band':
-      return SpeedIcon;
-    case 'counter_bars':
-      return BarChartIcon;
-    case 'event_timeline':
-      return TimelineIcon;
-    case 'line_trend':
-    default:
-      return ShowChartIcon;
-  }
-};
-
-const buildMiniChartPaths = (values: number[], width = 140, height = 48) => {
-  if (values.length === 0) {
-    return {
-      linePath: '',
-      areaPath: '',
-      points: [] as Array<{ x: number; y: number }>,
-    };
-  }
-
-  const padding = 4;
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const range = Math.max(maxValue - minValue, 1);
-  const stepX = values.length > 1 ? (width - padding * 2) / (values.length - 1) : 0;
-
-  const points = values.map((value, index) => {
-    const x = padding + index * stepX;
-    const normalized = (value - minValue) / range;
-    const y = height - padding - normalized * (height - padding * 2);
-    return { x, y };
-  });
-
-  const linePath = points
-    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
-    .join(' ');
-  const areaPath = `${linePath} L ${points[points.length - 1].x.toFixed(2)} ${(height - padding).toFixed(2)} L ${points[0].x.toFixed(2)} ${(height - padding).toFixed(2)} Z`;
-
-  return {
-    linePath,
-    areaPath,
-    points,
-  };
-};
-
-const buildMiniStepPath = (values: number[], width = 140, height = 48) => {
-  if (values.length === 0) {
-    return '';
-  }
-
-  const padding = 4;
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const range = Math.max(maxValue - minValue, 1);
-  const stepX = values.length > 1 ? (width - padding * 2) / (values.length - 1) : 0;
-
-  const points = values.map((value, index) => {
-    const x = padding + index * stepX;
-    const normalized = (value - minValue) / range;
-    const y = height - padding - normalized * (height - padding * 2);
-    return { x, y };
-  });
-
-  let path = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
-  for (let index = 1; index < points.length; index += 1) {
-    const previous = points[index - 1];
-    const current = points[index];
-    path += ` L ${current.x.toFixed(2)} ${previous.y.toFixed(2)} L ${current.x.toFixed(2)} ${current.y.toFixed(2)}`;
-  }
-
-  return path;
-};
-
-const renderVisualizationMethodPreview = (
-  method?: PresentationVisualizationMethod,
-  active?: boolean
-) => {
-  const accent = active ? '#6c8930' : '#9b927d';
-  const soft = active ? 'rgba(108, 137, 48, 0.12)' : 'rgba(60, 57, 17, 0.08)';
-
-  switch (method) {
-    case 'gauge_band': {
-      const gaugeSparkline = buildMiniChartPaths([32, 45, 57, 63, 72]);
-      return (
-        <Box sx={{ mt: 1.5 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              Live band
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              72%
-            </Typography>
-          </Stack>
-          <Box sx={{ mt: 0.75, height: 10, borderRadius: 999, bgcolor: soft, overflow: 'hidden' }}>
-            <Box
-              sx={{
-                width: '72%',
-                height: '100%',
-                borderRadius: 999,
-                background: active
-                  ? 'linear-gradient(90deg, #6c8930 0%, #d39a3f 100%)'
-                  : 'linear-gradient(90deg, #9b927d 0%, #c9c2b3 100%)',
-              }}
-            />
-          </Box>
-          <svg width="100%" height="36" viewBox="0 0 140 36" role="img" aria-label="Recent trend preview" style={{ marginTop: 8 }}>
-            <path
-              d={gaugeSparkline.areaPath}
-              fill={active ? 'rgba(108, 137, 48, 0.12)' : 'rgba(155, 146, 125, 0.12)'}
-              stroke="none"
-            />
-            <path
-              d={gaugeSparkline.linePath}
-              fill="none"
-              stroke={accent}
-              strokeWidth="2.2"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-          </svg>
-        </Box>
-      );
-    }
-    case 'counter_bars':
-      return (
-        <Box sx={{ mt: 1.5 }}>
-          <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1 }}>
-            18
-          </Typography>
-          <Stack direction="row" spacing={0.75} alignItems="end" sx={{ mt: 1.1, height: 48 }}>
-            {[38, 52, 70, 58].map((height, index) => (
-              <Box
-                key={index}
-                sx={{
-                  flex: 1,
-                  borderRadius: '8px 8px 2px 2px',
-                  bgcolor: index === 3 ? accent : soft,
-                  height: `${height}%`,
-                }}
-              />
-            ))}
-          </Stack>
-        </Box>
-      );
-    case 'event_timeline': {
-      const eventValues = [18, 18, 44, 44, 68];
-      const eventPath = buildMiniStepPath(eventValues);
-      return (
-        <Box sx={{ mt: 1.5 }}>
-          <svg width="100%" height="52" viewBox="0 0 140 52" role="img" aria-label="Event timeline preview">
-            <path d={eventPath} fill="none" stroke={accent} strokeWidth="2.5" strokeLinejoin="round" />
-            {[18, 18, 44, 44, 68].map((_, index) => {
-              const x = 4 + index * ((140 - 8) / 4);
-              const y = index < 2 ? 44 : index < 4 ? 24 : 10;
-              return <circle key={index} cx={x} cy={y} r="3" fill={index === 4 ? accent : '#c9c2b3'} />;
-            })}
-          </svg>
-        </Box>
-      );
-    }
-    case 'area_trend': {
-      const areaChart = buildMiniChartPaths([28, 44, 58, 70, 62]);
-      return (
-        <Box sx={{ mt: 1.5 }}>
-          <svg width="100%" height="52" viewBox="0 0 140 52" role="img" aria-label="Area trend preview">
-            <path
-              d={areaChart.areaPath}
-              fill={active ? 'rgba(51, 122, 133, 0.20)' : 'rgba(155, 146, 125, 0.18)'}
-              stroke="none"
-            />
-            <path
-              d={areaChart.linePath}
-              fill="none"
-              stroke={active ? '#337a85' : accent}
-              strokeWidth="2.5"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-          </svg>
-        </Box>
-      );
-    }
-    case 'line_trend':
-    default: {
-      const lineChart = buildMiniChartPaths([20, 34, 41, 57, 50]);
-      return (
-        <Box sx={{ mt: 1.5 }}>
-          <svg width="100%" height="52" viewBox="0 0 140 52" role="img" aria-label="Line trend preview">
-            <path
-              d={lineChart.linePath}
-              fill="none"
-              stroke={accent}
-              strokeWidth="2.5"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-            {lineChart.points.map((point, index) => (
-              <circle
-                key={index}
-                cx={point.x}
-                cy={point.y}
-                r={index === lineChart.points.length - 1 ? 3.2 : 2.4}
-                fill={index === lineChart.points.length - 1 ? accent : '#c9c2b3'}
-              />
-            ))}
-          </svg>
-        </Box>
-      );
-    }
-  }
-};
-
-const renderDashboardPreviewVisualization = (
-  method: PresentationVisualizationMethod | undefined,
-  sampleData: MetricPreviewSampleData
-) => {
-  const gaugePercent =
-    sampleData.gaugePercent ??
-    Math.min(100, Math.max(12, Math.round(sampleData.trend[sampleData.trend.length - 1] || 0)));
-  const chart = buildMiniChartPaths(sampleData.trend, 280, 96);
-  const stepPath = buildMiniStepPath(sampleData.trend, 280, 96);
-
-  switch (method) {
-    case 'gauge_band':
-      return (
-        <Box sx={{ mt: 2.25 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              Live status
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              {gaugePercent}%
-            </Typography>
-          </Stack>
-          <Box
-            sx={{
-              mt: 0.85,
-              height: 12,
-              borderRadius: 999,
-              bgcolor: 'rgba(60, 57, 17, 0.08)',
-              overflow: 'hidden',
-            }}
-          >
-            <Box
-              sx={{
-                height: '100%',
-                width: `${gaugePercent}%`,
-                borderRadius: 999,
-                background: 'linear-gradient(90deg, #6c8930 0%, #c37b2a 100%)',
-              }}
-            />
-          </Box>
-          <svg width="100%" height="92" viewBox="0 0 280 96" role="img" aria-label="Recent trend preview" style={{ marginTop: 12 }}>
-            <path d={chart.areaPath} fill="rgba(108, 137, 48, 0.12)" stroke="none" />
-            <path
-              d={chart.linePath}
-              fill="none"
-              stroke="#6c8930"
-              strokeWidth="3"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-          </svg>
-        </Box>
-      );
-    case 'counter_bars':
-      return (
-        <Stack direction="row" spacing={1} alignItems="end" sx={{ mt: 2.25, height: 96 }}>
-          {sampleData.trend.map((point, index) => (
-            <Box
-              key={`counter-${index}`}
-              sx={{
-                flex: 1,
-                minWidth: 10,
-                borderRadius: '10px 10px 4px 4px',
-                bgcolor: alpha('#6c8930', index === sampleData.trend.length - 1 ? 0.95 : 0.7),
-                height: `${Math.max(point, 14)}%`,
-              }}
-            />
-          ))}
-        </Stack>
-      );
-    case 'event_timeline':
-      return (
-        <Box sx={{ mt: 2.25 }}>
-          <svg width="100%" height="92" viewBox="0 0 280 96" role="img" aria-label="Event timeline preview">
-            <path
-              d={stepPath}
-              fill="none"
-              stroke="#c37b2a"
-              strokeWidth="3"
-              strokeLinejoin="round"
-            />
-            {chart.points.map((point, index) => (
-              <circle
-                key={`event-${index}`}
-                cx={point.x}
-                cy={point.y}
-                r={index === chart.points.length - 1 ? 4.5 : 3.4}
-                fill={index === chart.points.length - 1 ? '#c37b2a' : '#e1d3bd'}
-              />
-            ))}
-          </svg>
-        </Box>
-      );
-    case 'area_trend':
-      return (
-        <Box sx={{ mt: 2.25 }}>
-          <svg width="100%" height="92" viewBox="0 0 280 96" role="img" aria-label="Area trend preview">
-            <path d={chart.areaPath} fill="rgba(51, 122, 133, 0.18)" stroke="none" />
-            <path
-              d={chart.linePath}
-              fill="none"
-              stroke="#337a85"
-              strokeWidth="3"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-          </svg>
-        </Box>
-      );
-    case 'line_trend':
-    default:
-      return (
-        <Box sx={{ mt: 2.25 }}>
-          <svg width="100%" height="92" viewBox="0 0 280 96" role="img" aria-label="Line trend preview">
-            <path
-              d={chart.linePath}
-              fill="none"
-              stroke="#6c8930"
-              strokeWidth="3"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-            {chart.points.map((point, index) => (
-              <circle
-                key={`line-${index}`}
-                cx={point.x}
-                cy={point.y}
-                r={index === chart.points.length - 1 ? 4.5 : 3.4}
-                fill={index === chart.points.length - 1 ? '#6c8930' : '#d6d1c4'}
-              />
-            ))}
-          </svg>
-        </Box>
-      );
-  }
-};
-
-// Info button component for optional information
 interface InfoButtonProps {
   children?: React.ReactNode;
   tooltip?: string;
@@ -1343,28 +623,36 @@ const SensorConfig: React.FC = () => {
   // Multi-metric support: Keep primaryMetric as a derived value for backward compatibility with preview/AI logic
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>([]);
   const primaryMetric = selectedMetrics[0] || '';
-  const setPrimaryMetric = (val: string) => {
-    if (!val) setSelectedMetrics([]);
-    else setSelectedMetrics((prev) => (prev.includes(val) ? prev : [val, ...prev.filter(m => m !== val)]));
-  };
 
   const [metricPresentationProfiles, setMetricPresentationProfiles] = useState<Record<string, PresentationProfileOption>>({});
   const [metricPresentationConfigs, setMetricPresentationConfigs] = useState<Record<string, PresentationConfigValue>>({});
   
   // Maintain backward compatibility for AI/primary metric logic
   const presentationProfile = metricPresentationProfiles[primaryMetric] || 'single_trend';
-  const presentationConfig = metricPresentationConfigs[primaryMetric] || {};
+  const presentationConfig = useMemo(
+    () => metricPresentationConfigs[primaryMetric] || {},
+    [metricPresentationConfigs, primaryMetric]
+  );
 
-  const setPresentationProfile = (profile: PresentationProfileOption) => {
-    setMetricPresentationProfiles(prev => ({ ...prev, [primaryMetric]: profile }));
-  };
-  const setPresentationConfig = (updater: PresentationConfigValue | ((current: PresentationConfigValue) => PresentationConfigValue)) => {
-    setMetricPresentationConfigs(prev => {
+  const setPrimaryMetric = useCallback((val: string) => {
+    if (!val) {
+      setSelectedMetrics([]);
+      return;
+    }
+    setSelectedMetrics((prev) => (prev.includes(val) ? prev : [val, ...prev.filter((m) => m !== val)]));
+  }, []);
+
+  const setPresentationProfile = useCallback((profile: PresentationProfileOption) => {
+    setMetricPresentationProfiles((prev) => ({ ...prev, [primaryMetric]: profile }));
+  }, [primaryMetric]);
+
+  const setPresentationConfig = useCallback((updater: PresentationConfigValue | ((current: PresentationConfigValue) => PresentationConfigValue)) => {
+    setMetricPresentationConfigs((prev) => {
       const current = prev[primaryMetric] || {};
       const next = typeof updater === 'function' ? updater(current) : updater;
       return { ...prev, [primaryMetric]: next };
     });
-  };
+  }, [primaryMetric]);
   
   const [alertSettings, setAlertSettings] = useState<AlertSettingInput[]>([]);
   const [, setMetricThresholds] = useState<Record<string, MetricThresholdInput>>({});
@@ -1372,7 +660,6 @@ const SensorConfig: React.FC = () => {
   const readingFlowType: 'CONSTANT_PER_DAY' = 'CONSTANT_PER_DAY';
   const [pageError, setPageError] = useState<string | null>(null);
   const [activeStep, setActiveStep] = useState(0);
-  const [visitedSteps, setVisitedSteps] = useState<Set<number>>(new Set([0]));
   const [aiPrompt, setAiPrompt] = useState('');
   const [learningPhaseDay, setLearningPhaseDay] = useState(0);
   const [learningPhaseStatus, setLearningPhaseStatus] = useState<LearningPhaseStatusResponse | null>(null);
@@ -1406,10 +693,6 @@ const SensorConfig: React.FC = () => {
     () => observableMetricCatalog.filter((metric) => metric.availability === 'supported_now'),
     [observableMetricCatalog]
   );
-  const plannedObservableMetrics = useMemo(
-    () => observableMetricCatalog.filter((metric) => metric.availability === 'planned_analytics'),
-    [observableMetricCatalog]
-  );
   const selectedDerivedMetric = useMemo(
     () => getObservableMetricDefinition(sensor?.type || navigationState?.sensorType || '', primaryMetric),
     [navigationState?.sensorType, primaryMetric, sensor?.type]
@@ -1421,19 +704,6 @@ const SensorConfig: React.FC = () => {
   const presentationProfiles = useMemo(
     () => getPresentationProfileDefinitions(sensor?.type || navigationState?.sensorType || '', primaryMetric),
     [navigationState?.sensorType, primaryMetric, sensor?.type]
-  );
-  const selectedPresentationDefinition = useMemo(
-    () => presentationProfiles.find((profile) => profile.value === presentationProfile),
-    [presentationProfile, presentationProfiles]
-  );
-  const presentationConfigFields = useMemo(
-    () =>
-      getPresentationConfigFields(
-        sensor?.type || navigationState?.sensorType || '',
-        primaryMetric,
-        presentationProfile
-      ),
-    [navigationState?.sensorType, presentationProfile, primaryMetric, sensor?.type]
   );
   const sensorMetrics = useMemo(
     () => getPresentationMetrics(sensor?.type || navigationState?.sensorType || '', primaryMetric, presentationProfile),
@@ -1447,14 +717,6 @@ const SensorConfig: React.FC = () => {
       ) as PresentationProfileOption[],
     [navigationState?.sensorType, primaryMetric, sensor?.type]
   );
-  const metricPreviewSnapshot = useMemo(
-    () => getMetricPreviewSnapshot(primaryMetric),
-    [primaryMetric]
-  );
-  const metricPreviewSampleData = useMemo(
-    () => getMetricPreviewSampleData(primaryMetric),
-    [primaryMetric]
-  );
   const clarificationPrompts = useMemo(
     () => getClarificationPrompts(sensor?.type || navigationState?.sensorType || '', selectedMetrics),
     [navigationState?.sensorType, selectedMetrics, sensor?.type]
@@ -1465,12 +727,7 @@ const SensorConfig: React.FC = () => {
     sensorMetrics.length,
     readingFlowType
   );
-  const showInterpretationContext = true;
   const activeStepMeta = CONFIGURATION_STEPS[activeStep];
-
-  useEffect(() => {
-    setVisitedSteps((current) => new Set(current).add(activeStep));
-  }, [activeStep]);
 
   // Persist draft config locally so users can navigate away and return without losing work
   useEffect(() => {
@@ -1526,6 +783,8 @@ const SensorConfig: React.FC = () => {
     attendanceTriggerDeltaCm,
     attendanceResetHysteresisCm,
     attendanceCooldownSeconds,
+    metricPresentationConfigs,
+    metricPresentationProfiles,
     learningPhaseDay,
     presentationConfig,
     presentationProfile,
@@ -1587,7 +846,7 @@ const SensorConfig: React.FC = () => {
     } catch (e) {
       // ignore parse errors
     }
-  }, [activeSensorId]);
+  }, [activeSensorId, setPresentationConfig, setPresentationProfile, setPrimaryMetric]);
 
   const handleBack = () => {
     if (navigationState?.returnTo) {
@@ -1632,16 +891,6 @@ const SensorConfig: React.FC = () => {
       setMetricThresholds(alertInputsToMetricThresholds(next));
       return next;
     });
-  };
-
-  const updatePresentationConfig = (
-    key: keyof PresentationConfigValue,
-    value: string
-  ) => {
-    setPresentationConfig((current) => ({
-      ...current,
-      [key]: value,
-    }));
   };
 
   const toggleMetricSelection = (metric: ObservableMetricDefinition) => {
@@ -1699,18 +948,6 @@ const SensorConfig: React.FC = () => {
         )
       );
     }
-  };
-
-  const applyPresentationProfileSelection = (profile: PresentationProfileOption) => {
-    setPresentationProfile(profile);
-    setPresentationConfig(
-      normalizePresentationConfig(
-        sensor?.type || navigationState?.sensorType || '',
-        primaryMetric,
-        profile,
-        {}
-      )
-    );
   };
 
   const renderProfilePreview = (visualizationMethod: string, visualizationLabel: string) => {
@@ -1833,7 +1070,7 @@ const SensorConfig: React.FC = () => {
     setPresentationConfig((current) =>
       normalizePresentationConfig(sensorType, primaryMetric, presentationProfile, current)
     );
-  }, [navigationState?.sensorType, presentationProfile, primaryMetric, sensor?.type]);
+  }, [navigationState?.sensorType, presentationProfile, primaryMetric, sensor?.type, setPresentationConfig]);
 
   useEffect(() => {
     if (!purposeOptions.length) {
@@ -2084,6 +1321,7 @@ const SensorConfig: React.FC = () => {
     isHardwareContext,
     navigate,
     navigationState,
+    setPrimaryMetric,
   ]);
 
   useEffect(() => {
@@ -2115,7 +1353,7 @@ const SensorConfig: React.FC = () => {
     if (!purpose.trim()) {
       setPurpose(fallbackMetric.purposes[0]?.label || '');
     }
-  }, [observableMetricCatalog, selectedMetrics, purpose, supportedObservableMetrics]);
+  }, [observableMetricCatalog, selectedMetrics, purpose, supportedObservableMetrics, setPrimaryMetric, setPresentationProfile]);
 
   useEffect(() => {
     if (!selectedDerivedMetric) {
@@ -2135,7 +1373,7 @@ const SensorConfig: React.FC = () => {
     if (!allowedPresentationProfiles.includes(presentationProfile)) {
       setPresentationProfile(allowedPresentationProfiles[0]);
     }
-  }, [allowedPresentationProfiles, presentationProfile]);
+  }, [allowedPresentationProfiles, presentationProfile, setPresentationProfile]);
 
   useEffect(() => {
     if (!selectedDerivedMetric) {
@@ -2148,7 +1386,7 @@ const SensorConfig: React.FC = () => {
           allowedPresentationProfiles[0]
       );
     }
-  }, [allowedPresentationProfiles, presentationProfile, primaryMetric, selectedDerivedMetric, sensor?.type]);
+  }, [allowedPresentationProfiles, presentationProfile, primaryMetric, selectedDerivedMetric, sensor?.type, setPresentationProfile]);
 
   useEffect(() => {
     if (activeSensorId) {
@@ -2156,27 +1394,37 @@ const SensorConfig: React.FC = () => {
     }
   }, [activeSensorId, loadSensor]);
 
-  // Check learning phase status on load
-  // TODO: Learning phase feature is incomplete on backend - endpoint disabled
-  // Uncomment when backend learning phase handlers are implemented
-  // useEffect(() => {
-  //   if (activeSensorId) {
-  //     getLearningPhaseStatus(activeSensorId)
-  //       .then((status) => {
-  //         setLearningPhaseStatus(status || null);
-  //         if (status && status.phase === 'learning') {
-  //           setLearningPhaseDay(status.dayNumber);
-  //         } else if (status && status.phase === 'completed') {
-  //           setLearningPhaseDay((status.requiredDays || 7) + 1);
-  //         } else {
-  //           setLearningPhaseDay(0);
-  //         }
-  //       })
-  //       .catch(() => {
-  //         // If learning phase check fails, just continue without learning phase info
-  //       });
-  //   }
-  // }, [activeSensorId]);
+  useEffect(() => {
+    if (!activeSensorId) {
+      return;
+    }
+
+    let cancelled = false;
+    getLearningPhaseStatus(activeSensorId)
+      .then((status) => {
+        if (cancelled) {
+          return;
+        }
+        setLearningPhaseStatus(status || null);
+        if (status?.phase === 'learning') {
+          setLearningPhaseDay(status.dayNumber);
+        } else if (status?.phase === 'completed') {
+          setLearningPhaseDay((status.requiredDays || 7) + 1);
+        } else {
+          setLearningPhaseDay(0);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLearningPhaseStatus(null);
+          setLearningPhaseDay(0);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSensorId]);
 
   const buildContextPayload = useCallback((): SensorContext | undefined => {
     const historicalDays = toPositiveIntOrUndefined(historicalWindowDays);
@@ -3468,348 +2716,6 @@ const SensorConfig: React.FC = () => {
     </Box>
   );
 
-  const renderMetricStep = () => (
-    <Box sx={sectionSx}>
-      <Typography variant="subtitle1" sx={sectionTitleSx}>
-        Step 2: Observable Metric
-      </Typography>
-      <InfoButton tooltip="Help">
-        Select the main metric to monitor.
-      </InfoButton>
-      <Typography variant="caption" sx={captionTextSx}>
-        {supportedObservableMetrics.length} supported now, {plannedObservableMetrics.length} planned analytics.
-      </Typography>
-
-      <Grid container spacing={2} sx={{ mt: 1 }}>
-        {observableMetricCatalog.map((metric) => {
-          const selected = selectedMetrics.includes(metric.key);
-          const availableNow = metric.availability === 'supported_now';
-
-          return (
-            <Grid item xs={12} md={6} lg={4} key={metric.key}>
-              <Box
-                onClick={() => toggleMetricSelection(metric)}
-                sx={{
-                  p: 2.25,
-                  borderRadius: 2,
-                  border: '1px solid',
-                  borderColor: selected ? 'primary.main' : 'rgba(60, 57, 17, 0.12)',
-                  bgcolor: selected ? 'rgba(108, 137, 48, 0.08)' : '#fffdf8',
-                  height: '100%',
-                  cursor: 'pointer',
-                  boxShadow: selected ? '0 12px 22px rgba(108, 137, 48, 0.14)' : 'none',
-                }}
-              >
-                <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="flex-start">
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Checkbox
-                      checked={selected}
-                      onClick={(event) => event.stopPropagation()}
-                      onChange={() => toggleMetricSelection(metric)}
-                      inputProps={{ 'aria-label': `Measure ${metric.label}` }}
-                      sx={{ p: 0, '& .MuiSvgIcon-root': { fontSize: 24 } }}
-                      color="primary"
-                    />
-                    <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                      {metric.label}
-                      {metric.unit ? ` (${metric.unit})` : ''}
-                    </Typography>
-                  </Stack>
-                  <Chip
-                    size="small"
-                    color={availableNow ? 'primary' : 'default'}
-                    label={availableNow ? 'Available now' : 'Preview only'}
-                  />
-                </Stack>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1, ml: 4 }}>
-                  {metric.description}
-                </Typography>
-                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.25, ml: 4 }}>
-                  {metric.purposes.slice(0, 3).map((option) => (
-                    <Chip key={option.key} size="small" variant="outlined" label={option.label} />
-                  ))}
-                </Stack>
-              </Box>
-            </Grid>
-          );
-        })}
-      </Grid>
-
-      {plannedObservableMetrics.length > 0 && (
-        <Alert severity="info" sx={{ mt: 2 }}>
-          Some metrics are preview only and need backend analytics to activate.
-        </Alert>
-      )}
-
-      {selectedDerivedMetric && (
-        <Box sx={{ mt: 3, p: 2.25, borderRadius: 2, bgcolor: '#fffdf8', border: '1px solid rgba(60, 57, 17, 0.08)' }}>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }}>
-            <Box>
-              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                Selected Metric
-              </Typography>
-              <Typography variant="body1" sx={{ mt: 0.35 }}>
-                {selectedDerivedMetric.label}
-                {selectedDerivedMetric.unit ? ` (${selectedDerivedMetric.unit})` : ''}
-              </Typography>
-            </Box>
-            <Chip
-              size="small"
-              color={selectedDerivedMetric.availability === 'planned_analytics' ? 'warning' : 'success'}
-              label={selectedDerivedMetric.availability === 'planned_analytics' ? 'Preview only' : 'Ready to activate'}
-            />
-          </Stack>
-
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            {selectedDerivedMetric.description}
-          </Typography>
-
-          <FormControl fullWidth sx={{ mt: 2 }}>
-            <InputLabel id="purpose-label">Monitoring Purpose</InputLabel>
-            <Select
-              labelId="purpose-label"
-              value={purpose}
-              label="Monitoring Purpose"
-              onChange={(e) => setPurpose(e.target.value)}
-            >
-              {purposeOptions.map((option) => (
-                <MenuItem key={option.key} value={option.label}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <Typography variant="caption" sx={captionTextSx}>
-            {purposeOptions.find((option) => option.label === purpose)?.description || ''}
-          </Typography>
-        </Box>
-      )}
-
-      {showInterpretationContext && (
-        <>
-          <Typography variant="subtitle2" sx={{ ...fieldGroupTitleSx, mt: 3 }}>
-            Context (Optional)
-          </Typography>
-
-          <Grid container spacing={2} sx={{ mt: 1.5 }}>
-            <Grid item xs={12} md={4}>
-              <FormControl fullWidth>
-                <InputLabel id="domain-label">Domain</InputLabel>
-                <Select
-                  labelId="domain-label"
-                  value={domain}
-                  label="Domain"
-                  onChange={(e) => setDomain(e.target.value)}
-                >
-                  <MenuItem value="">Not specified</MenuItem>
-                  <MenuItem value="agriculture">Agriculture</MenuItem>
-                  <MenuItem value="home">Home</MenuItem>
-                  <MenuItem value="industrial">Industrial</MenuItem>
-                  <MenuItem value="warehouse">Warehouse</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <FormControl fullWidth>
-                <InputLabel id="environment-type-label">Environment Type</InputLabel>
-                <Select
-                  labelId="environment-type-label"
-                  value={environmentType}
-                  label="Environment Type"
-                  onChange={(e) => setEnvironmentType(e.target.value)}
-                >
-                  <MenuItem value="">Not specified</MenuItem>
-                  <MenuItem value="farm">Farm</MenuItem>
-                  <MenuItem value="greenhouse">Greenhouse</MenuItem>
-                  <MenuItem value="home">Home</MenuItem>
-                  <MenuItem value="warehouse">Warehouse</MenuItem>
-                  <MenuItem value="industrial">Industrial</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <FormControl fullWidth>
-                <InputLabel id="indoor-outdoor-label">Exposure</InputLabel>
-                <Select
-                  labelId="indoor-outdoor-label"
-                  value={indoorOutdoor}
-                  label="Exposure"
-                  onChange={(e) => setIndoorOutdoor(e.target.value)}
-                >
-                  <MenuItem value="">Not specified</MenuItem>
-                  <MenuItem value="indoor">Indoor</MenuItem>
-                  <MenuItem value="outdoor">Outdoor</MenuItem>
-                  <MenuItem value="mixed">Mixed</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Asset / Object"
-                value={assetType}
-                onChange={(e) => setAssetType(e.target.value)}
-                placeholder="e.g., tomato crop, storage room, garbage bin"
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Observation / History Window (Days)"
-                type="number"
-                value={historicalWindowDays}
-                onChange={(e) => setHistoricalWindowDays(e.target.value)}
-                placeholder="14"
-                helperText="For review."
-              />
-            </Grid>
-
-            <Grid item xs={12} md={4}>
-              <TextField
-                fullWidth
-                label="Country"
-                value={locationCountry}
-                onChange={(e) => setLocationCountry(e.target.value)}
-              />
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <TextField
-                fullWidth
-                label="Region / City"
-                value={locationRegion}
-                onChange={(e) => setLocationRegion(e.target.value)}
-              />
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <TextField
-                fullWidth
-                label="Location Label"
-                value={locationLabel}
-                onChange={(e) => setLocationLabel(e.target.value)}
-                placeholder="e.g., Jaffna greenhouse A"
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                multiline
-                rows={2}
-                label="Installation Notes"
-                value={installationNotes}
-                onChange={(e) => setInstallationNotes(e.target.value)}
-                placeholder="e.g., near south wall, partial shade in afternoon"
-              />
-            </Grid>
-          </Grid>
-        </>
-      )}
-    </Box>
-  );
-
-  const renderVisualizationStep = () => (
-    <Box sx={sectionSx}>
-      <Typography variant="subtitle1" sx={sectionTitleSx}>
-        Step 3: Dashboard View
-      </Typography>
-      <InfoButton tooltip="Help">
-        Choose how to display your metrics on the dashboard.
-      </InfoButton>
-
-      {selectedMetrics.map((metricKey, index) => {
-        const metricDef = observableMetricCatalog.find(m => m.key === metricKey);
-        const allowedProfilesForMetric = getSupportedProfilesForDerivedMetric(sensor?.type || navigationState?.sensorType || '', metricKey);
-        const profile = metricPresentationProfiles[metricKey] || (allowedProfilesForMetric[0] as PresentationProfileOption) || 'single_trend';
-
-        return (
-          <Box key={metricKey} sx={{ mt: index > 0 ? 4 : 2 }}>
-            {selectedMetrics.length > 1 && (
-              <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'primary.main' }} />
-                View for {metricDef?.label || metricKey}
-              </Typography>
-            )}
-            <Grid container spacing={2}>
-              {presentationProfiles
-                .filter((p) => allowedProfilesForMetric.includes(p.value))
-                .map((p) => {
-                  const active = profile === p.value;
-                  const VisualizationIcon = visualizationMethodIcon(p.visualization_method);
-                  return (
-                    <Grid item xs={12} md={6} lg={4} key={p.value}>
-                      <Box
-                        onClick={() => {
-                          setMetricPresentationProfiles(prev => ({ ...prev, [metricKey]: p.value as PresentationProfileOption }));
-                        }}
-                        sx={{
-                          p: 2.25,
-                          borderRadius: 2,
-                          border: '1px solid',
-                          borderColor: active ? 'primary.main' : 'rgba(60, 57, 17, 0.12)',
-                          bgcolor: active ? 'rgba(108, 137, 48, 0.08)' : '#fffdf8',
-                          boxShadow: active ? '0 12px 22px rgba(108, 137, 48, 0.14)' : 'none',
-                          cursor: 'pointer',
-                          height: '100%',
-                        }}
-                      >
-                        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1.5}>
-                          <Stack direction="row" spacing={1.1} alignItems="center">
-                            <Box
-                              sx={{
-                                p: 1,
-                                borderRadius: 2,
-                                bgcolor: active ? 'rgba(108, 137, 48, 0.14)' : 'rgba(60, 57, 17, 0.08)',
-                                color: active ? 'primary.main' : 'text.secondary',
-                                display: 'inline-flex',
-                              }}
-                            >
-                              <VisualizationIcon fontSize="small" />
-                            </Box>
-                            <Box>
-                              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                                {p.visualization_label}
-                              </Typography>
-                              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                                {p.label}
-                              </Typography>
-                            </Box>
-                          </Stack>
-                          {active && <Chip size="small" color="primary" label="Selected" />}
-                        </Stack>
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                          {p.description}
-                        </Typography>
-                        {renderVisualizationMethodPreview(p.visualization_method, active)}
-                      </Box>
-                    </Grid>
-                  );
-                })}
-            </Grid>
-          </Box>
-        );
-      })}
-    </Box>
-  );
-
-  const getMetricSpecificAlertContext = (): string => {
-    if (!primaryMetric) return '';
-    
-    const contextMap: Record<string, string> = {
-      temperature: 'Temperature extremes can damage products, affect comfort, or trigger alarms.',
-      humidity: 'Humidity levels affect product quality, health, and structural integrity.',
-      fill_level: 'Fill levels determine when to schedule maintenance, refills, or pickup services.',
-      occupancy_count: 'Occupancy counts help manage capacity, safety, and operational efficiency.',
-      attendance_count: 'Attendance tracking confirms presence and helps manage sessions.',
-      distance: 'Distance measurements help detect obstructions and track proximity.',
-      pressure: 'Pressure changes indicate equipment status or environmental conditions.',
-      odour_gas: 'Gas and odor levels indicate air quality and safety conditions.',
-      light: 'Light levels affect visibility, energy efficiency, and operational decisions.',
-    };
-    
-    return contextMap[primaryMetric] || 'Set thresholds that matter for your use case.';
-  };
-
   const renderAlertsReviewStep = () => (
     <Box sx={sectionSx}>
       <Typography variant="subtitle1" sx={sectionTitleSx}>
@@ -3839,8 +2745,8 @@ const SensorConfig: React.FC = () => {
             </Box>
           )}
           <Grid container spacing={2}>
-            {alertSettings.map((alert) => (
-              <Grid item xs={12} md={6} key={alert.key}>
+            {alertSettings.map((alert, index) => (
+              <Grid item xs={12} md={6} key={`${alert.key}-${index}`}>
                 <Box sx={{ p: 2.25, borderRadius: 2, bgcolor: '#fffdf8', border: '1px solid rgba(60, 57, 17, 0.08)', height: '100%' }}>
                   <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.75 }}>
                     {selectedMetrics.length > 1 ? `${observableMetricCatalog.find(m => m.key === alert.metricKey)?.label || alert.metricKey}: ` : ''}{alert.label}
@@ -3925,143 +2831,6 @@ const SensorConfig: React.FC = () => {
 
     </Box>
   );
-
-  const renderLivePreviewPanel = () => {
-    const previewProfile =
-      selectedPresentationDefinition ||
-      presentationProfiles.find((profile) => profile.value === presentationProfile);
-    const sensorSummaryType = sensorKnowledgeProfile?.module_name || sensor?.type || navigationState?.sensorType || 'Sensor';
-
-    return (
-      <Box
-        sx={{
-          position: { md: 'sticky' },
-          top: { md: 24 },
-          p: 2.5,
-          borderRadius: 2,
-          bgcolor: '#fffdf8',
-          border: '1px solid rgba(60, 57, 17, 0.1)',
-          boxShadow: '0 20px 32px rgba(60, 57, 17, 0.06)',
-        }}
-      >
-        <Typography variant="overline" sx={pageKickerSx}>
-          Live Dashboard Preview
-        </Typography>
-        <Typography variant="h6" sx={{ ...pageTitleSx, fontSize: '1.2rem', mt: 0.25 }}>
-          {friendlyName.trim() || 'Preview your configured sensor'}
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-          The right panel reflects the current metric, alert thresholds, and dashboard presentation as you configure the sensor.
-        </Typography>
-
-        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2 }}>
-          <Chip size="small" variant="outlined" label={sensorSummaryType} />
-          {selectedDerivedMetric && <Chip size="small" variant="outlined" label={selectedDerivedMetric.label} />}
-          {purpose.trim() && <Chip size="small" variant="outlined" label={purpose.trim()} />}
-        </Stack>
-
-        <Box
-          sx={{
-            mt: 2.25,
-            p: 2.25,
-            borderRadius: 2,
-            bgcolor: '#ffffff',
-            border: '1px solid rgba(60, 57, 17, 0.08)',
-          }}
-        >
-          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
-            <Box>
-              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-                Headline metric
-              </Typography>
-              <Typography variant="h5" sx={{ fontWeight: 900, mt: 0.35 }}>
-                {metricPreviewSnapshot.headline}
-              </Typography>
-            </Box>
-            <Chip
-              size="small"
-              color={selectedDerivedMetric?.availability === 'planned_analytics' ? 'warning' : 'success'}
-              label={selectedDerivedMetric?.availability === 'planned_analytics' ? 'Preview only' : 'Ready to save'}
-            />
-          </Stack>
-          <Typography variant="body2" sx={{ mt: 1.25 }}>
-            {metricPreviewSnapshot.status}
-          </Typography>
-          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
-            {metricPreviewSnapshot.comparison}
-          </Typography>
-          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
-            {metricPreviewSnapshot.detail}
-          </Typography>
-          {renderDashboardPreviewVisualization(previewProfile?.visualization_method, metricPreviewSampleData)}
-          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1.25 }}>
-            {metricPreviewSampleData.trendLabel}
-          </Typography>
-        </Box>
-
-        <Box sx={{ mt: 2.25 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
-            Configuration snapshot
-          </Typography>
-          <Stack spacing={1}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-              <Typography variant="body2" color="text.secondary">
-                Display style
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'right' }}>
-                {previewProfile?.visualization_label || 'Choose a dashboard view'}
-              </Typography>
-            </Box>
-          </Stack>
-        </Box>
-
-        {alertSettings.length > 0 && (
-          <Box sx={{ mt: 2.25 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
-              Plain-English alerts
-            </Typography>
-            <Stack spacing={1}>
-              {alertSettings.slice(0, 3).map((alert) => (
-                <Box
-                  key={alert.key}
-                  sx={{
-                    p: 1.5,
-                    borderRadius: 2,
-                    bgcolor: '#ffffff',
-                    border: '1px solid rgba(60, 57, 17, 0.08)',
-                  }}
-                >
-                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                    {alert.label}
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.35 }}>
-                    Warn at {alert.warningThreshold || '--'} {alert.unit || ''} and escalate at {alert.criticalThreshold || '--'} {alert.unit || ''}.
-                  </Typography>
-                </Box>
-              ))}
-            </Stack>
-          </Box>
-        )}
-
-        {clarificationPrompts.length > 0 && (
-          <Alert severity="info" sx={{ mt: 2.25 }}>
-            {clarificationPrompts.length === 1
-              ? 'One targeted clarification is still waiting in the left panel.'
-              : `${clarificationPrompts.length} targeted clarifications are still waiting in the left panel.`}
-          </Alert>
-        )}
-
-        {aiSuggestions && (
-          <Alert severity={aiSuggestions.requires_user_confirmation ? 'warning' : 'success'} sx={{ mt: 2.25 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.5 }}>
-              Latest AI draft
-            </Typography>
-            <Typography variant="body2">{aiSuggestions.explanation}</Typography>
-          </Alert>
-        )}
-      </Box>
-    );
-  };
 
   const renderActiveStep = () => {
     switch (activeStepMeta.key) {

@@ -3008,7 +3008,9 @@ export const buildPresentationAlertSettings = (
   currentAlerts?: SensorAlertSetting[],
   currentThresholds?: Record<string, ThresholdRange>
 ): SensorAlertTemplate[] => {
-  const metrics = getPresentationMetrics(sensorType, metricKey, profile);
+  const metrics = Array.from(
+    new Map(getPresentationMetrics(sensorType, metricKey, profile).map((metric) => [metric.key, metric])).values()
+  );
 
   return metrics.flatMap((metric) => {
     const defaults = recommendedAlertThresholds(metric.key);

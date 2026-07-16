@@ -51,6 +51,7 @@ const renderSensorConfig = (
     >
       <Routes>
         <Route path="/hardware/:controllerId/sensors/:sensorId/configure" element={<SensorConfig />} />
+        <Route path="/hardware/:controllerId/sensors" element={<div>Hardware sensors</div>} />
         <Route path="/farms" element={<div>Back to farms</div>} />
         <Route path="/monitoring" element={<div>Back to monitoring</div>} />
       </Routes>
@@ -229,6 +230,6 @@ describe('SensorConfig', () => {
         })
       );
     });
-    expect(await screen.findByText(/back to farms/i)).toBeInTheDocument();
+    expect(await screen.findByText(/hardware sensors/i)).toBeInTheDocument();
   });
 });

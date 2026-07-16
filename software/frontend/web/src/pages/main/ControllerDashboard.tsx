@@ -191,7 +191,7 @@ const ControllerDashboard: React.FC = () => {
         purpose,
       };
     });
-  }, [sensors, removedSensorIds]);
+  }, [sensors]);
 
   useEffect(() => {
     if (controller && !editingControllerName) {
@@ -270,37 +270,6 @@ const ControllerDashboard: React.FC = () => {
         return 'error';
       default:
         return 'default';
-    }
-  };
-
-  const getObservationChip = (sensor: Sensor) => {
-    switch (sensor.observation?.status) {
-      case 'ready_for_review':
-        return { label: 'Ready for Review', color: 'success' as const };
-      case 'awaiting_data':
-        return { label: 'Awaiting Data', color: 'warning' as const };
-      case 'observing':
-        return { label: 'Observing', color: 'info' as const };
-      default:
-        return null;
-    }
-  };
-
-  const getReadinessChip = (sensor: Sensor) => {
-    if (sensor.config_active) {
-      return { label: 'Configured', color: 'primary' as const };
-    }
-    return null;
-  };
-
-  const getConnectionChip = (sensor: Sensor) => {
-    switch (sensor.status) {
-      case 'OK':
-        return { label: 'Connected', color: 'success' as const };
-      case 'ERROR':
-        return { label: 'Error', color: 'error' as const };
-      default:
-        return { label: 'Not connected', color: 'default' as const };
     }
   };
 
@@ -445,61 +414,9 @@ const ControllerDashboard: React.FC = () => {
     }
   };
 
-  const startSensorRename = (sensor: Sensor) => {
-    setEditingSensorId(sensor.id);
-    setSensorNameDraft(sensor.name || `${sensor.type} Sensor`);
-  };
-
   const cancelSensorRename = () => {
     setEditingSensorId(null);
     setSensorNameDraft('');
-  };
-
-  const saveSensorName = async (sensor: Sensor) => {
-    const nextName = sensorNameDraft.trim();
-    if (!activeControllerId || !nextName || renamingSensorId) {
-      return;
-    }
-
-    setRenamingSensorId(sensor.id);
-    try {
-      const updatedSensor = await renameHardwareSensor(activeControllerId, sensor.id, nextName);
-      setReportedSensors((current) =>
-        current.map((item) =>
-          item.id === sensor.id ? { ...item, ...updatedSensor, name: updatedSensor.name || nextName } : item
-        )
-      );
-      cancelSensorRename();
-      showToast('Sensor name updated.', 'success');
-    } catch (err: any) {
-      const responseData = err?.response?.data;
-      showToast(err?.message || (typeof responseData === 'string' ? responseData : responseData?.message) || 'Failed to update sensor name.', 'error');
-    } finally {
-      setRenamingSensorId(null);
-    }
-  };
-
-  const removeSensorFromWorkspace = async (sensor: Sensor) => {
-    const sensorKey = getSensorIdentity(sensor);
-    setRemovingSensorId(sensor.id);
-    try {
-      await deleteHardwareSensor(activeControllerId, sensor.id);
-      const nextRemovedSensorIds = Array.from(new Set([...removedSensorIds, sensorKey]));
-      setRemovedSensorIds(nextRemovedSensorIds);
-      writeRemovedSensorIds(activeControllerId, nextRemovedSensorIds);
-      setReportedSensors((current) => current.filter((item) => item.id !== sensor.id));
-      showToast(`${sensor.name || sensor.type} removed from the controller.`, 'success');
-    } catch (err: any) {
-      const responseData = err?.response?.data;
-      showToast(
-        err?.message ||
-          (typeof responseData === 'string' ? responseData : responseData?.message) ||
-          'Failed to remove sensor from the database.',
-        'error'
-      );
-    } finally {
-      setRemovingSensorId(null);
-    }
   };
 
   const allowSensorInWorkspace = (sensor: Sensor) => {

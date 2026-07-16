@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Box,
@@ -150,7 +150,7 @@ const FarmDetails: React.FC = () => {
 
   const ownerMode = farm?.role === 'owner';
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       const [nextFarm, nextFields, nextCollaborators, nextCrops, nextControllers, nextBases, nextAlerts] = await Promise.all([
@@ -198,11 +198,11 @@ const FarmDetails: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [farmId]);
 
   useEffect(() => {
     void load();
-  }, [farmId]);
+  }, [load]);
 
   useEffect(() => {
     if (navigationMessage) {

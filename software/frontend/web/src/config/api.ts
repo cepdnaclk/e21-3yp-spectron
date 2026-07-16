@@ -1,5 +1,4 @@
 const DEPLOYED_API_BASE_URL = 'http://spectron-backend-env.eba-3uqs3iea.ap-south-1.elasticbeanstalk.com';
-const LOCAL_API_BASE_URL = 'http://localhost:8081';
 
 const configuredApiBaseUrl = process.env.REACT_APP_API_URL?.trim().replace(/\/$/, '');
 
