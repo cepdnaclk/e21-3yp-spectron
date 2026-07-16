@@ -129,6 +129,11 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 		systemSensorID = &resolvedSystemSensorID
 	}
 
+	farmCtx, err := p.loadFarmReadingContext(ctx, tx, controllerID, sensorHWID)
+	if err != nil {
+		return fmt.Errorf("load farm context for sensor %s: %w", sensorHWID, err)
+	}
+
 	config, hasConfig, err := loadActiveSensorConfig(ctx, tx, persistedSensorID, systemSensorID, controllerID, sensorHWID, persistedSensorType)
 	if err != nil {
 		return fmt.Errorf("load config for sensor %s: %w", sensorHWID, err)
@@ -147,6 +152,7 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 		"timestamp_raw":       event.TimestampRaw,
 		"source":              event.Source,
 	}
+	addFarmContextToMeta(readingMeta, farmCtx)
 	if convertedDistance {
 		readingMeta["raw_value"] = sensor.Value
 		readingMeta["raw_unit"] = "mm"
@@ -203,6 +209,10 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 		SensorID:       persistedSensorID,
 		SystemID:       systemID,
 		SystemSensorID: systemSensorID,
+		FarmID:         farmCtx.FarmID,
+		FieldID:        farmCtx.FieldID,
+		GatewayID:      farmCtx.GatewayID,
+		SensorBaseID:   farmCtx.SensorBaseID,
 		SensorHWID:     sensorHWID,
 		SensorName:     persistedSensorName,
 		SensorType:     persistedSensorType,
@@ -213,6 +223,144 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 	}
 
 	return nil
+}
+
+func (p *RawReadingsProcessor) loadFarmReadingContext(ctx context.Context, tx pgx.Tx, controllerID uuid.UUID, sensorHWID string) (farmReadingContext, error) {
+	var result farmReadingContext
+
+	var farmID uuid.UUID
+	var gatewayID uuid.UUID
+	err := tx.QueryRow(ctx, `
+		SELECT farm_id, id
+		FROM gateways
+		WHERE legacy_controller_id = $1
+	`, controllerID).Scan(&farmID, &gatewayID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return result, nil
+		}
+		return result, err
+	}
+
+	result.FarmID = &farmID
+	result.GatewayID = &gatewayID
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE gateways
+		SET status = 'online',
+		    last_seen = NOW(),
+		    updated_at = NOW()
+		WHERE id = $1
+	`, gatewayID); err != nil {
+		return result, err
+	}
+
+	baseID, fieldID, ok, err := resolveReadingSensorBase(ctx, tx, gatewayID, sensorHWID)
+	if err != nil {
+		return result, err
+	}
+	if !ok {
+		return result, nil
+	}
+
+	result.SensorBaseID = &baseID
+	result.FieldID = fieldID
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE sensor_bases
+		SET status = 'live',
+		    last_seen = NOW(),
+		    updated_at = NOW()
+		WHERE id = $1
+	`, baseID); err != nil {
+		return result, err
+	}
+
+	return result, nil
+}
+
+func resolveReadingSensorBase(ctx context.Context, tx pgx.Tx, gatewayID uuid.UUID, sensorHWID string) (uuid.UUID, *uuid.UUID, bool, error) {
+	normalizedHWID := strings.ToLower(strings.TrimSpace(sensorHWID))
+	if normalizedHWID != "" {
+		var baseID uuid.UUID
+		var fieldID *uuid.UUID
+		err := tx.QueryRow(ctx, `
+			SELECT sb.id, sba.field_id
+			FROM sensor_bases sb
+			LEFT JOIN sensor_base_assignments sba
+			  ON sba.base_id = sb.id
+			 AND sba.unassigned_at IS NULL
+			WHERE sb.gateway_id = $1
+			  AND (
+			       lower(sb.serial_number) = $2
+			       OR $2 LIKE lower(sb.serial_number) || ':%'
+			       OR $2 LIKE lower(sb.serial_number) || '/%'
+			       OR $2 LIKE lower(sb.serial_number) || '-%'
+			  )
+			ORDER BY sb.updated_at DESC
+			LIMIT 1
+		`, gatewayID, normalizedHWID).Scan(&baseID, &fieldID)
+		if err == nil {
+			return baseID, fieldID, true, nil
+		}
+		if err != pgx.ErrNoRows {
+			return uuid.Nil, nil, false, err
+		}
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT sb.id, sba.field_id
+		FROM sensor_bases sb
+		LEFT JOIN sensor_base_assignments sba
+		  ON sba.base_id = sb.id
+		 AND sba.unassigned_at IS NULL
+		WHERE sb.gateway_id = $1
+		  AND sb.status <> 'retired'
+		ORDER BY sb.updated_at DESC
+		LIMIT 2
+	`, gatewayID)
+	if err != nil {
+		return uuid.Nil, nil, false, err
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		id      uuid.UUID
+		fieldID *uuid.UUID
+	}
+
+	candidates := make([]candidate, 0, 2)
+	for rows.Next() {
+		var baseID uuid.UUID
+		var fieldID *uuid.UUID
+		if err := rows.Scan(&baseID, &fieldID); err != nil {
+			return uuid.Nil, nil, false, err
+		}
+		candidates = append(candidates, candidate{id: baseID, fieldID: fieldID})
+	}
+	if err := rows.Err(); err != nil {
+		return uuid.Nil, nil, false, err
+	}
+	if len(candidates) != 1 {
+		return uuid.Nil, nil, false, nil
+	}
+
+	return candidates[0].id, candidates[0].fieldID, true, nil
+}
+
+func addFarmContextToMeta(meta map[string]any, ctx farmReadingContext) {
+	if ctx.FarmID != nil {
+		meta["farm_id"] = ctx.FarmID.String()
+	}
+	if ctx.FieldID != nil {
+		meta["field_id"] = ctx.FieldID.String()
+	}
+	if ctx.GatewayID != nil {
+		meta["gateway_id"] = ctx.GatewayID.String()
+	}
+	if ctx.SensorBaseID != nil {
+		meta["sensor_base_id"] = ctx.SensorBaseID.String()
+	}
 }
 
 func normalizeReadingValue(sensorType string, value float64) (float64, bool) {
@@ -394,11 +542,22 @@ type thresholdAlertInput struct {
 	SensorID       uuid.UUID
 	SystemID       *uuid.UUID
 	SystemSensorID *uuid.UUID
+	FarmID         *uuid.UUID
+	FieldID        *uuid.UUID
+	GatewayID      *uuid.UUID
+	SensorBaseID   *uuid.UUID
 	SensorHWID     string
 	SensorName     string
 	SensorType     string
 	Value          float64
 	ReadingAt      time.Time
+}
+
+type farmReadingContext struct {
+	FarmID       *uuid.UUID
+	FieldID      *uuid.UUID
+	GatewayID    *uuid.UUID
+	SensorBaseID *uuid.UUID
 }
 
 type thresholdAlertEvaluation struct {
@@ -426,7 +585,22 @@ func (p *RawReadingsProcessor) evaluateThresholdAlertWithConfig(ctx context.Cont
 	if recommendationMessage, ok := p.recommendationAlertMessage(ctx, tx, input); ok {
 		message = recommendationMessage
 	}
-	return upsertOpenAlert(ctx, tx, input.AccountID, input.ControllerID, input.SensorID, input.SystemID, input.SystemSensorID, "THRESHOLD_BREACH", evaluation.Severity, message)
+	return upsertOpenAlert(
+		ctx,
+		tx,
+		input.AccountID,
+		input.ControllerID,
+		input.SensorID,
+		input.SystemID,
+		input.SystemSensorID,
+		input.FarmID,
+		input.FieldID,
+		input.GatewayID,
+		input.SensorBaseID,
+		"THRESHOLD_BREACH",
+		evaluation.Severity,
+		message,
+	)
 }
 
 func (p *RawReadingsProcessor) recommendationAlertMessage(ctx context.Context, tx pgx.Tx, input thresholdAlertInput) (string, bool) {
@@ -1018,7 +1192,7 @@ func roundForAlert(value float64) float64 {
 	return math.Round(value*100) / 100
 }
 
-func upsertOpenAlert(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, controllerID uuid.UUID, sensorID uuid.UUID, systemID *uuid.UUID, systemSensorID *uuid.UUID, alertType string, severity string, message string) error {
+func upsertOpenAlert(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, controllerID uuid.UUID, sensorID uuid.UUID, systemID *uuid.UUID, systemSensorID *uuid.UUID, farmID *uuid.UUID, fieldID *uuid.UUID, gatewayID *uuid.UUID, sensorBaseID *uuid.UUID, alertType string, severity string, message string) error {
 	var existingID uuid.UUID
 	err := tx.QueryRow(ctx, `
 		SELECT id
@@ -1042,15 +1216,34 @@ func upsertOpenAlert(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, contro
 			SET message = $1,
 			    system_id = $2,
 			    system_sensor_id = $3,
+			    farm_id = $4,
+			    field_id = $5,
+			    gateway_id = $6,
+			    sensor_base_id = $7,
 			    created_at = NOW()
-			WHERE id = $4
-		`, message, systemID, systemSensorID, existingID)
+			WHERE id = $8
+		`, message, systemID, systemSensorID, farmID, fieldID, gatewayID, sensorBaseID, existingID)
 		return err
 	}
 
 	_, err = tx.Exec(ctx, `
-		INSERT INTO alerts (id, account_id, controller_id, sensor_id, system_id, system_sensor_id, type, severity, message, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-	`, uuid.New(), accountID, controllerID, sensorID, systemID, systemSensorID, alertType, severity, message)
+		INSERT INTO alerts (
+			id,
+			account_id,
+			controller_id,
+			sensor_id,
+			system_id,
+			system_sensor_id,
+			farm_id,
+			field_id,
+			gateway_id,
+			sensor_base_id,
+			type,
+			severity,
+			message,
+			created_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+	`, uuid.New(), accountID, controllerID, sensorID, systemID, systemSensorID, farmID, fieldID, gatewayID, sensorBaseID, alertType, severity, message)
 	return err
 }
