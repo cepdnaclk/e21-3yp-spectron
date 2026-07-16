@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Container,
+  Card,
+  CardContent,
   Paper,
   TextField,
   Button,
@@ -549,13 +551,13 @@ const CONFIGURATION_STEPS: Array<{
 }> = [
   {
     key: 'setup',
-    title: 'Setup',
-    description: 'Tell us about your sensor and how to display it.',
+    title: 'Core Setup',
+    description: 'Name it, pick the key metric, and set the display.',
   },
   {
     key: 'alerts',
-    title: 'Alerts',
-    description: 'Decide when we should alert you.',
+    title: 'Alert Rules',
+    description: 'Set the warning and critical limits.',
   },
 ];
 
@@ -1588,6 +1590,11 @@ const SensorConfig: React.FC = () => {
   }, [activeSensorId]);
 
   const handleBack = () => {
+    if (navigationState?.returnTo) {
+      navigate(navigationState.returnTo);
+      return;
+    }
+
     if ((window.history.state?.idx ?? 0) > 0) {
       navigate(-1);
       return;
@@ -4074,8 +4081,27 @@ const SensorConfig: React.FC = () => {
 
   if (!sensor) {
     return (
-      <Container>
-        <Typography>Sensor not found</Typography>
+      <Container maxWidth="md" sx={{ py: 3 }}>
+        <Card variant="outlined">
+          <CardContent sx={{ p: { xs: 2.5, md: 3 } }}>
+            <Stack spacing={2}>
+              <Box>
+                <Typography variant="h5">Sensor unavailable</Typography>
+                <Typography color="text.secondary" sx={{ mt: 0.75 }}>
+                  The sensor context could not be loaded. Go back and reopen it from the farm flow.
+                </Typography>
+              </Box>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+                <Button variant="outlined" onClick={handleBack}>
+                  Back
+                </Button>
+                <Button variant="contained" color="secondary" onClick={() => navigate('/farms')}>
+                  Farm Setup
+                </Button>
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
       </Container>
     );
   }
@@ -4114,6 +4140,9 @@ const SensorConfig: React.FC = () => {
           <Box>
             <Typography variant="h4" sx={{ ...pageTitleSx, fontSize: { xs: '1.45rem', sm: '2rem' } }}>
               Configure {sensor.type} Sensor
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+              Keep the flow short. We validate each step as you go.
             </Typography>
           </Box>
         </Stack>
