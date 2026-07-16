@@ -140,6 +140,7 @@ const Profile: React.FC = () => {
   const profileDisplayName = fullName || user?.email || 'Spectron User';
   const initials = useMemo(() => getInitials(profileDisplayName), [profileDisplayName]);
   const accountRole = user?.accounts?.[0]?.role || 'Free';
+  const accountLabel = accountRole === 'OWNER' ? 'Farm Owner' : accountRole === 'VIEWER' ? 'Viewer' : accountRole;
   const email = user?.email || '';
   const username = email ? `@${email.split('@')[0]}` : `@${profileDisplayName.replace(/\s+/g, '')}`;
   const canConfirmDeletion = Boolean(email) && deleteConfirmEmail.trim().toLowerCase() === email.toLowerCase();
@@ -420,7 +421,7 @@ const Profile: React.FC = () => {
                     alignItems={{ xs: 'center', sm: 'center' }}
                   >
                     <Typography variant="h4">{profileDisplayName}</Typography>
-                    <Chip label={accountRole} color="primary" variant="outlined" size="small" />
+                      <Chip label={accountLabel} color="primary" variant="outlined" size="small" />
                   </Stack>
                   <Typography variant="subtitle1" sx={{ mt: 1 }}>
                     {username}
@@ -512,7 +513,7 @@ const Profile: React.FC = () => {
                 <TextField fullWidth label="Email" value={email} disabled />
               </Grid>
               <Grid item xs={12}>
-                <Alert severity="info">Email is managed by your Spectron account.</Alert>
+                <Alert severity="info">Email belongs to your Spectron account.</Alert>
               </Grid>
               <Grid item xs={12}>
                 <TextField
@@ -629,7 +630,7 @@ const Profile: React.FC = () => {
               Delete Account
             </Typography>
             <Typography color="text.secondary" sx={{ mt: 0.75, mb: 2 }}>
-              Permanently delete your account, controllers, sensors, readings, and alerts.
+              Permanently delete your account and farm workspace data.
             </Typography>
             <Button
               variant="outlined"
