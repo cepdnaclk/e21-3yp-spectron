@@ -26,6 +26,24 @@ import { PageHeaderSkeleton } from '../../components/LoadingSkeletons';
 import { createFarm, Farm, getFarms } from '../../services/farmService';
 
 const shortPoint = (value?: number | null) => (typeof value === 'number' ? value.toFixed(4) : '—');
+const roleLabel = (role: Farm['role']) => (role === 'owner' ? 'Owner' : 'Viewer');
+
+const parseOptionalNumber = (value: string, label: string, min?: number, max?: number) => {
+  if (!value.trim()) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${label} must be a number.`);
+  }
+  if (min !== undefined && parsed < min) {
+    throw new Error(`${label} is too low.`);
+  }
+  if (max !== undefined && parsed > max) {
+    throw new Error(`${label} is too high.`);
+  }
+  return parsed;
+};
 
 const Farms: React.FC = () => {
   const navigate = useNavigate();
@@ -37,9 +55,18 @@ const Farms: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [showCoords, setShowCoords] = useState(false);
   const [form, setForm] = useState({ name: '', latitude: '', longitude: '', area: '' });
+  const [formError, setFormError] = useState('');
 
   const ownerCount = useMemo(() => farms.filter((farm) => farm.role === 'owner').length, [farms]);
   const viewerCount = farms.length - ownerCount;
+
+  const closeCreateDialog = () => {
+    if (saving) {
+      return;
+    }
+    setOpenCreate(false);
+    setFormError('');
+  };
 
   const load = async () => {
     try {
@@ -59,21 +86,30 @@ const Farms: React.FC = () => {
 
   const handleCreate = async () => {
     try {
+      if (!form.name.trim()) {
+        setFormError('Farm name is required.');
+        return;
+      }
+      const latitude = parseOptionalNumber(form.latitude, 'Latitude', -90, 90);
+      const longitude = parseOptionalNumber(form.longitude, 'Longitude', -180, 180);
+      const area = parseOptionalNumber(form.area, 'Area', 0);
+
       setSaving(true);
       const farm = await createFarm({
         name: form.name.trim(),
-        latitude: form.latitude ? Number(form.latitude) : undefined,
-        longitude: form.longitude ? Number(form.longitude) : undefined,
-        area: form.area ? Number(form.area) : undefined,
+        latitude,
+        longitude,
+        area,
       });
       setFarms((current) => [farm, ...current]);
       setOpenCreate(false);
       setForm({ name: '', latitude: '', longitude: '', area: '' });
+      setFormError('');
       setNotice('Farm created.');
       navigate(`/farms/${farm.id}`);
     } catch (err) {
       console.error(err);
-      setError('Failed to create farm.');
+      setFormError(err instanceof Error ? err.message : 'Failed to create farm.');
     } finally {
       setSaving(false);
     }
@@ -107,7 +143,15 @@ const Farms: React.FC = () => {
           </Typography>
         </Box>
 
-        <Button startIcon={<Add />} variant="contained" onClick={() => setOpenCreate(true)} sx={{ alignSelf: 'flex-start' }}>
+        <Button
+          startIcon={<Add />}
+          variant="contained"
+          onClick={() => {
+            setFormError('');
+            setOpenCreate(true);
+          }}
+          sx={{ alignSelf: 'flex-start' }}
+        >
           Add Farm
         </Button>
       </Stack>
@@ -124,7 +168,7 @@ const Farms: React.FC = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card>
             <CardContent>
-              <Typography color="text.secondary">Owner</Typography>
+              <Typography color="text.secondary">Owned</Typography>
               <Typography variant="h4">{ownerCount}</Typography>
             </CardContent>
           </Card>
@@ -132,7 +176,7 @@ const Farms: React.FC = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card>
             <CardContent>
-              <Typography color="text.secondary">Viewer</Typography>
+              <Typography color="text.secondary">Viewed</Typography>
               <Typography variant="h4">{viewerCount}</Typography>
             </CardContent>
           </Card>
@@ -182,7 +226,7 @@ const Farms: React.FC = () => {
                       <Typography variant="h6" sx={{ lineHeight: 1.2 }}>
                         {farm.name}
                       </Typography>
-                      <Chip size="small" label={farm.role} sx={{ mt: 1 }} />
+                      <Chip size="small" label={roleLabel(farm.role)} sx={{ mt: 1 }} />
                     </Box>
                     <ArrowForward color="action" />
                   </Stack>
@@ -202,10 +246,13 @@ const Farms: React.FC = () => {
         )}
       </Grid>
 
-      <Dialog open={openCreate} onClose={() => setOpenCreate(false)} fullWidth maxWidth="sm">
+      <Dialog open={openCreate} onClose={closeCreateDialog} fullWidth maxWidth="sm">
         <DialogTitle>Add Farm</DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            <AutoDismissAlert open={Boolean(formError)} severity="error" onCloseAlert={() => setFormError('')}>
+              {formError}
+            </AutoDismissAlert>
             <TextField
               label="Farm name"
               value={form.name}
@@ -236,7 +283,7 @@ const Farms: React.FC = () => {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenCreate(false)}>Cancel</Button>
+          <Button onClick={closeCreateDialog} disabled={saving}>Cancel</Button>
           <Button variant="contained" onClick={handleCreate} disabled={saving || !form.name.trim()}>
             {saving ? 'Saving' : 'Create'}
           </Button>
