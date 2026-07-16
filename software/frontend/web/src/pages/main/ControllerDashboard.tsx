@@ -205,7 +205,7 @@ const ControllerDashboard: React.FC = () => {
       return;
     }
 
-    navigate('/controllers');
+    navigate('/farms');
   };
 
   const loadData = useCallback(async () => {
@@ -390,7 +390,7 @@ const ControllerDashboard: React.FC = () => {
     setRemoving(true);
     try {
       await releaseHardwareController(releasableControllerId);
-      navigate('/controllers', {
+      navigate('/farms', {
         replace: true,
         state: { message: 'Controller removed from your account.' },
       });

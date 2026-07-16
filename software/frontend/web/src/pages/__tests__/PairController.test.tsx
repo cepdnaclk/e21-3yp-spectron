@@ -5,6 +5,7 @@ import PairController from '../main/PairController';
 import {
   pairHardwareController,
 } from '../../services/hardwarePairingService';
+import { attachFarmController, getFarms } from '../../services/farmService';
 
 const qrMockState = vi.hoisted(() => ({
   decodedText: 'https://spectron.test/pair?code=CTRL-SCAN42',
@@ -35,6 +36,11 @@ vi.mock('../../services/hardwarePairingService', async () => {
   };
 });
 
+vi.mock('../../services/farmService', () => ({
+  getFarms: vi.fn(),
+  attachFarmController: vi.fn(),
+}));
+
 const enableCameraSupport = () => {
   Object.defineProperty(navigator, 'mediaDevices', {
     value: {
@@ -46,8 +52,8 @@ const enableCameraSupport = () => {
 
 const PairingDestination = () => {
   const location = useLocation();
-  const state = location.state as { observationMessage?: string } | null;
-  return <div>{state?.observationMessage}</div>;
+  const state = location.state as { message?: string } | null;
+  return <div>{state?.message}</div>;
 };
 
 describe('PairController', () => {
@@ -64,6 +70,16 @@ describe('PairController', () => {
       operationalStatus: 'OFFLINE',
       sensors: [],
     });
+    vi.mocked(getFarms).mockResolvedValue([
+      {
+        id: 'farm-1',
+        name: 'North Farm',
+        role: 'owner',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]);
+    vi.mocked(attachFarmController).mockResolvedValue([]);
   });
 
   it('renders pairing controls and accepts a controller ID', async () => {
@@ -73,14 +89,14 @@ describe('PairController', () => {
       <MemoryRouter initialEntries={['/controllers/pair']}>
         <Routes>
           <Route path="/controllers/pair" element={<PairController />} />
-          <Route path="/hardware/:controllerId/sensors" element={<PairingDestination />} />
+          <Route path="/farms/:farmId" element={<PairingDestination />} />
         </Routes>
       </MemoryRouter>
     );
 
     expect(await screen.findByRole('button', { name: /start camera scanner/i })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: /controller id/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /add controller/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /link controller/i })).toBeInTheDocument();
     expect(screen.queryByText(/attach to existing system/i)).not.toBeInTheDocument();
 
     await user.type(screen.getByRole('textbox', { name: /controller id/i }), 'CTRL-TEST123');
@@ -95,12 +111,12 @@ describe('PairController', () => {
       <MemoryRouter initialEntries={['/controllers/pair']}>
         <Routes>
           <Route path="/controllers/pair" element={<PairController />} />
-          <Route path="/hardware/:controllerId/sensors" element={<PairingDestination />} />
+          <Route path="/farms/:farmId" element={<PairingDestination />} />
         </Routes>
       </MemoryRouter>
     );
 
-    await screen.findByRole('button', { name: /add controller/i });
+    await screen.findByRole('button', { name: /link controller/i });
     fireEvent.submit(screen.getByRole('textbox', { name: /controller id/i }).closest('form') as HTMLFormElement);
 
     expect(await screen.findByText(/controller id required/i)).toBeInTheDocument();
@@ -114,18 +130,21 @@ describe('PairController', () => {
       <MemoryRouter initialEntries={['/controllers/pair']}>
         <Routes>
           <Route path="/controllers/pair" element={<PairController />} />
-          <Route path="/hardware/:controllerId/sensors" element={<PairingDestination />} />
+          <Route path="/farms/:farmId" element={<PairingDestination />} />
         </Routes>
       </MemoryRouter>
     );
 
     await user.type(await screen.findByRole('textbox', { name: /controller id/i }), 'CTRL-TEST123');
-    await user.click(screen.getByRole('button', { name: /add controller/i }));
+    await user.click(screen.getByRole('button', { name: /link controller/i }));
 
     await waitFor(() => {
       expect(pairHardwareController).toHaveBeenCalledWith('CTRL-TEST123');
     });
-    expect(await screen.findByText(/controller ctrl-test123 claimed successfully/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(attachFarmController).toHaveBeenCalledWith('farm-1', { controller_id: 'CTRL-TEST123' });
+    });
+    expect(await screen.findByText(/controller ctrl-test123 linked/i)).toBeInTheDocument();
   });
 
   it('shows a clear error when the controller is already claimed', async () => {
@@ -144,7 +163,7 @@ describe('PairController', () => {
     );
 
     await user.type(await screen.findByRole('textbox', { name: /controller id/i }), 'CTRL-TEST123');
-    await user.click(screen.getByRole('button', { name: /add controller/i }));
+    await user.click(screen.getByRole('button', { name: /link controller/i }));
 
     expect(await screen.findByText(/already claimed by another account/i)).toBeInTheDocument();
   });

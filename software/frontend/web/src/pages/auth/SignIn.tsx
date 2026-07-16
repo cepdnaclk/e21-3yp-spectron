@@ -44,7 +44,7 @@ const SignIn: React.FC = () => {
 
     try {
       await login({ email, password });
-      navigate('/controllers');
+      navigate('/farms');
     } catch (err) {
       setError(getApiErrorMessage(err, 'Failed to sign in'));
     } finally {

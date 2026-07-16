@@ -13,7 +13,6 @@ import FarmDetails from './pages/main/FarmDetails';
 import PairController from './pages/main/PairController';
 import ControllerDashboard from './pages/main/ControllerDashboard';
 import SensorConfig from './pages/main/SensorConfig';
-import AgriAssistDashboard from './pages/main/AgriAssistDashboard';
 import Monitoring from './pages/main/Monitoring';
 import Alerts from './pages/main/Alerts';
 import Profile from './pages/main/Profile';
@@ -312,7 +311,7 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/admin/signin" />;
   }
 
-  return hasAdminAccess(user) ? <>{children}</> : <Navigate to="/controllers" replace />;
+  return hasAdminAccess(user) ? <>{children}</> : <Navigate to="/farms" replace />;
 }
 
 function AppRoutes() {
@@ -338,7 +337,7 @@ function AppRoutes() {
         <Route path="controllers/:id" element={<ControllerDashboard />} />
         <Route path="hardware/:controllerId/sensors" element={<ControllerDashboard />} />
         <Route path="hardware/:controllerId/agri-config" element={<Navigate to="/farms" replace />} />
-        <Route path="hardware/:controllerId/agri-dashboard" element={<AgriAssistDashboard />} />
+        <Route path="hardware/:controllerId/agri-dashboard" element={<Navigate to="/farms" replace />} />
         <Route path="hardware/:controllerId/sensors/:sensorId/configure" element={<SensorConfig />} />
         <Route path="sensors/:id/config" element={<SensorConfig />} />
         <Route path="monitoring" element={<Monitoring />} />

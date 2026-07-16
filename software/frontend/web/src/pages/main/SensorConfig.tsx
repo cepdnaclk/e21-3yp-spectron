@@ -1606,11 +1606,13 @@ const SensorConfig: React.FC = () => {
     }
 
     if (sensor?.controller_id) {
-      navigate(`/controllers/${sensor.controller_id}`);
+      navigate(`/farms`, {
+        state: { message: 'Open the farm workspace to continue sensor setup.' },
+      });
       return;
     }
 
-    navigate('/controllers');
+    navigate('/farms');
   };
 
   const updateAlertSetting = (

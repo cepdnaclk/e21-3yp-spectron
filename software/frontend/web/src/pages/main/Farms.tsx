@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -47,9 +47,11 @@ const parseOptionalNumber = (value: string, label: string, min?: number, max?: n
 
 const Farms: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const navigationMessage = (location.state as { message?: string } | null)?.message || '';
   const [farms, setFarms] = useState<Farm[]>([]);
   const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState(navigationMessage);
   const [error, setError] = useState('');
   const [openCreate, setOpenCreate] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -83,6 +85,12 @@ const Farms: React.FC = () => {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    if (navigationMessage) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.pathname, navigate, navigationMessage]);
 
   const handleCreate = async () => {
     try {

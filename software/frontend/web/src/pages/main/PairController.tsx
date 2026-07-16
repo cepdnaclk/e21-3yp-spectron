@@ -8,6 +8,10 @@ import {
   Button,
   Box,
   Alert,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
   Stack,
 } from '@mui/material';
 import { CameraAlt, QrCodeScanner } from '@mui/icons-material';
@@ -17,6 +21,7 @@ import {
   pairHardwareController,
 } from '../../services/hardwarePairingService';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
+import { attachFarmController, Farm, getFarms } from '../../services/farmService';
 
 const SCANNER_REGION_ID = 'spectron-controller-qr-reader';
 
@@ -30,6 +35,8 @@ const PairController: React.FC = () => {
   const [scanInfo, setScanInfo] = useState('');
   const [isScannerSupported, setIsScannerSupported] = useState(false);
   const [isCameraRunning, setIsCameraRunning] = useState(false);
+  const [farms, setFarms] = useState<Farm[]>([]);
+  const [selectedFarmId, setSelectedFarmId] = useState('');
 
   useEffect(() => {
     setIsScannerSupported(Boolean(navigator.mediaDevices?.getUserMedia));
@@ -43,6 +50,20 @@ const PairController: React.FC = () => {
     return () => {
       stopCamera();
     };
+  }, []);
+
+  useEffect(() => {
+    const loadFarms = async () => {
+      try {
+        const nextFarms = (await getFarms()).filter((farm) => farm.role === 'owner');
+        setFarms(nextFarms);
+        setSelectedFarmId((current) => current || nextFarms[0]?.id || '');
+      } catch (err) {
+        console.error(err);
+        setError('Failed to load farms.');
+      }
+    };
+    void loadFarms();
   }, []);
 
   const stopCamera = async () => {
@@ -119,17 +140,23 @@ const PairController: React.FC = () => {
       setError(controllerCode.trim() ? 'Invalid controller QR code' : 'Controller ID required');
       return;
     }
+    if (!selectedFarmId) {
+      setError('Create or select a farm first.');
+      return;
+    }
 
     setLoading(true);
     try {
       const pairing = await pairHardwareController(normalizedControllerId);
+      await attachFarmController(selectedFarmId, {
+        controller_id: pairing.controllerId,
+      });
       setControllerCode(normalizedControllerId);
-      navigate(`/hardware/${pairing.controllerId}/sensors`, {
+      navigate(`/farms/${selectedFarmId}`, {
         state: {
           controllerId: pairing.controllerId,
-          sensors: pairing.sensors,
           paired: true,
-          observationMessage: `Controller ${pairing.controllerId} claimed successfully.`,
+          message: `Controller ${pairing.controllerId} linked.`,
         },
       });
     } catch (err: any) {
@@ -160,7 +187,7 @@ const PairController: React.FC = () => {
           </Box>
         </Stack>
         <Typography color="text.secondary" sx={{ mb: 2, maxWidth: 680, display: { xs: 'none', sm: 'block' } }}>
-          Scan the QR code on the controller label or enter the controller ID manually. A controller can be added only while it is unowned.
+          Scan the controller QR, choose the farm, then link it.
         </Typography>
 
         <AutoDismissAlert open={Boolean(error)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setError('')}>
@@ -212,16 +239,41 @@ const PairController: React.FC = () => {
             disabled={loading}
             required
           />
+          <FormControl fullWidth sx={{ mt: 2 }}>
+            <InputLabel>Farm</InputLabel>
+            <Select
+              label="Farm"
+              value={selectedFarmId}
+              onChange={(event) => setSelectedFarmId(event.target.value)}
+              disabled={loading || farms.length === 0}
+            >
+              {farms.map((farm) => (
+                <MenuItem key={farm.id} value={farm.id}>
+                  {farm.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          {farms.length === 0 && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              Create a farm before linking a controller.
+            </Alert>
+          )}
           <Button
             type="submit"
             variant="contained"
             color="secondary"
             fullWidth
             sx={{ mt: 2 }}
-            disabled={loading}
+            disabled={loading || farms.length === 0}
           >
-            {loading ? 'Adding...' : 'Add Controller'}
+            {loading ? 'Linking...' : 'Link Controller'}
           </Button>
+          {farms.length === 0 && (
+            <Button variant="outlined" fullWidth sx={{ mt: 1 }} onClick={() => navigate('/farms')}>
+              Farm Setup
+            </Button>
+          )}
         </Box>
       </Paper>
     </Container>

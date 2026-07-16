@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -111,6 +111,8 @@ const channelKeyPattern = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 const FarmDetails: React.FC = () => {
   const { farmId = '' } = useParams<{ farmId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const navigationMessage = (location.state as { message?: string } | null)?.message || '';
   const [farm, setFarm] = useState<Farm | null>(null);
   const [fields, setFields] = useState<Field[]>([]);
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
@@ -122,7 +124,7 @@ const FarmDetails: React.FC = () => {
   const [farmAlerts, setFarmAlerts] = useState<FarmAlert[]>([]);
   const [assignmentHistory, setAssignmentHistory] = useState<SensorBaseAssignment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState(navigationMessage);
   const [error, setError] = useState('');
   const [openField, setOpenField] = useState(false);
   const [openAccess, setOpenAccess] = useState(false);
@@ -201,6 +203,12 @@ const FarmDetails: React.FC = () => {
   useEffect(() => {
     void load();
   }, [farmId]);
+
+  useEffect(() => {
+    if (navigationMessage) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.pathname, navigate, navigationMessage]);
 
   const fieldCount = useMemo(() => fields.length, [fields]);
   const collaboratorCount = useMemo(() => collaborators.length, [collaborators]);
