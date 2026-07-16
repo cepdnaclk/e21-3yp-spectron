@@ -129,6 +129,8 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 				r.Post("/controllers", farmHandler.AttachFarmController)
 				r.Get("/sensor-bases", farmHandler.ListSensorBases)
 				r.Post("/sensor-bases", farmHandler.CreateSensorBase)
+				r.Get("/alerts", alertHandler.ListFarmAlerts)
+				r.Post("/alerts/{alertId}/ack", alertHandler.AcknowledgeFarmAlert)
 				r.Get("/fields", farmHandler.ListFields)
 				r.Post("/fields", farmHandler.CreateField)
 			})

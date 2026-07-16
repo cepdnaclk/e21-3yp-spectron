@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"spectron-backend/internal/models"
@@ -23,6 +26,23 @@ type AlertHandler struct {
 
 func NewAlertHandler(db *pgxpool.Pool) *AlertHandler {
 	return &AlertHandler{db: db}
+}
+
+type farmAlertResponse struct {
+	ID             string  `json:"id"`
+	FarmID         string  `json:"farm_id"`
+	FieldID        *string `json:"field_id,omitempty"`
+	FieldName      *string `json:"field_name,omitempty"`
+	SensorBaseID   *string `json:"sensor_base_id,omitempty"`
+	CropInstanceID *string `json:"crop_instance_id,omitempty"`
+	Type           string  `json:"type"`
+	Severity       string  `json:"severity"`
+	Message        string  `json:"message"`
+	SourceRef      *string `json:"source_ref,omitempty"`
+	Status         string  `json:"status"`
+	CreatedAt      string  `json:"created_at"`
+	AcknowledgedAt *string `json:"acknowledged_at,omitempty"`
+	ExpiresAt      *string `json:"expires_at,omitempty"`
 }
 
 func (h *AlertHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +121,123 @@ func (h *AlertHandler) List(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(alerts)
 }
 
+func (h *AlertHandler) ListFarmAlerts(w http.ResponseWriter, r *http.Request) {
+	access, ok := (&FarmHandler{db: h.db}).requireFarmAccess(w, r, false)
+	if !ok {
+		return
+	}
+
+	query := `
+		SELECT
+			a.id,
+			a.farm_id,
+			a.field_id,
+			f.name,
+			a.sensor_base_id,
+			a.crop_instance_id,
+			a.type,
+			a.severity,
+			a.message,
+			a.source_ref,
+			a.status,
+			a.created_at,
+			a.acknowledged_at,
+			a.expires_at
+		FROM alerts a
+		LEFT JOIN fields f ON f.id = a.field_id
+		WHERE a.farm_id = $1
+	`
+	args := []any{access.farmID}
+	argPos := 2
+
+	if fieldRef := strings.TrimSpace(r.URL.Query().Get("field_id")); fieldRef != "" {
+		fieldID, err := uuid.Parse(fieldRef)
+		if err != nil {
+			http.Error(w, "invalid field_id", http.StatusBadRequest)
+			return
+		}
+		if !(&FarmHandler{db: h.db}).fieldBelongsToFarm(r.Context(), fieldID, access.farmID) {
+			http.Error(w, "field not found", http.StatusNotFound)
+			return
+		}
+		query += fmt.Sprintf(" AND a.field_id = $%d", argPos)
+		args = append(args, fieldID)
+		argPos++
+	}
+
+	if severity := strings.TrimSpace(r.URL.Query().Get("severity")); severity != "" {
+		query += fmt.Sprintf(" AND a.severity = $%d", argPos)
+		args = append(args, severity)
+		argPos++
+	}
+	if status := strings.TrimSpace(r.URL.Query().Get("status")); status != "" {
+		query += fmt.Sprintf(" AND a.status = $%d", argPos)
+		args = append(args, status)
+		argPos++
+	}
+
+	query += " ORDER BY a.created_at DESC"
+
+	rows, err := h.db.Query(r.Context(), query, args...)
+	if err != nil {
+		http.Error(w, "failed to load farm alerts", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	alerts := make([]farmAlertResponse, 0)
+	for rows.Next() {
+		alert, err := scanFarmAlert(rows)
+		if err != nil {
+			http.Error(w, "failed to read farm alert", http.StatusInternalServerError)
+			return
+		}
+		alerts = append(alerts, alert)
+	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, "failed to read farm alerts", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"alerts": alerts})
+}
+
+func (h *AlertHandler) AcknowledgeFarmAlert(w http.ResponseWriter, r *http.Request) {
+	access, ok := (&FarmHandler{db: h.db}).requireFarmAccess(w, r, true)
+	if !ok {
+		return
+	}
+
+	alertID, err := uuid.Parse(chi.URLParam(r, "alertId"))
+	if err != nil {
+		http.Error(w, "invalid alert id", http.StatusBadRequest)
+		return
+	}
+
+	tag, err := h.db.Exec(r.Context(), `
+		UPDATE alerts
+		SET acknowledged_at = COALESCE(acknowledged_at, NOW()),
+		    status = 'acknowledged'
+		WHERE id = $1
+		  AND farm_id = $2
+	`, alertID, access.farmID)
+	if err != nil {
+		http.Error(w, "failed to acknowledge alert", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "alert not found", http.StatusNotFound)
+		return
+	}
+
+	alert, err := h.loadFarmAlert(r.Context(), alertID, access.farmID)
+	if err != nil {
+		http.Error(w, "failed to load alert", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"alert": alert})
+}
+
 func (h *AlertHandler) Acknowledge(w http.ResponseWriter, r *http.Request) {
 	alertID, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
@@ -137,6 +274,95 @@ func (h *AlertHandler) Acknowledge(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (h *AlertHandler) loadFarmAlert(ctx context.Context, alertID uuid.UUID, farmID uuid.UUID) (farmAlertResponse, error) {
+	alert, err := scanFarmAlert(h.db.QueryRow(ctx, `
+		SELECT
+			a.id,
+			a.farm_id,
+			a.field_id,
+			f.name,
+			a.sensor_base_id,
+			a.crop_instance_id,
+			a.type,
+			a.severity,
+			a.message,
+			a.source_ref,
+			a.status,
+			a.created_at,
+			a.acknowledged_at,
+			a.expires_at
+		FROM alerts a
+		LEFT JOIN fields f ON f.id = a.field_id
+		WHERE a.id = $1
+		  AND a.farm_id = $2
+	`, alertID, farmID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return farmAlertResponse{}, err
+		}
+		return farmAlertResponse{}, err
+	}
+	return alert, nil
+}
+
+type farmAlertScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanFarmAlert(row farmAlertScanner) (farmAlertResponse, error) {
+	var id uuid.UUID
+	var farmID uuid.UUID
+	var fieldID *uuid.UUID
+	var sensorBaseID *uuid.UUID
+	var cropInstanceID *uuid.UUID
+	var createdAt time.Time
+	var acknowledgedAt *time.Time
+	var expiresAt *time.Time
+	var alert farmAlertResponse
+	if err := row.Scan(
+		&id,
+		&farmID,
+		&fieldID,
+		&alert.FieldName,
+		&sensorBaseID,
+		&cropInstanceID,
+		&alert.Type,
+		&alert.Severity,
+		&alert.Message,
+		&alert.SourceRef,
+		&alert.Status,
+		&createdAt,
+		&acknowledgedAt,
+		&expiresAt,
+	); err != nil {
+		return farmAlertResponse{}, err
+	}
+	alert.ID = id.String()
+	alert.FarmID = farmID.String()
+	if fieldID != nil {
+		value := fieldID.String()
+		alert.FieldID = &value
+	}
+	if sensorBaseID != nil {
+		value := sensorBaseID.String()
+		alert.SensorBaseID = &value
+	}
+	if cropInstanceID != nil {
+		value := cropInstanceID.String()
+		alert.CropInstanceID = &value
+	}
+	alert.CreatedAt = createdAt.Format(time.RFC3339)
+	if acknowledgedAt != nil {
+		value := acknowledgedAt.Format(time.RFC3339)
+		alert.AcknowledgedAt = &value
+	}
+	if expiresAt != nil {
+		value := expiresAt.Format(time.RFC3339)
+		alert.ExpiresAt = &value
+	}
+	return alert, nil
 }
 
 type generateRecommendationsRequest struct {
