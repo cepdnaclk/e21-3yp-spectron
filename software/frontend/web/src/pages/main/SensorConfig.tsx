@@ -2882,7 +2882,17 @@ const SensorConfig: React.FC = () => {
 
   return (
     <Container maxWidth="xl" sx={{ py: { xs: 2, md: 3 } }}>
-      <Paper elevation={0} sx={{ p: { xs: 1.75, sm: 2.5, md: 3.5 }, borderRadius: 2, border: '1px solid rgba(60, 57, 17, 0.1)', overflow: 'hidden' }}>
+      <Paper
+        elevation={0}
+        sx={{
+          p: { xs: 1.75, sm: 2.5, md: 3.5 },
+          borderRadius: 4,
+          border: '1px solid rgba(60, 57, 17, 0.1)',
+          bgcolor: 'rgba(255,253,248,0.94)',
+          boxShadow: '0 16px 40px rgba(60, 57, 17, 0.08)',
+          overflow: 'hidden',
+        }}
+      >
         <Box
           sx={{
             position: 'sticky',

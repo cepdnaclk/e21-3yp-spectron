@@ -8,7 +8,6 @@ import {
   Container,
   FormControl,
   Grid,
-  IconButton,
   InputLabel,
   MenuItem,
   Select,
@@ -20,6 +19,7 @@ import { DoneAll, InfoOutlined, NotificationsActive, WarningAmber } from '@mui/i
 import { format } from 'date-fns';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { AlertsSkeleton } from '../../components/LoadingSkeletons';
+import { EmptyStateCard, MetricCard, PageHeaderPanel, PageShell } from '../../components/ui/PageSurface';
 import {
   acknowledgeFarmAlert,
   Farm,
@@ -149,34 +149,20 @@ const Alerts: React.FC = () => {
         {error}
       </AutoDismissAlert>
 
-      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1.5} sx={{ mb: 2.5 }}>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Typography variant="h4">Alerts</Typography>
-          <Tooltip title="Farm alerts follow farm access. Owners can acknowledge; viewers can only review.">
-            <IconButton size="small" aria-label="Alert access details">
-              <InfoOutlined fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-        <Chip label={`${alerts.length} shown`} size="small" />
-      </Stack>
+      <PageShell>
+        <PageHeaderPanel
+          title="Alerts"
+          subtitle={`${alerts.length} shown`}
+          icon={<NotificationsActive />}
+          info="Farm alerts follow farm access. Owners can acknowledge; viewers can only review."
+        />
 
       <Grid container spacing={1.5} sx={{ mb: 2.5 }}>
         <Grid item xs={6} md={3}>
-          <Card variant="outlined">
-            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-              <Typography variant="caption" color="text.secondary">Open</Typography>
-              <Typography variant="h5">{openCount}</Typography>
-            </CardContent>
-          </Card>
+          <MetricCard label="Open" value={openCount} icon={<NotificationsActive fontSize="small" />} tone="warning.main" />
         </Grid>
         <Grid item xs={6} md={3}>
-          <Card variant="outlined">
-            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-              <Typography variant="caption" color="text.secondary">Critical</Typography>
-              <Typography variant="h5">{criticalCount}</Typography>
-            </CardContent>
-          </Card>
+          <MetricCard label="Critical" value={criticalCount} icon={<WarningAmber fontSize="small" />} tone="error.main" />
         </Grid>
         <Grid item xs={12} md={6}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
@@ -216,25 +202,38 @@ const Alerts: React.FC = () => {
       </Grid>
 
       {farms.length === 0 ? (
-        <Card variant="outlined">
-          <CardContent sx={{ py: 6, textAlign: 'center' }}>
-            <DoneAll color="primary" sx={{ fontSize: 44, mb: 1 }} />
-            <Typography variant="h6">No farms</Typography>
-          </CardContent>
-        </Card>
+        <EmptyStateCard icon={<DoneAll sx={{ fontSize: 38 }} />} title="No farms" />
       ) : alerts.length === 0 ? (
-        <Card variant="outlined">
-          <CardContent sx={{ py: 6, textAlign: 'center' }}>
-            <DoneAll color="primary" sx={{ fontSize: 44, mb: 1 }} />
-            <Typography variant="h6">No alerts</Typography>
-          </CardContent>
-        </Card>
+        <EmptyStateCard icon={<DoneAll sx={{ fontSize: 38 }} />} title="No alerts" />
       ) : (
         <Stack spacing={1.5}>
           {alerts.map((alert) => {
             const canAcknowledge = ownerFarmIds.has(alert.farm_id) && alert.status.toLowerCase() === 'open';
             return (
-              <Card key={alert.id} variant="outlined">
+              <Card
+                key={alert.id}
+                variant="outlined"
+                sx={{
+                  overflow: 'hidden',
+                  bgcolor: 'rgba(255,253,248,0.94)',
+                  boxShadow: '0 12px 28px rgba(60, 57, 17, 0.06)',
+                  borderColor:
+                    String(alert.severity).toLowerCase() === 'critical'
+                      ? 'rgba(218, 54, 8, 0.28)'
+                      : 'rgba(60, 57, 17, 0.1)',
+                }}
+              >
+                <Box
+                  sx={{
+                    height: 5,
+                    bgcolor:
+                      String(alert.severity).toLowerCase() === 'critical'
+                        ? 'error.main'
+                        : String(alert.severity).toLowerCase() === 'warning' || String(alert.severity).toLowerCase() === 'warn'
+                          ? 'warning.main'
+                          : 'info.main',
+                  }}
+                />
                 <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
                   <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.25}>
                     <Stack direction="row" spacing={1.25} alignItems="flex-start" sx={{ minWidth: 0 }}>
@@ -290,6 +289,7 @@ const Alerts: React.FC = () => {
           })}
         </Stack>
       )}
+      </PageShell>
     </Container>
   );
 };

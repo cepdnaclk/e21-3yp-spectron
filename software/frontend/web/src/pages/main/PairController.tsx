@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  Card,
+  CardContent,
   Container,
-  Paper,
-  Typography,
   TextField,
   Button,
   Box,
@@ -12,9 +12,8 @@ import {
   InputLabel,
   MenuItem,
   Select,
-  Stack,
 } from '@mui/material';
-import { CameraAlt, QrCodeScanner } from '@mui/icons-material';
+import { Agriculture, CameraAlt, QrCodeScanner } from '@mui/icons-material';
 import { Html5Qrcode } from 'html5-qrcode';
 import {
   extractControllerId,
@@ -22,6 +21,7 @@ import {
 } from '../../services/hardwarePairingService';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { attachFarmController, Farm, getFarms } from '../../services/farmService';
+import { PageHeaderPanel, PageShell } from '../../components/ui/PageSurface';
 
 const SCANNER_REGION_ID = 'spectron-controller-qr-reader';
 
@@ -177,24 +177,32 @@ const PairController: React.FC = () => {
 
   return (
     <Container maxWidth="md" sx={{ py: { xs: 2, md: 3 } }}>
-      <Paper elevation={0} sx={{ p: { xs: 1.5, sm: 2.5, md: 3.5 }, borderRadius: 2, border: 'none', backgroundColor: 'transparent' }}>
-        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
-          <Box sx={{ p: 1, borderRadius: '50%', bgcolor: 'rgba(235, 79, 18, 0.12)' }}>
-            <QrCodeScanner color="secondary" />
-          </Box>
-          <Box>
-            <Typography variant="h4">Scan Controller QR</Typography>
-          </Box>
-        </Stack>
-        <Typography color="text.secondary" sx={{ mb: 2, maxWidth: 680, display: { xs: 'none', sm: 'block' } }}>
-          Scan the controller QR, choose the farm, then link it.
-        </Typography>
+      <PageShell>
+        <PageHeaderPanel
+          title="Scan Controller QR"
+          subtitle="Scan the controller QR, choose the farm, then link it."
+          icon={<QrCodeScanner />}
+          info="Pair the hardware controller first, then attach it to the selected farm."
+          actions={
+            <Button variant="outlined" startIcon={<Agriculture />} onClick={() => navigate('/farms')}>
+              Farm Setup
+            </Button>
+          }
+        />
 
         <AutoDismissAlert open={Boolean(error)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setError('')}>
           {error}
         </AutoDismissAlert>
 
-        <Box component="form" onSubmit={handlePair} sx={{ mt: { xs: 2, sm: 3 }, pt: { xs: 2, sm: 3 }, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
+        <Card
+          variant="outlined"
+          sx={{
+            bgcolor: 'rgba(255,253,248,0.94)',
+            boxShadow: '0 12px 28px rgba(60, 57, 17, 0.06)',
+          }}
+        >
+          <CardContent sx={{ p: { xs: 2, sm: 2.5 }, '&:last-child': { pb: { xs: 2, sm: 2.5 } } }}>
+        <Box component="form" onSubmit={handlePair}>
           {isScannerSupported ? (
             <Box sx={{ mb: 2 }}>
               {!isCameraRunning ? (
@@ -275,7 +283,9 @@ const PairController: React.FC = () => {
             </Button>
           )}
         </Box>
-      </Paper>
+          </CardContent>
+        </Card>
+      </PageShell>
     </Container>
   );
 };

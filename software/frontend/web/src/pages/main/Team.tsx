@@ -5,6 +5,7 @@ import {
   Card,
   CardContent,
   Chip,
+  Container,
   FormControl,
   Grid,
   IconButton,
@@ -16,8 +17,9 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { DeleteOutline, GroupAdd, InfoOutlined, Refresh } from '@mui/icons-material';
+import { DeleteOutline, GroupAdd, Refresh } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
+import { EmptyStateCard, PageHeaderPanel, PageShell } from '../../components/ui/PageSurface';
 import {
   addFarmCollaborator,
   Collaborator,
@@ -172,37 +174,36 @@ const Team: React.FC = () => {
   };
 
   return (
-    <Box sx={{ px: { xs: 1.75, md: 4 }, py: { xs: 1.5, md: 2 } }}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} justifyContent="space-between" sx={{ mb: 2.5 }}>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Typography variant="h4">Viewers</Typography>
-          <Tooltip title="Farm owners invite read-only viewers per farm. Admin users are separate.">
-            <IconButton size="small" aria-label="Viewer access details">
-              <InfoOutlined fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-          <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 240 } }}>
-            <InputLabel id="viewer-farm-label">Farm</InputLabel>
-            <Select
-              labelId="viewer-farm-label"
-              label="Farm"
-              value={selectedFarmId}
-              onChange={(event) => setSelectedFarmId(event.target.value)}
-            >
-              {ownedFarms.map((farm) => (
-                <MenuItem key={farm.id} value={farm.id}>
-                  {farm.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <Button startIcon={<Refresh />} variant="outlined" onClick={refresh} disabled={loading}>
-            Refresh
-          </Button>
-        </Stack>
-      </Stack>
+    <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 } }}>
+      <PageShell>
+        <PageHeaderPanel
+          title="Viewers"
+          subtitle="Read-only farm access for customer-side users."
+          icon={<GroupAdd />}
+          info="Farm owners invite read-only viewers per farm. Admin users are separate."
+          actions={
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+              <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 240 } }}>
+                <InputLabel id="viewer-farm-label">Farm</InputLabel>
+                <Select
+                  labelId="viewer-farm-label"
+                  label="Farm"
+                  value={selectedFarmId}
+                  onChange={(event) => setSelectedFarmId(event.target.value)}
+                >
+                  {ownedFarms.map((farm) => (
+                    <MenuItem key={farm.id} value={farm.id}>
+                      {farm.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <Button startIcon={<Refresh />} variant="outlined" onClick={refresh} disabled={loading}>
+                Refresh
+              </Button>
+            </Stack>
+          }
+        />
 
       <AutoDismissAlert open={Boolean(error)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setError('')}>
         {error}
@@ -212,16 +213,11 @@ const Team: React.FC = () => {
       </AutoDismissAlert>
 
       {ownedFarms.length === 0 ? (
-        <Card variant="outlined">
-          <CardContent sx={{ py: 6, textAlign: 'center' }}>
-            <GroupAdd color="primary" sx={{ fontSize: 44, mb: 1 }} />
-            <Typography variant="h6">No owned farms</Typography>
-          </CardContent>
-        </Card>
+        <EmptyStateCard icon={<GroupAdd sx={{ fontSize: 38 }} />} title="No owned farms" />
       ) : (
         <Grid container spacing={1.5}>
           <Grid item xs={12} md={5}>
-            <Card variant="outlined">
+            <Card variant="outlined" sx={{ bgcolor: 'rgba(255,253,248,0.94)', boxShadow: '0 12px 28px rgba(60, 57, 17, 0.06)' }}>
               <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
                   <GroupAdd color="secondary" />
@@ -253,7 +249,7 @@ const Team: React.FC = () => {
           </Grid>
 
           <Grid item xs={12} md={7}>
-            <Card variant="outlined">
+            <Card variant="outlined" sx={{ bgcolor: 'rgba(255,253,248,0.94)', boxShadow: '0 12px 28px rgba(60, 57, 17, 0.06)' }}>
               <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
                 <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
                   <Box sx={{ minWidth: 0 }}>
@@ -271,12 +267,12 @@ const Team: React.FC = () => {
 
                 <Stack spacing={1}>
                   {viewers.length === 0 ? (
-                    <Box sx={{ py: 4, textAlign: 'center', border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                    <Box sx={{ py: 4, textAlign: 'center', border: 1, borderColor: 'divider', borderRadius: 2, bgcolor: 'rgba(108, 137, 48, 0.06)' }}>
                       <Typography>No viewers</Typography>
                     </Box>
                   ) : (
                     viewers.map((viewer) => (
-                      <Box key={viewer.user_id} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.25 }}>
+                      <Box key={viewer.user_id} sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 1.25, bgcolor: 'rgba(255, 253, 248, 0.72)' }}>
                         <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
                           <Box sx={{ minWidth: 0 }}>
                             <Typography variant="subtitle2" sx={{ overflowWrap: 'anywhere' }}>
@@ -313,7 +309,8 @@ const Team: React.FC = () => {
           </Grid>
         </Grid>
       )}
-    </Box>
+      </PageShell>
+    </Container>
   );
 };
 

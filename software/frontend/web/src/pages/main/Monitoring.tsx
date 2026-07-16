@@ -7,26 +7,24 @@ import {
   Container,
   FormControl,
   Grid,
-  IconButton,
   InputLabel,
   LinearProgress,
   MenuItem,
   Select,
   Stack,
-  Tooltip,
   Typography,
 } from '@mui/material';
 import {
   Agriculture,
   DeviceHub,
   DoneAll,
-  InfoOutlined,
   Memory,
   Sensors,
   WarningAmber,
 } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { MonitoringSkeleton } from '../../components/LoadingSkeletons';
+import { EmptyStateCard, MetricCard, PageHeaderPanel, PageShell } from '../../components/ui/PageSurface';
 import {
   Farm,
   FarmController,
@@ -153,78 +151,51 @@ const Monitoring: React.FC = () => {
         {error}
       </AutoDismissAlert>
 
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} justifyContent="space-between" sx={{ mb: 2.5 }}>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Typography variant="h4">Monitoring</Typography>
-          <Tooltip title="Live status is grouped by farm, field assignment, sensor base, module, and channel.">
-            <IconButton size="small" aria-label="Monitoring details">
-              <InfoOutlined fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-        <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 220 } }}>
-          <InputLabel id="monitoring-farm-filter-label">Farm</InputLabel>
-          <Select
-            labelId="monitoring-farm-filter-label"
-            label="Farm"
-            value={farmFilter}
-            onChange={(event) => setFarmFilter(event.target.value)}
-          >
-            <MenuItem value="all">All farms</MenuItem>
-            {farms.map((farm) => (
-              <MenuItem key={farm.id} value={farm.id}>
-                {farm.name}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Stack>
+      <PageShell>
+        <PageHeaderPanel
+          title="Monitoring"
+          subtitle="Live device state by farm, field, base, module, and channel."
+          icon={<Memory />}
+          info="Live status is grouped by farm, field assignment, sensor base, module, and channel."
+          actions={
+            <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 220 } }}>
+              <InputLabel id="monitoring-farm-filter-label">Farm</InputLabel>
+              <Select
+                labelId="monitoring-farm-filter-label"
+                label="Farm"
+                value={farmFilter}
+                onChange={(event) => setFarmFilter(event.target.value)}
+              >
+                <MenuItem value="all">All farms</MenuItem>
+                {farms.map((farm) => (
+                  <MenuItem key={farm.id} value={farm.id}>
+                    {farm.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          }
+        />
 
       <Grid container spacing={1.5} sx={{ mb: 2.5 }}>
         <Grid item xs={6} md={3}>
-          <Card variant="outlined">
-            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-              <Typography variant="caption" color="text.secondary">Fields</Typography>
-              <Typography variant="h5">{totalFields}</Typography>
-            </CardContent>
-          </Card>
+          <MetricCard label="Fields" value={totalFields} icon={<Agriculture fontSize="small" />} />
         </Grid>
         <Grid item xs={6} md={3}>
-          <Card variant="outlined">
-            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-              <Typography variant="caption" color="text.secondary">Bases</Typography>
-              <Typography variant="h5">{totalBases}</Typography>
-            </CardContent>
-          </Card>
+          <MetricCard label="Bases" value={totalBases} icon={<Sensors fontSize="small" />} />
         </Grid>
         <Grid item xs={6} md={3}>
-          <Card variant="outlined">
-            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-              <Typography variant="caption" color="text.secondary">Channels</Typography>
-              <Typography variant="h5">{totalChannels}</Typography>
-            </CardContent>
-          </Card>
+          <MetricCard label="Channels" value={totalChannels} icon={<Memory fontSize="small" />} tone="info.main" />
         </Grid>
         <Grid item xs={6} md={3}>
-          <Card variant="outlined">
-            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-              <Typography variant="caption" color="text.secondary">Live</Typography>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="h5">{livePercent}%</Typography>
-                <LinearProgress variant="determinate" value={livePercent} sx={{ flex: 1, height: 8, borderRadius: 999 }} />
-              </Stack>
-            </CardContent>
-          </Card>
+          <MetricCard label="Live" value={`${livePercent}%`} icon={<DoneAll fontSize="small" />} tone="success.main">
+            <LinearProgress variant="determinate" value={livePercent} sx={{ mt: 1.5, height: 8, borderRadius: 999 }} />
+          </MetricCard>
         </Grid>
       </Grid>
 
       {summaries.length === 0 ? (
-        <Card variant="outlined">
-          <CardContent sx={{ py: 6, textAlign: 'center' }}>
-            <DoneAll color="primary" sx={{ fontSize: 44, mb: 1 }} />
-            <Typography variant="h6">No farms</Typography>
-          </CardContent>
-        </Card>
+        <EmptyStateCard icon={<DoneAll sx={{ fontSize: 38 }} />} title="No farms" />
       ) : (
         <Stack spacing={1.5}>
           {summaries.map((summary) => {
@@ -235,7 +206,14 @@ const Monitoring: React.FC = () => {
             );
 
             return (
-              <Card key={summary.farm.id} variant="outlined">
+              <Card
+                key={summary.farm.id}
+                variant="outlined"
+                sx={{
+                  bgcolor: 'rgba(255,253,248,0.94)',
+                  boxShadow: '0 12px 28px rgba(60, 57, 17, 0.06)',
+                }}
+              >
                 <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
                   <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={1.5}>
                     <Stack spacing={0.75} sx={{ minWidth: 0 }}>
@@ -262,7 +240,15 @@ const Monitoring: React.FC = () => {
                       const controllerBases = summary.bases.filter((base) => base.gateway_id === controller.id);
                       return (
                         <Grid item xs={12} md={6} key={controller.id}>
-                          <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.25 }}>
+                          <Box
+                            sx={{
+                              border: 1,
+                              borderColor: 'rgba(60, 57, 17, 0.1)',
+                              borderRadius: 2,
+                              p: 1.25,
+                              bgcolor: 'rgba(255, 253, 248, 0.7)',
+                            }}
+                          >
                             <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="flex-start">
                               <Box sx={{ minWidth: 0 }}>
                                 <Typography variant="subtitle2" sx={{ overflowWrap: 'anywhere' }}>
@@ -324,6 +310,7 @@ const Monitoring: React.FC = () => {
           })}
         </Stack>
       )}
+      </PageShell>
     </Container>
   );
 };

@@ -28,6 +28,7 @@ import {
   ArrowBack,
   CheckCircle,
   Delete,
+  GroupAdd,
   History,
   Hub,
   Info,
@@ -39,6 +40,7 @@ import {
 } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { PageHeaderSkeleton } from '../../components/LoadingSkeletons';
+import { EmptyStateCard, MetricCard, PageHeaderPanel, PageShell } from '../../components/ui/PageSurface';
 import {
   addFarmCollaborator,
   acknowledgeFarmAlert,
@@ -638,37 +640,33 @@ const FarmDetails: React.FC = () => {
         {error}
       </AutoDismissAlert>
 
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
-        <IconButton onClick={() => navigate('/farms')} aria-label="Back to farms">
-          <ArrowBack />
-        </IconButton>
-        <Box>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="h4">{farm.name}</Typography>
-            <Tooltip title="Farm-level view. Fields, crops, and people live here.">
-              <IconButton size="small" aria-label="Farm details help">
-                <Info fontSize="small" />
+      <PageShell>
+        <PageHeaderPanel
+          title={farm.name}
+          subtitle={`${farm.role} access`}
+          icon={<Agriculture />}
+          info="Farm-level view. Fields, crops, and people live here."
+          actions={
+            <Stack direction="row" spacing={1}>
+              <IconButton onClick={() => navigate('/farms')} aria-label="Back to farms">
+                <ArrowBack />
               </IconButton>
-            </Tooltip>
-          </Stack>
-          <Typography color="text.secondary" sx={{ mt: 0.5 }}>
-            {farm.role} access
-          </Typography>
-        </Box>
-      </Stack>
+            </Stack>
+          }
+        />
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid item xs={12} sm={6} md={3}>
-          <Card><CardContent><Typography color="text.secondary">Fields</Typography><Typography variant="h4">{fieldCount}</Typography></CardContent></Card>
+          <MetricCard label="Fields" value={fieldCount} icon={<Place fontSize="small" />} />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <Card><CardContent><Typography color="text.secondary">People</Typography><Typography variant="h4">{collaboratorCount}</Typography></CardContent></Card>
+          <MetricCard label="People" value={collaboratorCount} icon={<GroupAdd fontSize="small" />} />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <Card><CardContent><Typography color="text.secondary">Crops</Typography><Typography variant="h4">{activeCropCount}</Typography></CardContent></Card>
+          <MetricCard label="Crops" value={activeCropCount} icon={<Agriculture fontSize="small" />} />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <Card><CardContent><Typography color="text.secondary">Alerts</Typography><Typography variant="h4">{openAlertCount}</Typography></CardContent></Card>
+          <MetricCard label="Alerts" value={openAlertCount} icon={<WarningAmber fontSize="small" />} tone="error.main" />
         </Grid>
       </Grid>
 
@@ -710,17 +708,14 @@ const FarmDetails: React.FC = () => {
           <Grid container spacing={2}>
             {fields.length === 0 ? (
               <Grid item xs={12}>
-                <Box sx={{ py: 5, textAlign: 'center', border: 1, borderColor: 'divider', borderRadius: 1 }}>
-                  <Place color="primary" sx={{ fontSize: 42 }} />
-                  <Typography sx={{ mt: 1 }}>No fields yet</Typography>
-                </Box>
+                <EmptyStateCard icon={<Place sx={{ fontSize: 38 }} />} title="No fields yet" />
               </Grid>
             ) : (
               fields.map((field) => {
                 const activeCrop = activeCropForField(field.id);
                 return (
                   <Grid item xs={12} sm={6} key={field.id}>
-                    <Card variant="outlined" sx={{ height: '100%' }}>
+                    <Card variant="outlined" sx={{ height: '100%', bgcolor: 'rgba(255,253,248,0.94)', boxShadow: '0 12px 28px rgba(60, 57, 17, 0.06)' }}>
                       <CardContent>
                         <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="flex-start">
                           <Box>
@@ -739,7 +734,7 @@ const FarmDetails: React.FC = () => {
                         </Stack>
 
                         {activeCrop ? (
-                          <Box sx={{ mt: 2, p: 1.5, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                          <Box sx={{ mt: 2, p: 1.5, border: 1, borderColor: 'divider', borderRadius: 2, bgcolor: 'rgba(108, 137, 48, 0.06)' }}>
                             <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
                               <Box>
                                 <Typography fontWeight={700}>{activeCrop.crop_name}</Typography>
@@ -784,7 +779,7 @@ const FarmDetails: React.FC = () => {
           </Stack>
           <Stack spacing={1.25}>
             {collaborators.map((person) => (
-              <Card key={person.user_id} variant="outlined">
+              <Card key={person.user_id} variant="outlined" sx={{ bgcolor: 'rgba(255,253,248,0.94)', boxShadow: '0 12px 28px rgba(60, 57, 17, 0.06)' }}>
                 <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
                   <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
                     <Box sx={{ minWidth: 0 }}>
@@ -806,9 +801,7 @@ const FarmDetails: React.FC = () => {
               </Card>
             ))}
             {collaborators.length === 0 && (
-              <Box sx={{ py: 4, textAlign: 'center', border: 1, borderColor: 'divider', borderRadius: 1 }}>
-                <Typography color="text.secondary">No people yet</Typography>
-              </Box>
+              <EmptyStateCard title="No people yet" />
             )}
           </Stack>
         </Grid>
@@ -825,15 +818,12 @@ const FarmDetails: React.FC = () => {
           <Chip size="small" label={openAlertCount} />
         </Stack>
         {farmAlerts.length === 0 ? (
-          <Box sx={{ py: 4, textAlign: 'center', border: 1, borderColor: 'divider', borderRadius: 1 }}>
-            <WarningAmber color="primary" sx={{ fontSize: 36 }} />
-            <Typography sx={{ mt: 1 }}>No alerts</Typography>
-          </Box>
+          <EmptyStateCard icon={<WarningAmber sx={{ fontSize: 38 }} />} title="No alerts" />
         ) : (
           <Grid container spacing={2}>
             {farmAlerts.slice(0, 4).map((alert) => (
               <Grid item xs={12} md={6} key={alert.id}>
-                <Card variant="outlined">
+                <Card variant="outlined" sx={{ bgcolor: 'rgba(255,253,248,0.94)', boxShadow: '0 12px 28px rgba(60, 57, 17, 0.06)' }}>
                   <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
                     <Stack direction="row" justifyContent="space-between" spacing={1.5} alignItems="flex-start">
                       <Box sx={{ minWidth: 0 }}>
@@ -862,6 +852,7 @@ const FarmDetails: React.FC = () => {
           </Grid>
         )}
       </Box>
+      </PageShell>
 
       <Box sx={{ mt: 4 }}>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>

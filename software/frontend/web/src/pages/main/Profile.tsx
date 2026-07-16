@@ -35,6 +35,7 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { changePassword, deleteAccount, updateProfile } from '../../services/authService';
+import { PageHeaderPanel, PageShell } from '../../components/ui/PageSurface';
 
 const getApiMessage = (error: any, fallback: string) => {
   const responseData = error?.response?.data;
@@ -347,6 +348,13 @@ const Profile: React.FC = () => {
 
   return (
     <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 } }}>
+      <PageShell>
+      <PageHeaderPanel
+        title={profileDisplayName}
+        subtitle={`${accountLabel} account`}
+        icon={<Avatar src={avatarUrl || undefined} sx={{ width: 28, height: 28, bgcolor: 'primary.dark' }}>{initials}</Avatar>}
+        info="Manage your profile details, password, and account access."
+      />
       <Stack spacing={2.5}>
         <Card>
           <CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}>
@@ -644,6 +652,7 @@ const Profile: React.FC = () => {
           </CardContent>
         </Card>
       </Stack>
+      </PageShell>
 
       <Dialog open={deleteDialogOpen} onClose={closeDeleteDialog} fullWidth maxWidth="sm">
         <DialogTitle>Delete Account</DialogTitle>

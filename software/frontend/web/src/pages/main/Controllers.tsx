@@ -9,17 +9,16 @@ import {
   Container,
   FormControl,
   Grid,
-  IconButton,
   InputLabel,
   MenuItem,
   Select,
   Stack,
-  Tooltip,
   Typography,
 } from '@mui/material';
-import { Agriculture, DeviceHub, DoneAll, InfoOutlined, Sensors, SettingsInputAntenna } from '@mui/icons-material';
+import { Agriculture, DeviceHub, DoneAll, Sensors, SettingsInputAntenna } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { ControllersSkeleton } from '../../components/LoadingSkeletons';
+import { EmptyStateCard, MetricCard, PageHeaderPanel, PageShell } from '../../components/ui/PageSurface';
 import {
   Farm,
   FarmController,
@@ -159,93 +158,72 @@ const Controllers: React.FC = () => {
         {error}
       </AutoDismissAlert>
 
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} justifyContent="space-between" sx={{ mb: 2.5 }}>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Typography variant="h4">Controllers</Typography>
-          <Tooltip title="Controllers belong to farms. Field links come from sensor base assignments.">
-            <IconButton size="small" aria-label="Controller details">
-              <InfoOutlined fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-          <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 220 } }}>
-            <InputLabel id="controller-farm-filter-label">Farm</InputLabel>
-            <Select
-              labelId="controller-farm-filter-label"
-              label="Farm"
-              value={farmFilter}
-              onChange={(event) => setFarmFilter(event.target.value)}
-            >
-              <MenuItem value="all">All farms</MenuItem>
-              {farms.map((farm) => (
-                <MenuItem key={farm.id} value={farm.id}>
-                  {farm.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <Button variant="contained" color="secondary" onClick={() => navigate('/farms')}>
-            Farm Setup
-          </Button>
-        </Stack>
-      </Stack>
+      <PageShell>
+        <PageHeaderPanel
+          title="Controllers"
+          subtitle="Farm gateways, sensor bases, and channels."
+          icon={<DeviceHub />}
+          info="Controllers belong to farms. Field links come from sensor base assignments."
+          actions={
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+              <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 220 } }}>
+                <InputLabel id="controller-farm-filter-label">Farm</InputLabel>
+                <Select
+                  labelId="controller-farm-filter-label"
+                  label="Farm"
+                  value={farmFilter}
+                  onChange={(event) => setFarmFilter(event.target.value)}
+                >
+                  <MenuItem value="all">All farms</MenuItem>
+                  {farms.map((farm) => (
+                    <MenuItem key={farm.id} value={farm.id}>
+                      {farm.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <Button variant="contained" color="secondary" onClick={() => navigate('/farms')}>
+                Farm Setup
+              </Button>
+            </Stack>
+          }
+        />
 
       <Grid container spacing={1.5} sx={{ mb: 2.5 }}>
         <Grid item xs={6} md={3}>
-          <Card variant="outlined">
-            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-              <Typography variant="caption" color="text.secondary">Controllers</Typography>
-              <Typography variant="h5">{totals.controllers}</Typography>
-            </CardContent>
-          </Card>
+          <MetricCard label="Controllers" value={totals.controllers} icon={<DeviceHub fontSize="small" />} />
         </Grid>
         <Grid item xs={6} md={3}>
-          <Card variant="outlined">
-            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-              <Typography variant="caption" color="text.secondary">Online</Typography>
-              <Typography variant="h5">{totals.online}</Typography>
-            </CardContent>
-          </Card>
+          <MetricCard label="Online" value={totals.online} icon={<DoneAll fontSize="small" />} tone="success.main" />
         </Grid>
         <Grid item xs={6} md={3}>
-          <Card variant="outlined">
-            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-              <Typography variant="caption" color="text.secondary">Bases</Typography>
-              <Typography variant="h5">{totals.bases}</Typography>
-            </CardContent>
-          </Card>
+          <MetricCard label="Bases" value={totals.bases} icon={<Sensors fontSize="small" />} />
         </Grid>
         <Grid item xs={6} md={3}>
-          <Card variant="outlined">
-            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-              <Typography variant="caption" color="text.secondary">Channels</Typography>
-              <Typography variant="h5">{totals.channels}</Typography>
-            </CardContent>
-          </Card>
+          <MetricCard label="Channels" value={totals.channels} icon={<SettingsInputAntenna fontSize="small" />} tone="info.main" />
         </Grid>
       </Grid>
 
       {farms.length === 0 ? (
-        <Card variant="outlined">
-          <CardContent sx={{ py: 6, textAlign: 'center' }}>
-            <Agriculture color="primary" sx={{ fontSize: 44, mb: 1 }} />
-            <Typography variant="h6">No farms</Typography>
+        <EmptyStateCard
+          icon={<Agriculture sx={{ fontSize: 38 }} />}
+          title="No farms"
+          action={
             <Button variant="contained" color="secondary" sx={{ mt: 2 }} onClick={() => navigate('/farms')}>
               Farm Setup
             </Button>
-          </CardContent>
-        </Card>
+          }
+        />
       ) : rows.length === 0 ? (
-        <Card variant="outlined">
-          <CardContent sx={{ py: 6, textAlign: 'center' }}>
-            <DoneAll color="primary" sx={{ fontSize: 44, mb: 1 }} />
-            <Typography variant="h6">No controllers</Typography>
+        <EmptyStateCard
+          icon={<DoneAll sx={{ fontSize: 38 }} />}
+          title="No controllers"
+          action={
             <Button variant="contained" color="secondary" sx={{ mt: 2 }} onClick={() => navigate('/farms')}>
               Farm Setup
             </Button>
-          </CardContent>
-        </Card>
+          }
+        />
       ) : (
         <Grid container spacing={1.5}>
           {rows.map(({ farm, controller, bases, modulesByBase }) => {
@@ -264,7 +242,20 @@ const Controllers: React.FC = () => {
 
             return (
               <Grid item xs={12} md={6} key={controller.id}>
-                <Card variant="outlined" sx={{ height: '100%' }}>
+                <Card
+                  variant="outlined"
+                  sx={{
+                    height: '100%',
+                    bgcolor: 'rgba(255,253,248,0.94)',
+                    boxShadow: '0 12px 28px rgba(60, 57, 17, 0.06)',
+                    transition: 'transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease',
+                    '&:hover': {
+                      borderColor: 'rgba(108,137,48,0.35)',
+                      boxShadow: '0 18px 36px rgba(60, 57, 17, 0.1)',
+                      transform: 'translateY(-2px)',
+                    },
+                  }}
+                >
                   <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
                     <Stack direction="row" spacing={1.25} justifyContent="space-between" alignItems="flex-start">
                       <Stack direction="row" spacing={1.25} sx={{ minWidth: 0 }}>
@@ -315,6 +306,7 @@ const Controllers: React.FC = () => {
           })}
         </Grid>
       )}
+      </PageShell>
     </Container>
   );
 };
