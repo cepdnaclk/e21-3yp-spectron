@@ -155,34 +155,49 @@ const FarmDetails: React.FC = () => {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [nextFarm, nextFields, nextCollaborators, nextCrops, nextControllers, nextBases, nextAlerts] = await Promise.all([
-        getFarm(farmId),
-        getFarmFields(farmId),
-        getFarmCollaborators(farmId),
-        getCrops(),
-        getFarmControllers(farmId),
-        getFarmSensorBases(farmId),
-        getFarmAlerts(farmId, { status: 'open' }),
-      ]);
-      const cropPairs = await Promise.all(
+      const nextFarm = await getFarm(farmId);
+      const [fieldsResult, collaboratorsResult, cropsResult, controllersResult, basesResult, alertsResult] =
+        await Promise.allSettled([
+          getFarmFields(farmId),
+          getFarmCollaborators(farmId),
+          getCrops(),
+          getFarmControllers(farmId),
+          getFarmSensorBases(farmId),
+          getFarmAlerts(farmId, { status: 'open' }),
+        ]);
+
+      const nextFields = fieldsResult.status === 'fulfilled' ? fieldsResult.value : [];
+      const nextCollaborators = collaboratorsResult.status === 'fulfilled' ? collaboratorsResult.value : [];
+      const nextCrops = cropsResult.status === 'fulfilled' ? cropsResult.value : [];
+      const nextControllers = controllersResult.status === 'fulfilled' ? controllersResult.value : [];
+      const nextBases = basesResult.status === 'fulfilled' ? basesResult.value : [];
+      const nextAlerts = alertsResult.status === 'fulfilled' ? alertsResult.value : [];
+
+      const cropPairs = await Promise.allSettled(
         nextFields.map(async (field) => {
           const instances = await getFieldCropInstances(field.id);
           return [field.id, instances] as const;
         }),
       );
-      const modulePairs = await Promise.all(
+      const modulePairs = await Promise.allSettled(
         nextBases.map(async (base) => {
           const modules = await getSensorModules(base.id);
           return [base.id, modules] as const;
         }),
       );
       const nextCropInstances: Record<string, CropInstance[]> = {};
-      cropPairs.forEach(([fieldID, instances]) => {
-        nextCropInstances[fieldID] = instances;
+      cropPairs.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          const [fieldID, instances] = result.value;
+          nextCropInstances[fieldID] = instances;
+        }
       });
       const nextModulesByBase: Record<string, SensorModule[]> = {};
-      modulePairs.forEach(([baseID, modules]) => {
-        nextModulesByBase[baseID] = modules;
+      modulePairs.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          const [baseID, modules] = result.value;
+          nextModulesByBase[baseID] = modules;
+        }
       });
 
       setFarm(nextFarm);
@@ -194,9 +209,25 @@ const FarmDetails: React.FC = () => {
       setSensorBases(nextBases);
       setModulesByBase(nextModulesByBase);
       setFarmAlerts(nextAlerts);
+      const failedSections = [
+        fieldsResult.status,
+        collaboratorsResult.status,
+        cropsResult.status,
+        controllersResult.status,
+        basesResult.status,
+        alertsResult.status,
+        ...cropPairs.map((result) => result.status),
+        ...modulePairs.map((result) => result.status),
+      ].some((status) => status === 'rejected');
+      if (failedSections) {
+        setError('Some farm sections could not be loaded.');
+      } else {
+        setError('');
+      }
     } catch (err) {
       console.error(err);
-      setError('Failed to load farm.');
+      setFarm(null);
+      setError(err instanceof Error && err.message ? err.message : 'Failed to load farm.');
     } finally {
       setLoading(false);
     }
