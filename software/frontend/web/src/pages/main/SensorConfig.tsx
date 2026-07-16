@@ -2869,7 +2869,7 @@ const SensorConfig: React.FC = () => {
                 <Button variant="outlined" onClick={handleBack}>
                   Back
                 </Button>
-                <Button variant="contained" color="secondary" onClick={() => navigate('/farms')}>
+                <Button variant="contained" color="secondary" size="small" sx={{ minHeight: 40, px: 2.25 }} onClick={() => navigate('/farms')}>
                   Farm Setup
                 </Button>
               </Stack>

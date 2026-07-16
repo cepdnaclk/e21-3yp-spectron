@@ -184,7 +184,13 @@ const PairController: React.FC = () => {
           icon={<QrCodeScanner />}
           info="Pair the hardware controller first, then attach it to the selected farm."
           actions={
-            <Button variant="outlined" startIcon={<Agriculture />} onClick={() => navigate('/farms')}>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<Agriculture />}
+              sx={{ minHeight: 40, px: 2.25 }}
+              onClick={() => navigate('/farms')}
+            >
               Farm Setup
             </Button>
           }
@@ -278,7 +284,7 @@ const PairController: React.FC = () => {
             {loading ? 'Linking...' : 'Link Controller'}
           </Button>
           {farms.length === 0 && (
-            <Button variant="outlined" fullWidth sx={{ mt: 1 }} onClick={() => navigate('/farms')}>
+            <Button variant="outlined" size="small" fullWidth sx={{ mt: 1, minHeight: 40 }} onClick={() => navigate('/farms')}>
               Farm Setup
             </Button>
           )}

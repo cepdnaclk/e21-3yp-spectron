@@ -165,7 +165,7 @@ const Controllers: React.FC = () => {
           icon={<DeviceHub />}
           info="Controllers belong to farms. Field links come from sensor base assignments."
           actions={
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} alignItems={{ xs: 'stretch', sm: 'center' }}>
               <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 220 } }}>
                 <InputLabel id="controller-farm-filter-label">Farm</InputLabel>
                 <Select
@@ -186,7 +186,7 @@ const Controllers: React.FC = () => {
                 variant="contained"
                 color="secondary"
                 size="small"
-                sx={{ minHeight: 40, px: 2.25, alignSelf: 'flex-end' }}
+                sx={{ minHeight: 40, px: 2.25 }}
                 onClick={() => navigate('/farms')}
               >
                 Farm Setup

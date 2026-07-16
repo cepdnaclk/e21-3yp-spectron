@@ -600,9 +600,12 @@ const ControllerDashboard: React.FC = () => {
               {isHardwareContext && (
                 <Button
                   variant="contained"
+                  size="small"
                   startIcon={<Grass />}
                   onClick={() => navigate('/farms')}
                   sx={{
+                    minHeight: 40,
+                    px: 2.25,
                     bgcolor: '#6c8930',
                     color: '#fffdf8',
                     '&:hover': { bgcolor: '#5b7428' },

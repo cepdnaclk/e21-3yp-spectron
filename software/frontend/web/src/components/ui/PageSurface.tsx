@@ -57,11 +57,11 @@ export const PageHeaderPanel: React.FC<PageHeaderPanelProps> = ({ title, subtitl
       boxShadow: '0 16px 40px rgba(60, 57, 17, 0.08)',
     }}
   >
-    <Stack
-      direction={{ xs: 'column', md: 'row' }}
-      justifyContent="space-between"
-      alignItems={{ xs: 'stretch', md: 'center' }}
-      spacing={2}
+      <Stack
+        direction={{ xs: 'column', md: 'row' }}
+        justifyContent="space-between"
+        alignItems={{ xs: 'stretch', md: 'center' }}
+        spacing={2}
     >
       <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0 }}>
         {icon && (
@@ -100,7 +100,17 @@ export const PageHeaderPanel: React.FC<PageHeaderPanelProps> = ({ title, subtitl
           )}
         </Box>
       </Stack>
-      {actions && <Box sx={{ alignSelf: { xs: 'stretch', md: 'auto' } }}>{actions}</Box>}
+      {actions && (
+        <Box
+          sx={{
+            alignSelf: { xs: 'stretch', md: 'center' },
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          {actions}
+        </Box>
+      )}
     </Stack>
   </Box>
 );
