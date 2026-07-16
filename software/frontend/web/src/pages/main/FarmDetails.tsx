@@ -251,6 +251,7 @@ const FarmDetails: React.FC = () => {
     () => Object.values(cropInstances).filter((items) => items.some((item) => item.active)).length,
     [cropInstances],
   );
+  const baseActionDisabled = controllers.length === 0;
   const selectedCrop = useMemo(() => crops.find((crop) => crop.id === cropForm.cropId), [cropForm.cropId, crops]);
   const stageChoices = useMemo(() => {
     if (!selectedCropInstance) {
@@ -729,26 +730,36 @@ const FarmDetails: React.FC = () => {
 
       {ownerMode && (
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 3 }}>
-          <Button startIcon={<Add />} variant="contained" onClick={() => setOpenField(true)}>
-            Add Field
-          </Button>
-          <Button variant="outlined" onClick={() => setOpenAccess(true)}>
-            Access
-          </Button>
-          <Button variant="outlined" startIcon={<Router />} onClick={() => setOpenController(true)}>
-            Controller
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={<Hub />}
-            onClick={() => {
-              setBaseForm({ gatewayId: controllers[0]?.id || '', serialNumber: '', label: '' });
-              setOpenBase(true);
-            }}
-            disabled={controllers.length === 0}
-          >
-            Base
-          </Button>
+          <Tooltip title="Create a field to hold crops and monitoring areas.">
+            <Button startIcon={<Add />} variant="contained" onClick={() => setOpenField(true)}>
+              Add field
+            </Button>
+          </Tooltip>
+          <Tooltip title="Invite a viewer to read this farm.">
+            <Button variant="outlined" onClick={() => setOpenAccess(true)}>
+              Invite viewer
+            </Button>
+          </Tooltip>
+          <Tooltip title="Register a physical controller for this farm.">
+            <Button variant="outlined" startIcon={<Router />} onClick={() => setOpenController(true)}>
+              Link controller
+            </Button>
+          </Tooltip>
+          <Tooltip title={baseActionDisabled ? 'Add a controller first.' : 'Register a sensor base under a controller.'}>
+            <span>
+              <Button
+                variant="outlined"
+                startIcon={<Hub />}
+                onClick={() => {
+                  setBaseForm({ gatewayId: controllers[0]?.id || '', serialNumber: '', label: '' });
+                  setOpenBase(true);
+                }}
+                disabled={baseActionDisabled}
+              >
+                Register base
+              </Button>
+            </span>
+          </Tooltip>
         </Stack>
       )}
 
