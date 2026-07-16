@@ -83,6 +83,36 @@ func TestFarmCropInstances(t *testing.T) {
 	if !strings.Contains(confirm.Body.String(), "owner_confirmed") {
 		t.Fatalf("expected owner_confirmed response, body = %s", confirm.Body.String())
 	}
+
+	secondPlantingDate := time.Now().UTC().AddDate(0, 0, -5).Format("2006-01-02")
+	secondCreate := executeRequest(app.rr, jsonRequest(t, http.MethodPost, "/api/fields/"+field.id.String()+"/crop-instances", owner.token, map[string]any{
+		"crop_id":                 cropID.String(),
+		"planting_date":           secondPlantingDate,
+		"planting_date_precision": "exact",
+	}))
+	if secondCreate.Code != http.StatusCreated {
+		t.Fatalf("second crop instance status = %d, body = %s", secondCreate.Code, secondCreate.Body.String())
+	}
+
+	history := executeRequest(app.rr, jsonRequest(t, http.MethodGet, "/api/fields/"+field.id.String()+"/crop-instances", viewer.token, nil))
+	if history.Code != http.StatusOK {
+		t.Fatalf("crop history status = %d, body = %s", history.Code, history.Body.String())
+	}
+	var historyPayload struct {
+		CropInstances []cropInstanceResponse `json:"crop_instances"`
+	}
+	if err := json.Unmarshal(history.Body.Bytes(), &historyPayload); err != nil {
+		t.Fatalf("decode crop history: %v", err)
+	}
+	activeCount := 0
+	for _, instance := range historyPayload.CropInstances {
+		if instance.Active {
+			activeCount++
+		}
+	}
+	if len(historyPayload.CropInstances) != 2 || activeCount != 1 {
+		t.Fatalf("expected one active crop with historical instance preserved, got %+v", historyPayload.CropInstances)
+	}
 }
 
 func TestFarmCropInstanceValidation(t *testing.T) {

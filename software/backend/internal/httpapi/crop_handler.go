@@ -269,7 +269,25 @@ func (h *FarmHandler) CreateCropInstance(w http.ResponseWriter, r *http.Request)
 	}
 
 	cropInstanceID := uuid.New()
-	if _, err := h.db.Exec(r.Context(), `
+	tx, err := h.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "failed to start crop setup", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	if _, err := tx.Exec(r.Context(), `
+		UPDATE crop_instances
+		SET active = false,
+		    updated_at = NOW()
+		WHERE field_id = $1
+		  AND active = true
+	`, fieldID); err != nil {
+		http.Error(w, "failed to archive previous crop", http.StatusInternalServerError)
+		return
+	}
+
+	if _, err := tx.Exec(r.Context(), `
 		INSERT INTO crop_instances (
 			id,
 			field_id,
@@ -292,9 +310,14 @@ func (h *FarmHandler) CreateCropInstance(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	instance, err := h.loadCropInstanceResponse(r.Context(), h.db, cropInstanceID)
+	instance, err := h.loadCropInstanceResponse(r.Context(), tx, cropInstanceID)
 	if err != nil {
 		http.Error(w, "failed to load crop instance", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to finish crop setup", http.StatusInternalServerError)
 		return
 	}
 
