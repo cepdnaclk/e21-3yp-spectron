@@ -22,25 +22,45 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { Add, Agriculture, ArrowBack, CheckCircle, Info, PersonRemove, Place } from '@mui/icons-material';
+import {
+  Add,
+  Agriculture,
+  ArrowBack,
+  CheckCircle,
+  History,
+  Hub,
+  Info,
+  PersonRemove,
+  Place,
+  Router,
+} from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { PageHeaderSkeleton } from '../../components/LoadingSkeletons';
 import {
   addFarmCollaborator,
+  assignSensorBase,
+  attachFarmController,
   Collaborator,
   confirmCropStage,
   createCropInstance,
   createField,
+  createSensorBase,
   Crop,
   CropInstance,
+  FarmController,
   Field,
   Farm,
   getCrops,
   getFarm,
   getFarmCollaborators,
+  getFarmControllers,
   getFarmFields,
+  getFarmSensorBases,
   getFieldCropInstances,
+  getSensorBaseAssignments,
   removeFarmCollaborator,
+  SensorBase,
+  SensorBaseAssignment,
 } from '../../services/farmService';
 
 type CropForm = {
@@ -67,6 +87,9 @@ const FarmDetails: React.FC = () => {
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [crops, setCrops] = useState<Crop[]>([]);
   const [cropInstances, setCropInstances] = useState<Record<string, CropInstance[]>>({});
+  const [controllers, setControllers] = useState<FarmController[]>([]);
+  const [sensorBases, setSensorBases] = useState<SensorBase[]>([]);
+  const [assignmentHistory, setAssignmentHistory] = useState<SensorBaseAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -74,23 +97,33 @@ const FarmDetails: React.FC = () => {
   const [openAccess, setOpenAccess] = useState(false);
   const [openCrop, setOpenCrop] = useState(false);
   const [openStage, setOpenStage] = useState(false);
+  const [openController, setOpenController] = useState(false);
+  const [openBase, setOpenBase] = useState(false);
+  const [openAssignBase, setOpenAssignBase] = useState(false);
+  const [openHistory, setOpenHistory] = useState(false);
   const [selectedField, setSelectedField] = useState<Field | null>(null);
   const [selectedCropInstance, setSelectedCropInstance] = useState<CropInstance | null>(null);
+  const [selectedBase, setSelectedBase] = useState<SensorBase | null>(null);
   const [saving, setSaving] = useState(false);
   const [fieldForm, setFieldForm] = useState({ name: '', latitude: '', longitude: '', area: '' });
   const [accessForm, setAccessForm] = useState({ email: '' });
   const [cropForm, setCropForm] = useState<CropForm>(emptyCropForm);
+  const [controllerForm, setControllerForm] = useState({ controllerId: '', model: '' });
+  const [baseForm, setBaseForm] = useState({ gatewayId: '', serialNumber: '', label: '' });
+  const [baseAssignForm, setBaseAssignForm] = useState({ fieldId: '', monitoringZone: '' });
 
   const ownerMode = farm?.role === 'owner';
 
   const load = async () => {
     try {
       setLoading(true);
-      const [nextFarm, nextFields, nextCollaborators, nextCrops] = await Promise.all([
+      const [nextFarm, nextFields, nextCollaborators, nextCrops, nextControllers, nextBases] = await Promise.all([
         getFarm(farmId),
         getFarmFields(farmId),
         getFarmCollaborators(farmId),
         getCrops(),
+        getFarmControllers(farmId),
+        getFarmSensorBases(farmId),
       ]);
       const cropPairs = await Promise.all(
         nextFields.map(async (field) => {
@@ -108,6 +141,8 @@ const FarmDetails: React.FC = () => {
       setCollaborators(nextCollaborators);
       setCrops(nextCrops);
       setCropInstances(nextCropInstances);
+      setControllers(nextControllers);
+      setSensorBases(nextBases);
     } catch (err) {
       console.error(err);
       setError('Failed to load farm.');
@@ -122,6 +157,7 @@ const FarmDetails: React.FC = () => {
 
   const fieldCount = useMemo(() => fields.length, [fields]);
   const collaboratorCount = useMemo(() => collaborators.length, [collaborators]);
+  const baseCount = useMemo(() => sensorBases.length, [sensorBases]);
   const activeCropCount = useMemo(
     () => Object.values(cropInstances).filter((items) => items.some((item) => item.active)).length,
     [cropInstances],
@@ -135,6 +171,8 @@ const FarmDetails: React.FC = () => {
   }, [crops, selectedCropInstance]);
 
   const activeCropForField = (fieldId: string) => cropInstances[fieldId]?.find((instance) => instance.active);
+  const fieldNameById = (fieldId?: string | null) => fields.find((field) => field.id === fieldId)?.name || 'Field';
+  const controllerNameById = (gatewayId: string) => controllers.find((controller) => controller.id === gatewayId)?.serial_number || 'Controller';
 
   const parseOptionalNumber = (value: string, label: string, min?: number, max?: number) => {
     if (!value.trim()) {
@@ -289,6 +327,105 @@ const FarmDetails: React.FC = () => {
     }
   };
 
+  const submitController = async () => {
+    try {
+      const controllerId = controllerForm.controllerId.trim();
+      if (!controllerId) {
+        setError('Controller ID is required.');
+        return;
+      }
+      setSaving(true);
+      const nextControllers = await attachFarmController(farmId, {
+        controller_id: controllerId,
+        model: controllerForm.model.trim() || undefined,
+      });
+      setControllers(nextControllers);
+      setControllerForm({ controllerId: '', model: '' });
+      setOpenController(false);
+      setNotice('Controller linked.');
+    } catch (err) {
+      console.error(err);
+      setError('Failed to link controller.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const submitBase = async () => {
+    try {
+      if (!baseForm.gatewayId) {
+        setError('Select controller.');
+        return;
+      }
+      if (!baseForm.serialNumber.trim()) {
+        setError('Base serial is required.');
+        return;
+      }
+      setSaving(true);
+      const base = await createSensorBase(farmId, {
+        gateway_id: baseForm.gatewayId,
+        serial_number: baseForm.serialNumber.trim(),
+        label: baseForm.label.trim() || undefined,
+      });
+      setSensorBases((current) => [base, ...current]);
+      setBaseForm({ gatewayId: controllers[0]?.id || '', serialNumber: '', label: '' });
+      setOpenBase(false);
+      setNotice('Base added.');
+    } catch (err) {
+      console.error(err);
+      setError('Failed to add base.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openAssignDialog = (base: SensorBase) => {
+    setSelectedBase(base);
+    setBaseAssignForm({
+      fieldId: base.current_assignment?.field_id || fields[0]?.id || '',
+      monitoringZone: base.current_assignment?.monitoring_zone || '',
+    });
+    setOpenAssignBase(true);
+  };
+
+  const submitBaseAssignment = async () => {
+    if (!selectedBase) {
+      return;
+    }
+    try {
+      if (!baseAssignForm.fieldId && !baseAssignForm.monitoringZone.trim()) {
+        setError('Select field or zone.');
+        return;
+      }
+      setSaving(true);
+      const updated = await assignSensorBase(selectedBase.id, {
+        field_id: baseAssignForm.fieldId || undefined,
+        monitoring_zone: baseAssignForm.monitoringZone.trim() || undefined,
+      });
+      setSensorBases((current) => current.map((base) => (base.id === updated.id ? updated : base)));
+      setControllers(await getFarmControllers(farmId));
+      setOpenAssignBase(false);
+      setSelectedBase(null);
+      setNotice('Base assigned.');
+    } catch (err) {
+      console.error(err);
+      setError('Failed to assign base.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openBaseHistory = async (base: SensorBase) => {
+    try {
+      setSelectedBase(base);
+      setAssignmentHistory(await getSensorBaseAssignments(base.id));
+      setOpenHistory(true);
+    } catch (err) {
+      console.error(err);
+      setError('Failed to load history.');
+    }
+  };
+
   if (loading) {
     return <PageHeaderSkeleton />;
   }
@@ -336,7 +473,7 @@ const FarmDetails: React.FC = () => {
           <Card><CardContent><Typography color="text.secondary">Crops</Typography><Typography variant="h4">{activeCropCount}</Typography></CardContent></Card>
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <Card><CardContent><Typography color="text.secondary">Mode</Typography><Typography variant="h4">{ownerMode ? 'Edit' : 'Read'}</Typography></CardContent></Card>
+          <Card><CardContent><Typography color="text.secondary">Bases</Typography><Typography variant="h4">{baseCount}</Typography></CardContent></Card>
         </Grid>
       </Grid>
 
@@ -347,6 +484,20 @@ const FarmDetails: React.FC = () => {
           </Button>
           <Button variant="outlined" onClick={() => setOpenAccess(true)}>
             Access
+          </Button>
+          <Button variant="outlined" startIcon={<Router />} onClick={() => setOpenController(true)}>
+            Controller
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<Hub />}
+            onClick={() => {
+              setBaseForm({ gatewayId: controllers[0]?.id || '', serialNumber: '', label: '' });
+              setOpenBase(true);
+            }}
+            disabled={controllers.length === 0}
+          >
+            Base
           </Button>
         </Stack>
       )}
@@ -468,6 +619,93 @@ const FarmDetails: React.FC = () => {
         </Grid>
       </Grid>
 
+      <Box sx={{ mt: 4 }}>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+          <Typography variant="h6">Hardware</Typography>
+          <Tooltip title="Controllers belong to the farm. Fields are linked through sensor bases.">
+            <IconButton size="small" aria-label="Hardware help">
+              <Info fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={5}>
+            <Stack spacing={1.25}>
+              {controllers.map((controller) => (
+                <Card key={controller.id} variant="outlined">
+                  <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                    <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography fontWeight={800} noWrap>{controller.serial_number}</Typography>
+                        <Typography variant="body2" color="text.secondary" noWrap>
+                          {controller.field_ids.length ? controller.field_ids.map(fieldNameById).join(', ') : 'No field link'}
+                        </Typography>
+                      </Box>
+                      <Chip size="small" label={controller.status} />
+                    </Stack>
+                  </CardContent>
+                </Card>
+              ))}
+              {controllers.length === 0 && (
+                <Box sx={{ py: 4, textAlign: 'center', border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                  <Router color="primary" sx={{ fontSize: 36 }} />
+                  <Typography sx={{ mt: 1 }}>No controllers</Typography>
+                </Box>
+              )}
+            </Stack>
+          </Grid>
+          <Grid item xs={12} md={7}>
+            <Stack spacing={1.25}>
+              {sensorBases.map((base) => (
+                <Card key={base.id} variant="outlined">
+                  <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.5}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography fontWeight={800} noWrap>{base.label || base.serial_number}</Typography>
+                        <Typography variant="body2" color="text.secondary" noWrap>
+                          {controllerNameById(base.gateway_id)}
+                        </Typography>
+                        <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap">
+                          <Chip size="small" label={base.status} />
+                          <Chip
+                            size="small"
+                            label={
+                              base.current_assignment?.field_id
+                                ? fieldNameById(base.current_assignment.field_id)
+                                : base.current_assignment?.monitoring_zone || 'Unassigned'
+                            }
+                          />
+                        </Stack>
+                      </Box>
+                      <Stack direction="row" spacing={0.5} alignItems="center">
+                        {ownerMode && (
+                          <Tooltip title="Assign">
+                            <IconButton size="small" onClick={() => openAssignDialog(base)} aria-label="Assign base">
+                              <Place fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        <Tooltip title="History">
+                          <IconButton size="small" onClick={() => openBaseHistory(base)} aria-label="Base history">
+                            <History fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              ))}
+              {sensorBases.length === 0 && (
+                <Box sx={{ py: 4, textAlign: 'center', border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                  <Hub color="primary" sx={{ fontSize: 36 }} />
+                  <Typography sx={{ mt: 1 }}>No bases</Typography>
+                </Box>
+              )}
+            </Stack>
+          </Grid>
+        </Grid>
+      </Box>
+
       <Dialog open={openField} onClose={() => setOpenField(false)} fullWidth maxWidth="sm">
         <DialogTitle>
           <Stack direction="row" spacing={1} alignItems="center">
@@ -518,6 +756,139 @@ const FarmDetails: React.FC = () => {
           <Button variant="contained" onClick={submitAccess} disabled={saving || !accessForm.email.trim()}>
             {saving ? 'Sending' : 'Invite'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={openController} onClose={() => setOpenController(false)} fullWidth maxWidth="sm">
+        <DialogTitle>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <span>Controller</span>
+            <Tooltip title="Use a paired controller ID owned by this account.">
+              <IconButton size="small" aria-label="Controller help">
+                <Info fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField label="Controller ID" value={controllerForm.controllerId} onChange={(e) => setControllerForm((c) => ({ ...c, controllerId: e.target.value }))} autoFocus />
+            <TextField label="Model" value={controllerForm.model} onChange={(e) => setControllerForm((c) => ({ ...c, model: e.target.value }))} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenController(false)}>Cancel</Button>
+          <Button variant="contained" onClick={submitController} disabled={saving || !controllerForm.controllerId.trim()}>
+            {saving ? 'Saving' : 'Link'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={openBase} onClose={() => setOpenBase(false)} fullWidth maxWidth="sm">
+        <DialogTitle>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <span>Base</span>
+            <Tooltip title="A base links one controller to one field at a time. Moves keep history.">
+              <IconButton size="small" aria-label="Sensor base help">
+                <Info fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <FormControl fullWidth>
+              <InputLabel>Controller</InputLabel>
+              <Select label="Controller" value={baseForm.gatewayId} onChange={(event) => setBaseForm((c) => ({ ...c, gatewayId: event.target.value }))}>
+                {controllers.map((controller) => (
+                  <MenuItem key={controller.id} value={controller.id}>{controller.serial_number}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField label="Base serial" value={baseForm.serialNumber} onChange={(e) => setBaseForm((c) => ({ ...c, serialNumber: e.target.value }))} />
+            <TextField label="Label" value={baseForm.label} onChange={(e) => setBaseForm((c) => ({ ...c, label: e.target.value }))} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenBase(false)}>Cancel</Button>
+          <Button variant="contained" onClick={submitBase} disabled={saving || !baseForm.gatewayId || !baseForm.serialNumber.trim()}>
+            {saving ? 'Saving' : 'Add'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={openAssignBase} onClose={() => setOpenAssignBase(false)} fullWidth maxWidth="sm">
+        <DialogTitle>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <span>Assign Base</span>
+            <Tooltip title="Changing field closes the old assignment and keeps it in history.">
+              <IconButton size="small" aria-label="Assign base help">
+                <Info fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <FormControl fullWidth disabled={fields.length === 0}>
+              <InputLabel>Field</InputLabel>
+              <Select label="Field" value={baseAssignForm.fieldId} onChange={(event) => setBaseAssignForm((c) => ({ ...c, fieldId: event.target.value }))}>
+                <MenuItem value="">None</MenuItem>
+                {fields.map((field) => (
+                  <MenuItem key={field.id} value={field.id}>{field.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField label="Zone" value={baseAssignForm.monitoringZone} onChange={(e) => setBaseAssignForm((c) => ({ ...c, monitoringZone: e.target.value }))} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenAssignBase(false)}>Cancel</Button>
+          <Button variant="contained" onClick={submitBaseAssignment} disabled={saving || (!baseAssignForm.fieldId && !baseAssignForm.monitoringZone.trim())}>
+            {saving ? 'Saving' : 'Assign'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={openHistory} onClose={() => setOpenHistory(false)} fullWidth maxWidth="sm">
+        <DialogTitle>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <span>History</span>
+            <Tooltip title="Previous field links are kept for readings and reports.">
+              <IconButton size="small" aria-label="Base history help">
+                <Info fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <Stack spacing={1.25} sx={{ mt: 1 }}>
+            {assignmentHistory.map((assignment) => (
+              <Card key={assignment.id} variant="outlined">
+                <CardContent sx={{ py: 1.25, '&:last-child': { pb: 1.25 } }}>
+                  <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography fontWeight={800} noWrap>
+                        {assignment.field_id ? fieldNameById(assignment.field_id) : assignment.monitoring_zone || 'Zone'}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" noWrap>
+                        {new Date(assignment.assigned_at).toLocaleDateString()}
+                      </Typography>
+                    </Box>
+                    <Chip size="small" label={assignment.unassigned_at ? 'Past' : 'Active'} />
+                  </Stack>
+                </CardContent>
+              </Card>
+            ))}
+            {assignmentHistory.length === 0 && (
+              <Box sx={{ py: 4, textAlign: 'center', border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                <Typography color="text.secondary">No history</Typography>
+              </Box>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenHistory(false)}>Close</Button>
         </DialogActions>
       </Dialog>
 

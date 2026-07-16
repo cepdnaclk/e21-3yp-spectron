@@ -76,6 +76,41 @@ export interface CropInstance {
   updated_at: string;
 }
 
+export interface FarmController {
+  id: string;
+  farm_id: string;
+  legacy_controller_id?: string | null;
+  serial_number: string;
+  model?: string | null;
+  status: 'pending_setup' | 'online' | 'offline' | 'error' | 'retired';
+  last_seen?: string | null;
+  field_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SensorBaseAssignment {
+  id: string;
+  base_id: string;
+  field_id?: string | null;
+  field_name?: string | null;
+  monitoring_zone?: string | null;
+  assigned_at: string;
+  unassigned_at?: string | null;
+}
+
+export interface SensorBase {
+  id: string;
+  gateway_id: string;
+  serial_number: string;
+  label?: string | null;
+  status: 'waiting_setup' | 'live' | 'offline' | 'retired' | 'error';
+  last_seen?: string | null;
+  current_assignment?: SensorBaseAssignment | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CreateFarmRequest {
   name: string;
   latitude?: number | null;
@@ -102,6 +137,22 @@ export interface CreateCropInstanceRequest {
   planting_date?: string | null;
   planting_date_precision?: 'exact' | 'approximate' | 'unknown';
   expected_harvest_date?: string | null;
+}
+
+export interface AttachFarmControllerRequest {
+  controller_id: string;
+  model?: string | null;
+}
+
+export interface CreateSensorBaseRequest {
+  gateway_id: string;
+  serial_number: string;
+  label?: string | null;
+}
+
+export interface AssignSensorBaseRequest {
+  field_id?: string | null;
+  monitoring_zone?: string | null;
 }
 
 export const getFarms = async (): Promise<Farm[]> => {
@@ -195,4 +246,58 @@ export const confirmCropStage = async (cropInstanceId: string, stageId: string):
     return response.data.crop_instance;
   }
   return response.data;
+};
+
+export const getFarmControllers = async (farmId: string): Promise<FarmController[]> => {
+  const response = await api.get<{ controllers?: FarmController[] } | FarmController[]>(
+    API_ENDPOINTS.FARMS.CONTROLLERS(farmId),
+  );
+  if (Array.isArray(response.data)) {
+    return response.data;
+  }
+  return response.data.controllers || [];
+};
+
+export const attachFarmController = async (
+  farmId: string,
+  data: AttachFarmControllerRequest,
+): Promise<FarmController[]> => {
+  const response = await api.post<{ controllers?: FarmController[] } | FarmController[]>(
+    API_ENDPOINTS.FARMS.CONTROLLERS(farmId),
+    data,
+  );
+  if (Array.isArray(response.data)) {
+    return response.data;
+  }
+  return response.data.controllers || [];
+};
+
+export const getFarmSensorBases = async (farmId: string): Promise<SensorBase[]> => {
+  const response = await api.get<{ sensor_bases?: SensorBase[] } | SensorBase[]>(
+    API_ENDPOINTS.FARMS.SENSOR_BASES(farmId),
+  );
+  if (Array.isArray(response.data)) {
+    return response.data;
+  }
+  return response.data.sensor_bases || [];
+};
+
+export const createSensorBase = async (farmId: string, data: CreateSensorBaseRequest): Promise<SensorBase> => {
+  const response = await api.post<SensorBase>(API_ENDPOINTS.FARMS.SENSOR_BASES(farmId), data);
+  return response.data;
+};
+
+export const assignSensorBase = async (baseId: string, data: AssignSensorBaseRequest): Promise<SensorBase> => {
+  const response = await api.post<SensorBase>(API_ENDPOINTS.FARMS.ASSIGN_SENSOR_BASE(baseId), data);
+  return response.data;
+};
+
+export const getSensorBaseAssignments = async (baseId: string): Promise<SensorBaseAssignment[]> => {
+  const response = await api.get<{ assignments?: SensorBaseAssignment[] } | SensorBaseAssignment[]>(
+    API_ENDPOINTS.FARMS.SENSOR_BASE_ASSIGNMENTS(baseId),
+  );
+  if (Array.isArray(response.data)) {
+    return response.data;
+  }
+  return response.data.assignments || [];
 };
