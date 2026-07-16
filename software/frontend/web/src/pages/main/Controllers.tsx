@@ -182,7 +182,13 @@ const Controllers: React.FC = () => {
                   ))}
                 </Select>
               </FormControl>
-              <Button variant="contained" color="secondary" onClick={() => navigate('/farms')}>
+              <Button
+                variant="contained"
+                color="secondary"
+                size="small"
+                sx={{ minHeight: 40, px: 2.25, alignSelf: 'flex-end' }}
+                onClick={() => navigate('/farms')}
+              >
                 Farm Setup
               </Button>
             </Stack>
@@ -209,7 +215,13 @@ const Controllers: React.FC = () => {
           icon={<Agriculture sx={{ fontSize: 38 }} />}
           title="No farms"
           action={
-            <Button variant="contained" color="secondary" sx={{ mt: 2 }} onClick={() => navigate('/farms')}>
+            <Button
+              variant="contained"
+              color="secondary"
+              size="small"
+              sx={{ mt: 2, minHeight: 40, px: 2.25 }}
+              onClick={() => navigate('/farms')}
+            >
               Farm Setup
             </Button>
           }
@@ -219,7 +231,13 @@ const Controllers: React.FC = () => {
           icon={<DoneAll sx={{ fontSize: 38 }} />}
           title="No controllers"
           action={
-            <Button variant="contained" color="secondary" sx={{ mt: 2 }} onClick={() => navigate('/farms')}>
+            <Button
+              variant="contained"
+              color="secondary"
+              size="small"
+              sx={{ mt: 2, minHeight: 40, px: 2.25 }}
+              onClick={() => navigate('/farms')}
+            >
               Farm Setup
             </Button>
           }
