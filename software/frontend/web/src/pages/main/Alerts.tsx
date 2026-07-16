@@ -1,108 +1,144 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Container,
-  Card,
-  CardContent,
-  Typography,
-  Chip,
   Box,
   Button,
+  Card,
+  CardContent,
+  Chip,
+  Container,
+  FormControl,
+  Grid,
+  IconButton,
+  InputLabel,
+  MenuItem,
+  Select,
   Stack,
-  Alert as MuiAlert,
+  Tooltip,
+  Typography,
 } from '@mui/material';
-import { NotificationsActive, DoneAll } from '@mui/icons-material';
-import {
-  getAlerts,
-  acknowledgeAlert,
-  applyAlertRecommendation,
-  Alert as AlertItem,
-} from '../../services/alertService';
+import { DoneAll, InfoOutlined, NotificationsActive, WarningAmber } from '@mui/icons-material';
 import { format } from 'date-fns';
-import { AlertsSkeleton } from '../../components/LoadingSkeletons';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
+import { AlertsSkeleton } from '../../components/LoadingSkeletons';
+import {
+  acknowledgeFarmAlert,
+  Farm,
+  FarmAlert,
+  getFarmAlerts,
+  getFarms,
+} from '../../services/farmService';
+
+type AlertStatusFilter = 'open' | 'acknowledged' | 'all';
+
+type FarmAlertRow = FarmAlert & {
+  farm: Farm;
+};
+
+const statusOptions: { value: AlertStatusFilter; label: string }[] = [
+  { value: 'open', label: 'Open' },
+  { value: 'acknowledged', label: 'Acknowledged' },
+  { value: 'all', label: 'All' },
+];
+
+const severityColor = (severity: FarmAlert['severity']) => {
+  const normalized = String(severity).toLowerCase();
+  if (normalized === 'critical') {
+    return 'error' as const;
+  }
+  if (normalized === 'warning' || normalized === 'warn') {
+    return 'warning' as const;
+  }
+  if (normalized === 'info') {
+    return 'info' as const;
+  }
+  return 'default' as const;
+};
+
+const statusColor = (status: string) => {
+  const normalized = status.toLowerCase();
+  if (normalized === 'open') {
+    return 'warning' as const;
+  }
+  if (normalized === 'acknowledged' || normalized === 'resolved') {
+    return 'success' as const;
+  }
+  return 'default' as const;
+};
+
+const humanize = (value: string) => value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+
+const normalizeSeverity = (severity: FarmAlert['severity']) => {
+  const normalized = String(severity).toLowerCase();
+  return normalized === 'warn' ? 'Warning' : humanize(normalized);
+};
 
 const Alerts: React.FC = () => {
-  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [farms, setFarms] = useState<Farm[]>([]);
+  const [alerts, setAlerts] = useState<FarmAlertRow[]>([]);
+  const [farmFilter, setFarmFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<AlertStatusFilter>('open');
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [busyAlertId, setBusyAlertId] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadAlerts();
-  }, []);
-
-  const loadAlerts = async () => {
+  const loadAlerts = useCallback(async () => {
     try {
-      const data = (await getAlerts()) ?? [];
-      data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      setAlerts(data);
-    } catch (error) {
-      console.error('Error loading alerts:', error);
+      setLoading(true);
+      const nextFarms = await getFarms();
+      setFarms(nextFarms);
+
+      const farmsToLoad = farmFilter === 'all' ? nextFarms : nextFarms.filter((farm) => farm.id === farmFilter);
+      const alertPairs = await Promise.all(
+        farmsToLoad.map(async (farm) => {
+          const farmAlerts = await getFarmAlerts(farm.id, statusFilter === 'all' ? undefined : { status: statusFilter });
+          return farmAlerts.map((alert) => ({ ...alert, farm }));
+        }),
+      );
+
+      setAlerts(
+        alertPairs
+          .flat()
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+      );
+    } catch (err) {
+      console.error(err);
+      setError('Failed to load alerts.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [farmFilter, statusFilter]);
 
-  const handleAcknowledge = async (alertId: string) => {
+  useEffect(() => {
+    loadAlerts();
+  }, [loadAlerts]);
+
+  const handleAcknowledge = async (alert: FarmAlertRow) => {
     try {
-      await acknowledgeAlert(alertId);
-      loadAlerts();
-    } catch (error) {
-      console.error('Error acknowledging alert:', error);
+      setBusyAlertId(alert.id);
+      const updated = await acknowledgeFarmAlert(alert.farm_id, alert.id);
+      setAlerts((current) =>
+        current.map((item) => (item.id === alert.id ? { ...updated, farm: alert.farm } : item)),
+      );
+      setNotice('Alert acknowledged.');
+    } catch (err) {
+      console.error(err);
       setError('Failed to acknowledge alert.');
-    }
-  };
-
-  const handleApplyRecommendation = async (alertId: string) => {
-    try {
-      setBusyAlertId(alertId);
-      await applyAlertRecommendation(alertId);
-      setNotice('AI recommendation applied successfully.');
-      loadAlerts();
-    } catch (error) {
-      console.error('Error applying recommendation:', error);
-      setError('Failed to apply AI recommendation.');
     } finally {
-      setBusyAlertId((current) => (current === alertId ? null : current));
+      setBusyAlertId((current) => (current === alert.id ? null : current));
     }
   };
 
-  const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case 'CRITICAL':
-        return 'error';
-      case 'WARN':
-        return 'warning';
-      case 'INFO':
-        return 'info';
-      default:
-        return 'default';
-    }
-  };
+  const openCount = useMemo(() => alerts.filter((alert) => alert.status.toLowerCase() === 'open').length, [alerts]);
+  const criticalCount = useMemo(
+    () => alerts.filter((alert) => String(alert.severity).toLowerCase() === 'critical').length,
+    [alerts],
+  );
+  const ownerFarmIds = useMemo(() => new Set(farms.filter((farm) => farm.role === 'owner').map((farm) => farm.id)), [farms]);
 
   if (loading) {
     return <AlertsSkeleton />;
   }
-
-  const formatAlertType = (type: AlertItem['type']) => {
-    if (type === 'LEARNING_PHASE_RECOMMENDATION') {
-      return 'AI RECOMMENDATION';
-    }
-    return type.replace(/_/g, ' ');
-  };
-
-  const splitRecommendedAction = (message: string) => {
-    const marker = 'Recommended action:';
-    const index = message.indexOf(marker);
-    if (index < 0) {
-      return { summary: message, action: '' };
-    }
-    return {
-      summary: message.slice(0, index).trim(),
-      action: message.slice(index + marker.length).trim(),
-    };
-  };
 
   return (
     <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 } }}>
@@ -113,107 +149,146 @@ const Alerts: React.FC = () => {
         {error}
       </AutoDismissAlert>
 
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h4">Alerts</Typography>
-        <Typography color="text.secondary" sx={{ mt: 0.5, display: { xs: 'none', sm: 'block' } }}>
-          Review critical events and clear resolved notifications.
-        </Typography>
-      </Box>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1.5} sx={{ mb: 2.5 }}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography variant="h4">Alerts</Typography>
+          <Tooltip title="Farm alerts follow farm access. Owners can acknowledge; viewers can only review.">
+            <IconButton size="small" aria-label="Alert access details">
+              <InfoOutlined fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+        <Chip label={`${alerts.length} shown`} size="small" />
+      </Stack>
 
-      {alerts.length === 0 ? (
-        <Card>
+      <Grid container spacing={1.5} sx={{ mb: 2.5 }}>
+        <Grid item xs={6} md={3}>
+          <Card variant="outlined">
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Typography variant="caption" color="text.secondary">Open</Typography>
+              <Typography variant="h5">{openCount}</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={6} md={3}>
+          <Card variant="outlined">
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Typography variant="caption" color="text.secondary">Critical</Typography>
+              <Typography variant="h5">{criticalCount}</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+            <FormControl size="small" fullWidth>
+              <InputLabel id="farm-alert-filter-label">Farm</InputLabel>
+              <Select
+                labelId="farm-alert-filter-label"
+                label="Farm"
+                value={farmFilter}
+                onChange={(event) => setFarmFilter(event.target.value)}
+              >
+                <MenuItem value="all">All farms</MenuItem>
+                {farms.map((farm) => (
+                  <MenuItem key={farm.id} value={farm.id}>
+                    {farm.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl size="small" fullWidth>
+              <InputLabel id="status-alert-filter-label">Status</InputLabel>
+              <Select
+                labelId="status-alert-filter-label"
+                label="Status"
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as AlertStatusFilter)}
+              >
+                {statusOptions.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Stack>
+        </Grid>
+      </Grid>
+
+      {farms.length === 0 ? (
+        <Card variant="outlined">
           <CardContent sx={{ py: 6, textAlign: 'center' }}>
-            <DoneAll color="primary" sx={{ fontSize: 46, mb: 1 }} />
+            <DoneAll color="primary" sx={{ fontSize: 44, mb: 1 }} />
+            <Typography variant="h6">No farms</Typography>
+          </CardContent>
+        </Card>
+      ) : alerts.length === 0 ? (
+        <Card variant="outlined">
+          <CardContent sx={{ py: 6, textAlign: 'center' }}>
+            <DoneAll color="primary" sx={{ fontSize: 44, mb: 1 }} />
             <Typography variant="h6">No alerts</Typography>
-            <Typography color="text.secondary">
-              You are all caught up.
-            </Typography>
           </CardContent>
         </Card>
       ) : (
-        alerts.map((alert, index) => {
-          const parsed = splitRecommendedAction(alert.message);
-          return (
-            <Card
-              key={alert.id}
-              sx={{
-                mb: 2,
-                opacity: alert.acknowledged_at ? 0.7 : 1,
-                borderTop: index === 0 ? '1px solid rgba(60, 57, 17, 0.1)' : undefined,
-              }}
-            >
-              <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
-                <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'flex-start' }} gap={1.5} mb={1}>
-                  <Stack direction="row" spacing={1.5} alignItems="center" minWidth={0}>
-                    <Box sx={{ p: { xs: 0.65, sm: 1 }, borderRadius: '50%', bgcolor: 'rgba(235, 79, 18, 0.12)', flexShrink: 0 }}>
-                      <NotificationsActive color="secondary" />
-                    </Box>
-                    <Box minWidth={0}>
-                      <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, overflowWrap: 'anywhere' }}>
-                        {formatAlertType(alert.type)}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {format(new Date(alert.created_at), 'MMM dd, yyyy HH:mm')}
-                      </Typography>
-                    </Box>
+        <Stack spacing={1.5}>
+          {alerts.map((alert) => {
+            const canAcknowledge = ownerFarmIds.has(alert.farm_id) && alert.status.toLowerCase() === 'open';
+            return (
+              <Card key={alert.id} variant="outlined">
+                <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.25}>
+                    <Stack direction="row" spacing={1.25} alignItems="flex-start" sx={{ minWidth: 0 }}>
+                      <Box sx={{ p: 0.75, borderRadius: 1, bgcolor: 'rgba(235, 79, 18, 0.1)', flexShrink: 0 }}>
+                        <NotificationsActive color="secondary" fontSize="small" />
+                      </Box>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+                          <Typography variant="subtitle1" sx={{ overflowWrap: 'anywhere' }}>
+                            {humanize(alert.type)}
+                          </Typography>
+                          <Chip size="small" label={normalizeSeverity(alert.severity)} color={severityColor(alert.severity)} />
+                          <Chip size="small" label={humanize(alert.status)} color={statusColor(alert.status)} variant="outlined" />
+                        </Stack>
+                        <Typography variant="body2" color="text.secondary">
+                          {alert.farm.name}
+                          {alert.field_name ? ` / ${alert.field_name}` : ''}
+                        </Typography>
+                      </Box>
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                      {format(new Date(alert.created_at), 'MMM dd, HH:mm')}
+                    </Typography>
                   </Stack>
-                  <Chip
-                    label={alert.severity}
-                    color={getSeverityColor(alert.severity) as any}
-                    size="small"
-                    sx={{ alignSelf: { xs: 'flex-start', sm: 'flex-start' } }}
-                  />
-                </Box>
-                <Stack spacing={1.25} sx={{ mt: 1, pt: 1.25, borderTop: '1px solid rgba(60, 57, 17, 0.08)' }}>
-                  <Typography variant="body2" sx={{ lineHeight: 1.5, overflowWrap: 'anywhere' }}>
-                    {parsed.summary}
+
+                  <Typography variant="body2" sx={{ mt: 1.25, overflowWrap: 'anywhere', lineHeight: 1.5 }}>
+                    {alert.message}
                   </Typography>
-                  {parsed.action && (
-                    <MuiAlert severity={alert.severity === 'CRITICAL' ? 'error' : 'warning'} icon={false} sx={{ py: 0.75 }}>
-                      <Typography variant="subtitle2" fontWeight={700}>
-                        Recommended action
-                      </Typography>
-                      <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
-                        {parsed.action}
-                      </Typography>
-                    </MuiAlert>
-                  )}
-                </Stack>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1.5 }} flexWrap="wrap">
-                  {!alert.acknowledged_at && alert.type === 'LEARNING_PHASE_RECOMMENDATION' && (
-                    <Button
-                      size="small"
-                      variant="contained"
-                      color="secondary"
-                      onClick={() => handleApplyRecommendation(alert.id)}
-                      disabled={busyAlertId === alert.id}
-                      fullWidth={false}
-                      sx={{ width: { xs: '100%', sm: 'auto' } }}
-                    >
-                      {busyAlertId === alert.id ? 'Applying...' : 'Apply recommendation'}
-                    </Button>
-                  )}
-                  {!alert.acknowledged_at && (
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => handleAcknowledge(alert.id)}
-                      disabled={busyAlertId === alert.id}
-                      sx={{ width: { xs: '100%', sm: 'auto' } }}
-                    >
-                      Acknowledge
-                    </Button>
-                  )}
-                </Stack>
-                {alert.acknowledged_at && (
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    Acknowledged at {format(new Date(alert.acknowledged_at), 'MMM dd, yyyy HH:mm')}
-                  </Typography>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })
+
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }} sx={{ mt: 1.5 }}>
+                    {canAcknowledge ? (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => handleAcknowledge(alert)}
+                        disabled={busyAlertId === alert.id}
+                        sx={{ width: { xs: '100%', sm: 'auto' } }}
+                      >
+                        Acknowledge
+                      </Button>
+                    ) : alert.farm.role === 'viewer' && alert.status.toLowerCase() === 'open' ? (
+                      <Tooltip title="Only farm owners can acknowledge alerts.">
+                        <Chip icon={<InfoOutlined />} size="small" label="Viewer" variant="outlined" />
+                      </Tooltip>
+                    ) : null}
+                    {String(alert.severity).toLowerCase() === 'critical' && (
+                      <Chip icon={<WarningAmber />} size="small" label="Priority" color="error" variant="outlined" />
+                    )}
+                  </Stack>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </Stack>
       )}
     </Container>
   );
