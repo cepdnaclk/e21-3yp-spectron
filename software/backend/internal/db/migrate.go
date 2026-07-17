@@ -72,6 +72,9 @@ var migration019AgriAssistCropReferenceSeed string
 //go:embed migrations/020_crop_instance_active_guard.sql
 var migration020CropInstanceActiveGuard string
 
+//go:embed migrations/021_sensor_channel_readings_compat.sql
+var migration021SensorChannelReadingsCompat string
+
 type migration struct {
 	name string
 	sql  string
@@ -98,6 +101,7 @@ var startupMigrations = []migration{
 	{name: "018_agriassist_farm_foundation", sql: migration018AgriAssistFarmFoundation},
 	{name: "019_agriassist_crop_reference_seed", sql: migration019AgriAssistCropReferenceSeed},
 	{name: "020_crop_instance_active_guard", sql: migration020CropInstanceActiveGuard},
+	{name: "021_sensor_channel_readings_compat", sql: migration021SensorChannelReadingsCompat},
 }
 
 func ApplyStartupMigrations(ctx context.Context, pool *pgxpool.Pool) error {

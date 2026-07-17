@@ -192,13 +192,14 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 	}
 
 	_, err = tx.Exec(ctx, `
-		INSERT INTO sensor_readings (time, sensor_id, system_sensor_id, value, meta)
-		VALUES ($1, $2, $3, $4, $5::jsonb)
+		INSERT INTO sensor_readings (time, sensor_id, system_sensor_id, sensor_channel_id, value, meta)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb)
 		ON CONFLICT (time, sensor_id) DO UPDATE
 		SET system_sensor_id = COALESCE(EXCLUDED.system_sensor_id, sensor_readings.system_sensor_id),
+		    sensor_channel_id = COALESCE(EXCLUDED.sensor_channel_id, sensor_readings.sensor_channel_id),
 		    value = EXCLUDED.value,
 		    meta = EXCLUDED.meta
-	`, event.ReadingTime, persistedSensorID, systemSensorID, normalizedValue, meta)
+	`, event.ReadingTime, persistedSensorID, systemSensorID, farmCtx.SensorChannelID, normalizedValue, meta)
 	if err != nil {
 		return fmt.Errorf("insert sensor reading %s: %w", sensorHWID, err)
 	}
@@ -265,6 +266,12 @@ func (p *RawReadingsProcessor) loadFarmReadingContext(ctx context.Context, tx pg
 
 	result.SensorBaseID = &baseID
 	result.FieldID = fieldID
+	channelID, channelKey, err := resolveReadingSensorChannel(ctx, tx, baseID, sensorHWID)
+	if err != nil {
+		return result, err
+	}
+	result.SensorChannelID = channelID
+	result.SensorChannelKey = channelKey
 
 	if _, err := tx.Exec(ctx, `
 		UPDATE sensor_bases
@@ -348,6 +355,72 @@ func resolveReadingSensorBase(ctx context.Context, tx pgx.Tx, gatewayID uuid.UUI
 	return candidates[0].id, candidates[0].fieldID, true, nil
 }
 
+func resolveReadingSensorChannel(ctx context.Context, tx pgx.Tx, baseID uuid.UUID, sensorHWID string) (*uuid.UUID, string, error) {
+	candidateKeys := channelKeyCandidates(sensorHWID)
+	if len(candidateKeys) == 0 {
+		return nil, "", nil
+	}
+
+	var channelID uuid.UUID
+	var channelKey string
+	err := tx.QueryRow(ctx, `
+		SELECT sc.id, sc.channel_key
+		FROM sensor_modules sm
+		JOIN sensor_channels sc
+		  ON sc.module_id = sm.id
+		WHERE sm.base_id = $1
+		  AND (
+		       lower(sc.channel_key) = ANY($2::text[])
+		       OR lower(sc.measurement_type) = ANY($2::text[])
+		  )
+		ORDER BY
+		    CASE
+		        WHEN lower(sc.channel_key) = $3 THEN 0
+		        WHEN lower(sc.measurement_type) = $3 THEN 1
+		        ELSE 2
+		    END,
+		    sm.slot_number,
+		    sc.channel_key
+		LIMIT 1
+	`, baseID, candidateKeys, candidateKeys[0]).Scan(&channelID, &channelKey)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, "", nil
+		}
+		return nil, "", err
+	}
+
+	return &channelID, channelKey, nil
+}
+
+func channelKeyCandidates(sensorHWID string) []string {
+	normalized := strings.ToLower(strings.TrimSpace(sensorHWID))
+	if normalized == "" {
+		return nil
+	}
+
+	keys := make([]string, 0, 3)
+	addKey := func(value string) {
+		value = strings.Trim(strings.ToLower(strings.TrimSpace(value)), " _-/\\:")
+		if value == "" {
+			return
+		}
+		for _, existing := range keys {
+			if existing == value {
+				return
+			}
+		}
+		keys = append(keys, value)
+	}
+
+	if idx := strings.LastIndexAny(normalized, ":/\\"); idx >= 0 && idx+1 < len(normalized) {
+		addKey(normalized[idx+1:])
+	}
+	addKey(normalized)
+
+	return keys
+}
+
 func addFarmContextToMeta(meta map[string]any, ctx farmReadingContext) {
 	if ctx.FarmID != nil {
 		meta["farm_id"] = ctx.FarmID.String()
@@ -360,6 +433,12 @@ func addFarmContextToMeta(meta map[string]any, ctx farmReadingContext) {
 	}
 	if ctx.SensorBaseID != nil {
 		meta["sensor_base_id"] = ctx.SensorBaseID.String()
+	}
+	if ctx.SensorChannelID != nil {
+		meta["sensor_channel_id"] = ctx.SensorChannelID.String()
+	}
+	if ctx.SensorChannelKey != "" {
+		meta["sensor_channel_key"] = ctx.SensorChannelKey
 	}
 }
 
@@ -554,10 +633,12 @@ type thresholdAlertInput struct {
 }
 
 type farmReadingContext struct {
-	FarmID       *uuid.UUID
-	FieldID      *uuid.UUID
-	GatewayID    *uuid.UUID
-	SensorBaseID *uuid.UUID
+	FarmID           *uuid.UUID
+	FieldID          *uuid.UUID
+	GatewayID        *uuid.UUID
+	SensorBaseID     *uuid.UUID
+	SensorChannelID  *uuid.UUID
+	SensorChannelKey string
 }
 
 type thresholdAlertEvaluation struct {
