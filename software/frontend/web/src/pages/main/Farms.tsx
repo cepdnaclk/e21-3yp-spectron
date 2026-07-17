@@ -429,6 +429,7 @@ const Farms: React.FC = () => {
             </AutoDismissAlert>
             <TextField
               label="Farm name"
+              placeholder="eg: North Paddy Farm"
               value={form.name}
               onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
               fullWidth
@@ -437,19 +438,22 @@ const Farms: React.FC = () => {
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               <TextField
                 label="Latitude"
+                placeholder="eg: 7.8731"
                 value={form.latitude}
                 onChange={(e) => setForm((current) => ({ ...current, latitude: e.target.value }))}
                 fullWidth
               />
               <TextField
                 label="Longitude"
+                placeholder="eg: 80.7718"
                 value={form.longitude}
                 onChange={(e) => setForm((current) => ({ ...current, longitude: e.target.value }))}
                 fullWidth
               />
             </Stack>
             <TextField
-              label="Area"
+              label="Area (ha)"
+              placeholder="eg: 2.5"
               value={form.area}
               onChange={(e) => setForm((current) => ({ ...current, area: e.target.value }))}
               fullWidth

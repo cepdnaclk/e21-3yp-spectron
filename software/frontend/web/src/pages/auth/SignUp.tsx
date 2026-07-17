@@ -142,7 +142,7 @@ const SignUp: React.FC = () => {
             <TextField
               fullWidth
               label="Name"
-              placeholder="Your full name"
+              placeholder="eg: Varshan Kumar"
               value={name}
               onChange={(e) => setName(e.target.value)}
               margin="normal"
@@ -151,7 +151,7 @@ const SignUp: React.FC = () => {
             <TextField
               fullWidth
               label="Organization"
-              placeholder="Your lab, school, or company"
+              placeholder="eg: Green Valley Farm"
               value={organizationName}
               onChange={(e) => setOrganizationName(e.target.value)}
               margin="normal"
@@ -161,7 +161,7 @@ const SignUp: React.FC = () => {
               fullWidth
               label="Email"
               type="email"
-              placeholder="you@example.com"
+              placeholder="eg: you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               margin="normal"
@@ -172,7 +172,7 @@ const SignUp: React.FC = () => {
               fullWidth
               label="Phone (Optional)"
               type="tel"
-              placeholder="+94 77 123 4567"
+              placeholder="eg: +94 77 123 4567"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               margin="normal"

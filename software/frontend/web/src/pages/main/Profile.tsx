@@ -500,7 +500,7 @@ const Profile: React.FC = () => {
                   fullWidth
                   required
                   label="First Name"
-                  placeholder="First name"
+                  placeholder="eg: Varshan"
                   value={firstName}
                   onChange={(event) => setFirstName(event.target.value)}
                   disabled={profileSaving}
@@ -511,7 +511,7 @@ const Profile: React.FC = () => {
                 <TextField
                   fullWidth
                   label="Last Name"
-                  placeholder="Last name"
+                  placeholder="eg: Kumar"
                   value={lastName}
                   onChange={(event) => setLastName(event.target.value)}
                   disabled={profileSaving}
@@ -527,7 +527,7 @@ const Profile: React.FC = () => {
                 <TextField
                   fullWidth
                   label="Phone"
-                  placeholder="+94 77 123 4567"
+                  placeholder="eg: +94 77 123 4567"
                   value={phone}
                   onChange={(event) => setPhone(event.target.value)}
                   disabled={profileSaving}
@@ -666,7 +666,7 @@ const Profile: React.FC = () => {
           <TextField
             fullWidth
             label="Confirm Email"
-            placeholder={email}
+            placeholder={`eg: ${email}`}
             value={deleteConfirmEmail}
             onChange={(event) => {
               setDeleteConfirmEmail(event.target.value);

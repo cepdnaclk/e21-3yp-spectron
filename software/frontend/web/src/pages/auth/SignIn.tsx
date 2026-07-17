@@ -114,7 +114,7 @@ const SignIn: React.FC = () => {
               fullWidth
               label="Email"
               type="email"
-              placeholder="you@example.com"
+              placeholder="eg: you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               margin="normal"

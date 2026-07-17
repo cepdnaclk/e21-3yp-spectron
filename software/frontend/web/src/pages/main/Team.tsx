@@ -230,6 +230,7 @@ const Team: React.FC = () => {
                       required
                       label="Email"
                       type="email"
+                      placeholder="eg: viewer@example.com"
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
                       error={Boolean(email) && !emailPattern.test(email.trim().toLowerCase())}

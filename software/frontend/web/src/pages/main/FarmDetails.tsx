@@ -1047,12 +1047,35 @@ const FarmDetails: React.FC = () => {
             <AutoDismissAlert open={Boolean(setupError) && openField} severity="error" onCloseAlert={() => setSetupError('')}>
               {setupError}
             </AutoDismissAlert>
-            <TextField label="Field name" value={fieldForm.name} onChange={(e) => setFieldForm((c) => ({ ...c, name: e.target.value }))} autoFocus />
+            <TextField
+              label="Field name"
+              placeholder="eg: Field A"
+              value={fieldForm.name}
+              onChange={(e) => setFieldForm((c) => ({ ...c, name: e.target.value }))}
+              autoFocus
+            />
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField label="Latitude" value={fieldForm.latitude} onChange={(e) => setFieldForm((c) => ({ ...c, latitude: e.target.value }))} fullWidth />
-              <TextField label="Longitude" value={fieldForm.longitude} onChange={(e) => setFieldForm((c) => ({ ...c, longitude: e.target.value }))} fullWidth />
+              <TextField
+                label="Latitude"
+                placeholder="eg: 7.8731"
+                value={fieldForm.latitude}
+                onChange={(e) => setFieldForm((c) => ({ ...c, latitude: e.target.value }))}
+                fullWidth
+              />
+              <TextField
+                label="Longitude"
+                placeholder="eg: 80.7718"
+                value={fieldForm.longitude}
+                onChange={(e) => setFieldForm((c) => ({ ...c, longitude: e.target.value }))}
+                fullWidth
+              />
             </Stack>
-            <TextField label="Area" value={fieldForm.area} onChange={(e) => setFieldForm((c) => ({ ...c, area: e.target.value }))} />
+            <TextField
+              label="Area (ha)"
+              placeholder="eg: 1.25"
+              value={fieldForm.area}
+              onChange={(e) => setFieldForm((c) => ({ ...c, area: e.target.value }))}
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -1079,7 +1102,13 @@ const FarmDetails: React.FC = () => {
             <AutoDismissAlert open={Boolean(setupError) && openAccess} severity="error" onCloseAlert={() => setSetupError('')}>
               {setupError}
             </AutoDismissAlert>
-            <TextField label="Viewer email" value={accessForm.email} onChange={(e) => setAccessForm({ email: e.target.value })} autoFocus />
+            <TextField
+              label="Viewer email"
+              placeholder="eg: viewer@example.com"
+              value={accessForm.email}
+              onChange={(e) => setAccessForm({ email: e.target.value })}
+              autoFocus
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -1106,8 +1135,19 @@ const FarmDetails: React.FC = () => {
             <AutoDismissAlert open={Boolean(setupError) && openController} severity="error" onCloseAlert={() => setSetupError('')}>
               {setupError}
             </AutoDismissAlert>
-            <TextField label="Controller ID" value={controllerForm.controllerId} onChange={(e) => setControllerForm((c) => ({ ...c, controllerId: e.target.value }))} autoFocus />
-            <TextField label="Model" value={controllerForm.model} onChange={(e) => setControllerForm((c) => ({ ...c, model: e.target.value }))} />
+            <TextField
+              label="Controller ID"
+              placeholder="eg: CTRL-8F2A19"
+              value={controllerForm.controllerId}
+              onChange={(e) => setControllerForm((c) => ({ ...c, controllerId: e.target.value }))}
+              autoFocus
+            />
+            <TextField
+              label="Model"
+              placeholder="eg: SPECTRON C1"
+              value={controllerForm.model}
+              onChange={(e) => setControllerForm((c) => ({ ...c, model: e.target.value }))}
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -1142,8 +1182,18 @@ const FarmDetails: React.FC = () => {
                 ))}
               </Select>
             </FormControl>
-            <TextField label="Base serial" value={baseForm.serialNumber} onChange={(e) => setBaseForm((c) => ({ ...c, serialNumber: e.target.value }))} />
-            <TextField label="Label" value={baseForm.label} onChange={(e) => setBaseForm((c) => ({ ...c, label: e.target.value }))} />
+            <TextField
+              label="Base serial"
+              placeholder="eg: BASE-FARM-001"
+              value={baseForm.serialNumber}
+              onChange={(e) => setBaseForm((c) => ({ ...c, serialNumber: e.target.value }))}
+            />
+            <TextField
+              label="Label"
+              placeholder="eg: North corner"
+              value={baseForm.label}
+              onChange={(e) => setBaseForm((c) => ({ ...c, label: e.target.value }))}
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -1179,7 +1229,12 @@ const FarmDetails: React.FC = () => {
                 ))}
               </Select>
             </FormControl>
-            <TextField label="Zone" value={baseAssignForm.monitoringZone} onChange={(e) => setBaseAssignForm((c) => ({ ...c, monitoringZone: e.target.value }))} />
+            <TextField
+              label="Zone"
+              placeholder="eg: Pump area"
+              value={baseAssignForm.monitoringZone}
+              onChange={(e) => setBaseAssignForm((c) => ({ ...c, monitoringZone: e.target.value }))}
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -1209,12 +1264,14 @@ const FarmDetails: React.FC = () => {
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               <TextField
                 label="Slot"
+                placeholder="eg: 1"
                 value={moduleForm.slotNumber}
                 onChange={(e) => setModuleForm((current) => ({ ...current, slotNumber: e.target.value }))}
                 fullWidth
               />
               <TextField
                 label="Model"
+                placeholder="eg: SHT30"
                 value={moduleForm.model}
                 onChange={(e) => setModuleForm((current) => ({ ...current, model: e.target.value }))}
                 fullWidth
@@ -1227,6 +1284,7 @@ const FarmDetails: React.FC = () => {
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
                       <TextField
                         label="Key"
+                        placeholder="eg: temperature"
                         value={channel.channelKey}
                         onChange={(e) => updateModuleChannel(index, { channelKey: e.target.value })}
                         size="small"
@@ -1234,6 +1292,7 @@ const FarmDetails: React.FC = () => {
                       />
                       <TextField
                         label="Type"
+                        placeholder="eg: temperature"
                         value={channel.measurementType}
                         onChange={(e) => updateModuleChannel(index, { measurementType: e.target.value })}
                         size="small"
@@ -1241,6 +1300,7 @@ const FarmDetails: React.FC = () => {
                       />
                       <TextField
                         label="Unit"
+                        placeholder="eg: C"
                         value={channel.unit}
                         onChange={(e) => updateModuleChannel(index, { unit: e.target.value })}
                         size="small"
@@ -1380,6 +1440,7 @@ const FarmDetails: React.FC = () => {
               <TextField
                 label="Date"
                 type="date"
+                placeholder="eg: 2026-07-17"
                 value={cropForm.plantingDate}
                 onChange={(event) => setCropForm((current) => ({ ...current, plantingDate: event.target.value }))}
                 InputLabelProps={{ shrink: true }}
@@ -1388,6 +1449,7 @@ const FarmDetails: React.FC = () => {
             <TextField
               label="Harvest"
               type="date"
+              placeholder="eg: 2026-11-30"
               value={cropForm.expectedHarvestDate}
               onChange={(event) => setCropForm((current) => ({ ...current, expectedHarvestDate: event.target.value }))}
               InputLabelProps={{ shrink: true }}

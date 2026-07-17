@@ -2191,7 +2191,8 @@ const SensorConfig: React.FC = () => {
               fullWidth
               required
               type="number"
-              label="Normal clear-door distance"
+              label="Normal clear-door distance (cm)"
+              placeholder="eg: 120"
               value={attendanceBaselineDistanceCm}
               onChange={(event) => setAttendanceBaselineDistanceCm(event.target.value)}
               inputProps={{ min: 0, step: 'any' }}
@@ -2203,7 +2204,8 @@ const SensorConfig: React.FC = () => {
               fullWidth
               required
               type="number"
-              label="Passage trigger distance change"
+              label="Passage trigger distance change (cm)"
+              placeholder="eg: 35"
               value={attendanceTriggerDeltaCm}
               onChange={(event) => setAttendanceTriggerDeltaCm(event.target.value)}
               inputProps={{ min: 0, step: 'any' }}
@@ -2214,7 +2216,8 @@ const SensorConfig: React.FC = () => {
             <TextField
               fullWidth
               type="number"
-              label="Reset margin"
+              label="Reset margin (cm)"
+              placeholder="eg: 8"
               value={attendanceResetHysteresisCm}
               onChange={(event) => setAttendanceResetHysteresisCm(event.target.value)}
               inputProps={{ min: 0, step: 'any' }}
@@ -2226,7 +2229,8 @@ const SensorConfig: React.FC = () => {
               fullWidth
               required
               type="number"
-              label="Cooldown after each count"
+              label="Cooldown after each count (seconds)"
+              placeholder="eg: 2"
               value={attendanceCooldownSeconds}
               onChange={(event) => setAttendanceCooldownSeconds(event.target.value)}
               inputProps={{ min: 0.1, step: 0.1 }}
@@ -2377,7 +2381,7 @@ const SensorConfig: React.FC = () => {
               label="Describe your monitoring setup..."
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
-              placeholder="Example: I am monitoring a greenhouse with tomatoes. Temperature should stay 20 to 28 C and humidity 60 to 80 percent."
+              placeholder="eg: I am monitoring a greenhouse with tomatoes. Temperature should stay 20 to 28 C and humidity 60 to 80 percent."
               variant="outlined"
               helperText={`${aiPrompt.length}/300 characters`}
               error={aiPrompt.length > 300}
@@ -2491,7 +2495,7 @@ const SensorConfig: React.FC = () => {
             label="Sensor Name"
             value={friendlyName}
             onChange={(e) => setFriendlyName(e.target.value)}
-            placeholder="e.g., Greenhouse A"
+            placeholder="eg: Greenhouse A"
             required
           />
         </Box>
@@ -2700,7 +2704,7 @@ const SensorConfig: React.FC = () => {
                       value={field.value}
                       onChange={(e) => field.onChange(e.target.value)}
                       type="number"
-                      placeholder={prompt.placeholder}
+                      placeholder={prompt.placeholder ? `eg: ${prompt.placeholder.replace(/^eg:\s*/i, '').replace(/^e\.g\.,?\s*/i, '')}` : undefined}
                       helperText={`${prompt.helperText} (${prompt.unit})`}
                     />
                   </Box>
@@ -2802,6 +2806,7 @@ const SensorConfig: React.FC = () => {
                         fullWidth
                         label={alert.warningLabel}
                         type="number"
+                        placeholder="eg: 30"
                         value={alert.warningThreshold}
                         onChange={(e) => updateAlertSetting(alert.key, 'warningThreshold', e.target.value)}
                         size="small"
@@ -2814,6 +2819,7 @@ const SensorConfig: React.FC = () => {
                         fullWidth
                         label={alert.criticalLabel}
                         type="number"
+                        placeholder="eg: 35"
                         value={alert.criticalThreshold}
                         onChange={(e) => updateAlertSetting(alert.key, 'criticalThreshold', e.target.value)}
                         size="small"

@@ -249,7 +249,7 @@ const PairController: React.FC = () => {
             label="Controller ID"
             value={controllerCode}
             onChange={(e) => setControllerCode(e.target.value)}
-            placeholder="e.g., CTRL-8F2A19"
+            placeholder="eg: CTRL-8F2A19"
             disabled={loading}
             required
           />

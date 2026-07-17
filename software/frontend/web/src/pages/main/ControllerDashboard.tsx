@@ -528,6 +528,7 @@ const ControllerDashboard: React.FC = () => {
                     autoFocus
                     variant="filled"
                     label="Controller name"
+                    placeholder="eg: Main field controller"
                     fullWidth
                     sx={{
                       minWidth: 0,
@@ -831,6 +832,7 @@ const ControllerDashboard: React.FC = () => {
                               onChange={(event) => setSensorNameDraft(event.target.value)}
                               autoFocus
                               label="Sensor name"
+                              placeholder="eg: Canopy temperature"
                               fullWidth
                               sx={{ minWidth: 0, bgcolor: '#fffdf8' }}
                             />

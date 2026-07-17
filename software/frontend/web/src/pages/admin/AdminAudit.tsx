@@ -141,6 +141,7 @@ const AdminAudit: React.FC = () => {
             <TextField
               size="small"
               label="Search actor or target"
+              placeholder="eg: admin@example.com"
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
               sx={{ flex: 1 }}

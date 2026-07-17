@@ -225,19 +225,19 @@ const AdminUsers: React.FC = () => {
           <Box component="form" onSubmit={handleCreateOwner}>
             <Grid container spacing={2}>
               <Grid item xs={12} md={6}>
-                <TextField fullWidth required label="Owner email" type="email" placeholder="owner@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                <TextField fullWidth required label="Owner email" type="email" placeholder="eg: owner@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
               </Grid>
               <Grid item xs={12} md={6}>
                 <TextField fullWidth required label="Temporary password" type="password" placeholder="Create a temporary password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
               </Grid>
               <Grid item xs={12} md={6}>
-                <TextField fullWidth label="Owner name" placeholder="Owner name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                <TextField fullWidth label="Owner name" placeholder="eg: Varshan Kumar" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               </Grid>
               <Grid item xs={12} md={6}>
-                <TextField fullWidth label="Organization" placeholder="Organization name" value={form.organizationName} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} />
+                <TextField fullWidth label="Organization" placeholder="eg: Green Valley Farm" value={form.organizationName} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} />
               </Grid>
               <Grid item xs={12} md={6}>
-                <TextField fullWidth label="Phone" placeholder="+94 77 123 4567" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                <TextField fullWidth label="Phone" placeholder="eg: +94 77 123 4567" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
               </Grid>
               <Grid item xs={12} sx={{ mt: 1 }}>
                 <Button type="submit" variant="contained" color="secondary" disabled={saving} sx={{ ...compactButtonSx, minWidth: 200 }}>

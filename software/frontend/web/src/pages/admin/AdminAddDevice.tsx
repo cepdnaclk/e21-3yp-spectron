@@ -385,7 +385,7 @@ const AdminAddDevice: React.FC = () => {
             <TextField
               fullWidth
               label="Controller ID"
-              placeholder="CTRL-BOILER-001"
+              placeholder="eg: CTRL-FARM-001"
               value={controllerId}
               onChange={(e) => setControllerId(e.target.value)}
               helperText="Leave empty to generate a CTRL code automatically."
@@ -394,7 +394,7 @@ const AdminAddDevice: React.FC = () => {
             <TextField
               fullWidth
               label="Display Name"
-              placeholder="Main Controller"
+              placeholder="eg: Main field controller"
               value={name}
               onChange={(e) => setName(e.target.value)}
               margin="normal"
