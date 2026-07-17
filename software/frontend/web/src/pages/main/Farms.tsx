@@ -21,6 +21,7 @@ import {
 } from '@mui/material';
 import { Add, Agriculture, ArrowForward, Info, Place, Refresh, Terrain, VisibilityOutlined } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
+import FarmLocationPicker, { FarmLocationSelection } from '../../components/FarmLocationPicker';
 import { PageHeaderSkeleton } from '../../components/LoadingSkeletons';
 import { createFarm, Farm, getFarms } from '../../services/farmService';
 
@@ -55,7 +56,9 @@ const Farms: React.FC = () => {
   const [openCreate, setOpenCreate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showCoords, setShowCoords] = useState(false);
-  const [form, setForm] = useState({ name: '', latitude: '', longitude: '', area: '' });
+  const [form, setForm] = useState({ name: '', area: '' });
+  const [selectedLocation, setSelectedLocation] = useState<FarmLocationSelection | null>(null);
+  const [locationConfirmed, setLocationConfirmed] = useState(false);
   const [formError, setFormError] = useState('');
 
   const ownerCount = useMemo(() => farms.filter((farm) => farm.role === 'owner').length, [farms]);
@@ -67,6 +70,8 @@ const Farms: React.FC = () => {
     }
     setOpenCreate(false);
     setFormError('');
+    setSelectedLocation(null);
+    setLocationConfirmed(false);
   };
 
   const load = async () => {
@@ -97,20 +102,37 @@ const Farms: React.FC = () => {
         setFormError('Farm name is required.');
         return;
       }
-      const latitude = parseOptionalNumber(form.latitude, 'Latitude', -90, 90);
-      const longitude = parseOptionalNumber(form.longitude, 'Longitude', -180, 180);
+      if (selectedLocation && !locationConfirmed) {
+        setFormError('Confirm the selected farm location before creating.');
+        return;
+      }
       const area = parseOptionalNumber(form.area, 'Area', 0);
+      if (selectedLocation) {
+        if (selectedLocation.latitude < -90 || selectedLocation.latitude > 90) {
+          setFormError('Latitude must be between -90 and 90.');
+          return;
+        }
+        if (selectedLocation.longitude < -180 || selectedLocation.longitude > 180) {
+          setFormError('Longitude must be between -180 and 180.');
+          return;
+        }
+      }
 
       setSaving(true);
       const farm = await createFarm({
         name: form.name.trim(),
-        latitude,
-        longitude,
         area,
+        latitude: selectedLocation?.latitude,
+        longitude: selectedLocation?.longitude,
+        location_accuracy_m: selectedLocation?.accuracyM,
+        location_label: selectedLocation?.label,
+        location_source: selectedLocation?.source,
       });
       setFarms((current) => [farm, ...current]);
       setOpenCreate(false);
-      setForm({ name: '', latitude: '', longitude: '', area: '' });
+      setForm({ name: '', area: '' });
+      setSelectedLocation(null);
+      setLocationConfirmed(false);
       setFormError('');
       setNotice('Farm created.');
       navigate(`/farms/${farm.id}`);
@@ -212,6 +234,8 @@ const Farms: React.FC = () => {
               variant="contained"
               onClick={() => {
                 setFormError('');
+                setSelectedLocation(null);
+                setLocationConfirmed(false);
                 setOpenCreate(true);
               }}
               sx={{ minWidth: { xs: '100%', sm: 0 } }}
@@ -420,7 +444,7 @@ const Farms: React.FC = () => {
         )}
       </Grid>
 
-      <Dialog open={openCreate} onClose={closeCreateDialog} fullWidth maxWidth="sm">
+      <Dialog open={openCreate} onClose={closeCreateDialog} fullWidth maxWidth="md">
         <DialogTitle>Add Farm</DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -437,32 +461,28 @@ const Farms: React.FC = () => {
             />
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               <TextField
-                label="Latitude"
-                placeholder="eg: 7.8731"
-                value={form.latitude}
-                onChange={(e) => setForm((current) => ({ ...current, latitude: e.target.value }))}
-                fullWidth
-              />
-              <TextField
-                label="Longitude"
-                placeholder="eg: 80.7718"
-                value={form.longitude}
-                onChange={(e) => setForm((current) => ({ ...current, longitude: e.target.value }))}
+                label="Area (ha)"
+                placeholder="eg: 2.5"
+                value={form.area}
+                onChange={(e) => setForm((current) => ({ ...current, area: e.target.value }))}
                 fullWidth
               />
             </Stack>
-            <TextField
-              label="Area (ha)"
-              placeholder="eg: 2.5"
-              value={form.area}
-              onChange={(e) => setForm((current) => ({ ...current, area: e.target.value }))}
-              fullWidth
+            <FarmLocationPicker
+              value={selectedLocation}
+              confirmed={locationConfirmed}
+              disabled={saving}
+              onChange={(location) => {
+                setSelectedLocation(location);
+                setLocationConfirmed(false);
+              }}
+              onConfirm={() => setLocationConfirmed(true)}
             />
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeCreateDialog} disabled={saving}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreate} disabled={saving || !form.name.trim()}>
+          <Button variant="contained" onClick={handleCreate} disabled={saving || !form.name.trim() || Boolean(selectedLocation && !locationConfirmed)}>
             {saving ? 'Saving' : 'Create'}
           </Button>
         </DialogActions>

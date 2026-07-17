@@ -22,6 +22,7 @@ import (
 	"spectron-backend/internal/auth"
 	"spectron-backend/internal/config"
 	internaldb "spectron-backend/internal/db"
+	"spectron-backend/internal/geocoding"
 	"spectron-backend/internal/iot"
 )
 
@@ -101,9 +102,32 @@ func newIntegrationApp(t *testing.T) *integrationApp {
 	})
 
 	r := chi.NewRouter()
-	RegisterRoutes(r, pool, []string{"http://localhost:3000"}, iot.NewDisabledPublisher("integration test"), config.EmailConfig{})
+	RegisterRoutes(r, pool, []string{"http://localhost:3000"}, iot.NewDisabledPublisher("integration test"), config.EmailConfig{}, testGeocoder{})
 
 	return &integrationApp{pool: pool, rr: r}
+}
+
+type testGeocoder struct{}
+
+func (testGeocoder) Search(_ context.Context, query string, limit int) ([]geocoding.Location, error) {
+	if limit <= 0 {
+		limit = 1
+	}
+	return []geocoding.Location{
+		{
+			Label:     "Galgamuwa, Kurunegala",
+			Latitude:  7.9956,
+			Longitude: 80.2674,
+		},
+	}, nil
+}
+
+func (testGeocoder) Reverse(_ context.Context, latitude float64, longitude float64) (geocoding.Location, error) {
+	return geocoding.Location{
+		Label:     "Galgamuwa, Kurunegala",
+		Latitude:  latitude,
+		Longitude: longitude,
+	}, nil
 }
 
 func testDatabaseURL(t *testing.T) string {

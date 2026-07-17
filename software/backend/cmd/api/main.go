@@ -14,6 +14,7 @@ import (
 	"spectron-backend/internal/auth"
 	"spectron-backend/internal/config"
 	"spectron-backend/internal/db"
+	"spectron-backend/internal/geocoding"
 	"spectron-backend/internal/httpapi"
 	"spectron-backend/internal/iot"
 )
@@ -53,7 +54,13 @@ func main() {
 	}
 
 	r := chi.NewRouter()
-	httpapi.RegisterRoutes(r, pool, cfg.AllowedOrigins, rawReadingsPublisher, cfg.Email)
+	geocoder := geocoding.NewNominatimProvider(geocoding.Config{
+		BaseURL:   cfg.Geocoding.BaseURL,
+		APIKey:    cfg.Geocoding.APIKey,
+		UserAgent: cfg.Geocoding.UserAgent,
+		Timeout:   time.Duration(cfg.Geocoding.TimeoutMS) * time.Millisecond,
+	})
+	httpapi.RegisterRoutes(r, pool, cfg.AllowedOrigins, rawReadingsPublisher, cfg.Email, geocoder)
 
 	monitorCtx, stopMonitor := context.WithCancel(context.Background())
 	defer stopMonitor()

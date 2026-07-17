@@ -8,11 +8,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"spectron-backend/internal/config"
+	"spectron-backend/internal/geocoding"
 	"spectron-backend/internal/iot"
 )
 
 // RegisterRoutes wires all HTTP routes for the API.
-func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, rawReadingsPublisher iot.RawReadingsPublisher, emailConfig config.EmailConfig) {
+func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, rawReadingsPublisher iot.RawReadingsPublisher, emailConfig config.EmailConfig, geocoder geocoding.Provider) {
 	if len(allowedOrigins) == 0 {
 		allowedOrigins = []string{
 			"http://localhost:3000",
@@ -60,6 +61,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 	ingestHandler := NewIngestHandler(db, rawReadingsPublisher)
 	agriHandler := NewAgriHandler()
 	farmHandler := NewFarmHandler(db)
+	geocodingHandler := NewGeocodingHandler(geocoder)
 
 	// Public routes
 	r.Post("/auth/register", authHandler.Register)
@@ -114,6 +116,11 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 			r.Get("/summary", agriHandler.Summary)
 			r.Get("/advisories", agriHandler.Advisories)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/config", agriHandler.BuildConfig)
+		})
+
+		r.Route("/api/geocoding", func(r chi.Router) {
+			r.Get("/search", geocodingHandler.Search)
+			r.Get("/reverse", geocodingHandler.Reverse)
 		})
 
 		r.Route("/api/farms", func(r chi.Router) {

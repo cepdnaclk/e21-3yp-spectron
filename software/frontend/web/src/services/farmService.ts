@@ -7,10 +7,15 @@ export interface Farm {
   latitude?: number | null;
   longitude?: number | null;
   area?: number | null;
+  location_accuracy_m?: number | null;
+  location_label?: string | null;
+  location_source?: FarmLocationSource | null;
   role: 'owner' | 'viewer';
   created_at: string;
   updated_at: string;
 }
+
+export type FarmLocationSource = 'device_geolocation' | 'map_pin' | 'place_search' | 'manual_coordinates';
 
 export interface Field {
   id: string;
@@ -161,6 +166,9 @@ export interface CreateFarmRequest {
   latitude?: number | null;
   longitude?: number | null;
   area?: number | null;
+  location_accuracy_m?: number | null;
+  location_label?: string | null;
+  location_source?: FarmLocationSource | null;
 }
 
 export interface CreateFieldRequest {

@@ -25,14 +25,17 @@ func NewFarmHandler(db *pgxpool.Pool) *FarmHandler {
 }
 
 type farmResponse struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Latitude  *float64 `json:"latitude,omitempty"`
-	Longitude *float64 `json:"longitude,omitempty"`
-	Area      *float64 `json:"area,omitempty"`
-	Role      string   `json:"role"`
-	CreatedAt string   `json:"created_at"`
-	UpdatedAt string   `json:"updated_at"`
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Latitude          *float64 `json:"latitude,omitempty"`
+	Longitude         *float64 `json:"longitude,omitempty"`
+	Area              *float64 `json:"area,omitempty"`
+	LocationAccuracyM *float64 `json:"location_accuracy_m,omitempty"`
+	LocationLabel     *string  `json:"location_label,omitempty"`
+	LocationSource    *string  `json:"location_source,omitempty"`
+	Role              string   `json:"role"`
+	CreatedAt         string   `json:"created_at"`
+	UpdatedAt         string   `json:"updated_at"`
 }
 
 type collaboratorResponse struct {
@@ -58,10 +61,13 @@ type fieldResponse struct {
 }
 
 type saveFarmRequest struct {
-	Name      string   `json:"name"`
-	Latitude  *float64 `json:"latitude,omitempty"`
-	Longitude *float64 `json:"longitude,omitempty"`
-	Area      *float64 `json:"area,omitempty"`
+	Name              string   `json:"name"`
+	Latitude          *float64 `json:"latitude,omitempty"`
+	Longitude         *float64 `json:"longitude,omitempty"`
+	Area              *float64 `json:"area,omitempty"`
+	LocationAccuracyM *float64 `json:"location_accuracy_m,omitempty"`
+	LocationLabel     *string  `json:"location_label,omitempty"`
+	LocationSource    *string  `json:"location_source,omitempty"`
 }
 
 type saveFieldRequest struct {
@@ -100,6 +106,9 @@ func (h *FarmHandler) List(w http.ResponseWriter, r *http.Request) {
 			f.latitude,
 			f.longitude,
 			f.area,
+			f.location_accuracy_m,
+			f.location_label,
+			f.location_source,
 			fa.role,
 			f.created_at,
 			f.updated_at
@@ -157,10 +166,24 @@ func (h *FarmHandler) Create(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 
 	farmID := uuid.New()
+	locationSource := normalizedFarmLocationSource(req)
+	locationLabel := cleanOptionalString(req.LocationLabel)
 	if _, err := tx.Exec(r.Context(), `
-		INSERT INTO farms (id, name, latitude, longitude, area, created_by_user_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-	`, farmID, strings.TrimSpace(req.Name), req.Latitude, req.Longitude, req.Area, userID); err != nil {
+		INSERT INTO farms (
+			id,
+			name,
+			latitude,
+			longitude,
+			area,
+			location_accuracy_m,
+			location_label,
+			location_source,
+			created_by_user_id,
+			created_at,
+			updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+	`, farmID, strings.TrimSpace(req.Name), req.Latitude, req.Longitude, req.Area, req.LocationAccuracyM, locationLabel, locationSource, userID); err != nil {
 		http.Error(w, "failed to create farm", http.StatusInternalServerError)
 		return
 	}
@@ -222,16 +245,21 @@ func (h *FarmHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	locationSource := normalizedFarmLocationSource(req)
+	locationLabel := cleanOptionalString(req.LocationLabel)
 	result, err := h.db.Exec(r.Context(), `
 		UPDATE farms
 		SET name = $2,
 		    latitude = $3,
 		    longitude = $4,
 		    area = $5,
+		    location_accuracy_m = $6,
+		    location_label = $7,
+		    location_source = $8,
 		    updated_at = NOW()
 		WHERE id = $1
 		  AND archived_at IS NULL
-	`, access.farmID, strings.TrimSpace(req.Name), req.Latitude, req.Longitude, req.Area)
+	`, access.farmID, strings.TrimSpace(req.Name), req.Latitude, req.Longitude, req.Area, req.LocationAccuracyM, locationLabel, locationSource)
 	if err != nil {
 		http.Error(w, "failed to update farm", http.StatusInternalServerError)
 		return
@@ -610,6 +638,9 @@ func (h *FarmHandler) loadFarmResponse(ctx context.Context, q queryRower, farmID
 			f.latitude,
 			f.longitude,
 			f.area,
+			f.location_accuracy_m,
+			f.location_label,
+			f.location_source,
 			fa.role,
 			f.created_at,
 			f.updated_at
@@ -640,16 +671,34 @@ func scanFarmResponse(row farmScanner) (farmResponse, error) {
 	var latitude *float64
 	var longitude *float64
 	var area *float64
+	var locationAccuracyM *float64
+	var locationLabel *string
+	var locationSource *string
 	var createdAt time.Time
 	var updatedAt time.Time
 	var farm farmResponse
-	if err := row.Scan(&id, &farm.Name, &latitude, &longitude, &area, &farm.Role, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(
+		&id,
+		&farm.Name,
+		&latitude,
+		&longitude,
+		&area,
+		&locationAccuracyM,
+		&locationLabel,
+		&locationSource,
+		&farm.Role,
+		&createdAt,
+		&updatedAt,
+	); err != nil {
 		return farmResponse{}, err
 	}
 	farm.ID = id.String()
 	farm.Latitude = latitude
 	farm.Longitude = longitude
 	farm.Area = area
+	farm.LocationAccuracyM = locationAccuracyM
+	farm.LocationLabel = locationLabel
+	farm.LocationSource = locationSource
 	farm.CreatedAt = createdAt.Format(time.RFC3339)
 	farm.UpdatedAt = updatedAt.Format(time.RFC3339)
 	return farm, nil
@@ -683,7 +732,25 @@ func scanFieldResponse(row farmScanner) (fieldResponse, error) {
 }
 
 func validateFarmRequest(req saveFarmRequest) error {
-	return validateNamedLocation(strings.TrimSpace(req.Name), req.Latitude, req.Longitude, req.Area, "farm")
+	if err := validateNamedLocation(strings.TrimSpace(req.Name), req.Latitude, req.Longitude, req.Area, "farm"); err != nil {
+		return err
+	}
+	hasLatitude := req.Latitude != nil
+	hasLongitude := req.Longitude != nil
+	if hasLatitude != hasLongitude {
+		return errors.New("select both latitude and longitude")
+	}
+	if req.LocationAccuracyM != nil && *req.LocationAccuracyM < 0 {
+		return errors.New("location accuracy cannot be negative")
+	}
+	locationSource := normalizedFarmLocationSource(req)
+	if locationSource != nil && !isValidFarmLocationSource(*locationSource) {
+		return errors.New("location source is invalid")
+	}
+	if (req.LocationAccuracyM != nil || cleanOptionalString(req.LocationLabel) != nil || locationSource != nil) && (!hasLatitude || !hasLongitude) {
+		return errors.New("select a farm location before saving location details")
+	}
+	return nil
 }
 
 func validateFieldRequest(req saveFieldRequest) error {
@@ -710,6 +777,28 @@ func validateNamedLocation(name string, latitude *float64, longitude *float64, a
 		return errors.New("area cannot be negative")
 	}
 	return nil
+}
+
+func normalizedFarmLocationSource(req saveFarmRequest) *string {
+	raw := cleanOptionalString(req.LocationSource)
+	if raw == nil {
+		if req.Latitude != nil && req.Longitude != nil {
+			fallback := "manual_coordinates"
+			return &fallback
+		}
+		return nil
+	}
+	normalized := strings.ToLower(strings.TrimSpace(*raw))
+	return &normalized
+}
+
+func isValidFarmLocationSource(source string) bool {
+	switch source {
+	case "device_geolocation", "map_pin", "place_search", "manual_coordinates":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

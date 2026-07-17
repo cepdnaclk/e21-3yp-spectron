@@ -6,6 +6,9 @@ const normalizeApiBaseUrl = (configuredUrl?: string) => configuredUrl || DEPLOYE
 
 export const API_BASE_URL = normalizeApiBaseUrl(configuredApiBaseUrl);
 
+export const MAP_TILE_URL =
+  process.env.REACT_APP_MAP_TILE_URL?.trim() || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+
 export const API_ENDPOINTS = {
   AUTH: {
     LOGIN: '/auth/login',
@@ -39,6 +42,10 @@ export const API_ENDPOINTS = {
     ACK_ALERT: (farmId: string, alertId: string) => `/api/farms/${farmId}/alerts/${alertId}/ack`,
     COLLABORATORS: (id: string) => `/api/farms/${id}/collaborators`,
     REMOVE_COLLABORATOR: (farmId: string, userId: string) => `/api/farms/${farmId}/collaborators/${userId}`,
+  },
+  GEOCODING: {
+    SEARCH: '/api/geocoding/search',
+    REVERSE: '/api/geocoding/reverse',
   },
   SENSORS: {
     LIST: (controllerId: string) => `/controllers/${controllerId}/sensors`,
