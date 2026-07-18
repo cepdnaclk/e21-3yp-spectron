@@ -31,6 +31,8 @@ type Props = {
   value: FarmLocationSelection | null;
   confirmed: boolean;
   disabled?: boolean;
+  title?: string;
+  helpText?: string;
   onChange: (location: FarmLocationSelection | null) => void;
   onConfirm: () => void;
 };
@@ -212,7 +214,15 @@ const MiniMap: React.FC<{
   );
 };
 
-const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onChange, onConfirm }) => {
+const FarmLocationPicker: React.FC<Props> = ({
+  value,
+  confirmed,
+  disabled,
+  title = 'Farm location',
+  helpText = 'Pick a location without typing coordinates. Coordinates are in Advanced.',
+  onChange,
+  onConfirm,
+}) => {
   const [mode, setMode] = useState<LocationMode>('device');
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -418,10 +428,10 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
     <Stack spacing={1.5}>
       <Stack direction="row" spacing={1} alignItems="center">
         <Typography variant="subtitle1" fontWeight={800}>
-          Farm location
+          {title}
         </Typography>
-        <Tooltip title="Pick a location without typing coordinates. Coordinates are in Advanced.">
-          <IconButton size="small" aria-label="Farm location help">
+        <Tooltip title={helpText}>
+          <IconButton size="small" aria-label={`${title} help`}>
             <Info fontSize="small" />
           </IconButton>
         </Tooltip>

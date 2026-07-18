@@ -73,6 +73,7 @@ import {
   SensorBaseAssignment,
   SensorModule,
 } from '../../services/farmService';
+import FarmLocationPicker, { FarmLocationSelection } from '../../components/FarmLocationPicker';
 
 type CropForm = {
   cropId: string;
@@ -142,7 +143,9 @@ const FarmDetails: React.FC = () => {
   const [selectedBase, setSelectedBase] = useState<SensorBase | null>(null);
   const [saving, setSaving] = useState(false);
   const [setupError, setSetupError] = useState('');
-  const [fieldForm, setFieldForm] = useState({ name: '', latitude: '', longitude: '', area: '' });
+  const [fieldForm, setFieldForm] = useState({ name: '', area: '' });
+  const [selectedFieldLocation, setSelectedFieldLocation] = useState<FarmLocationSelection | null>(null);
+  const [fieldLocationConfirmed, setFieldLocationConfirmed] = useState(false);
   const [accessForm, setAccessForm] = useState({ email: '' });
   const [cropForm, setCropForm] = useState<CropForm>(emptyCropForm);
   const [controllerForm, setControllerForm] = useState({ controllerId: '', model: '' });
@@ -298,16 +301,22 @@ const FarmDetails: React.FC = () => {
         setError('Field name is required.');
         return;
       }
+      if (selectedFieldLocation && !fieldLocationConfirmed) {
+        setSetupError('Confirm the selected field location before adding.');
+        return;
+      }
       setSaving(true);
       const field = await createField(farmId, {
         name: fieldForm.name.trim(),
-        latitude: parseOptionalNumber(fieldForm.latitude, 'Latitude', -90, 90),
-        longitude: parseOptionalNumber(fieldForm.longitude, 'Longitude', -180, 180),
+        latitude: selectedFieldLocation?.latitude,
+        longitude: selectedFieldLocation?.longitude,
         area: parseOptionalNumber(fieldForm.area, 'Area', 0),
       });
       setFields((current) => [field, ...current]);
       setCropInstances((current) => ({ ...current, [field.id]: [] }));
-      setFieldForm({ name: '', latitude: '', longitude: '', area: '' });
+      setFieldForm({ name: '', area: '' });
+      setSelectedFieldLocation(null);
+      setFieldLocationConfirmed(false);
       setOpenField(false);
       setNotice('Field added.');
     } catch (err) {
@@ -731,7 +740,17 @@ const FarmDetails: React.FC = () => {
       {ownerMode && (
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 3 }}>
           <Tooltip title="Create a field to hold crops and monitoring areas.">
-            <Button startIcon={<Add />} variant="contained" onClick={() => setOpenField(true)}>
+            <Button
+              startIcon={<Add />}
+              variant="contained"
+              onClick={() => {
+                setSetupError('');
+                setFieldForm({ name: '', area: '' });
+                setSelectedFieldLocation(null);
+                setFieldLocationConfirmed(false);
+                setOpenField(true);
+              }}
+            >
               Add field
             </Button>
           </Tooltip>
@@ -1031,7 +1050,17 @@ const FarmDetails: React.FC = () => {
         </Grid>
       </Box>
 
-      <Dialog open={openField} onClose={() => { setOpenField(false); setSetupError(''); }} fullWidth maxWidth="sm">
+      <Dialog
+        open={openField}
+        onClose={() => {
+          setOpenField(false);
+          setSetupError('');
+          setSelectedFieldLocation(null);
+          setFieldLocationConfirmed(false);
+        }}
+        fullWidth
+        maxWidth="md"
+      >
         <DialogTitle>
           <Stack direction="row" spacing={1} alignItems="center">
             <span>Add Field</span>
@@ -1054,33 +1083,42 @@ const FarmDetails: React.FC = () => {
               onChange={(e) => setFieldForm((c) => ({ ...c, name: e.target.value }))}
               autoFocus
             />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField
-                label="Latitude"
-                placeholder="eg: 7.8731"
-                value={fieldForm.latitude}
-                onChange={(e) => setFieldForm((c) => ({ ...c, latitude: e.target.value }))}
-                fullWidth
-              />
-              <TextField
-                label="Longitude"
-                placeholder="eg: 80.7718"
-                value={fieldForm.longitude}
-                onChange={(e) => setFieldForm((c) => ({ ...c, longitude: e.target.value }))}
-                fullWidth
-              />
-            </Stack>
             <TextField
               label="Area (ha)"
               placeholder="eg: 1.25"
               value={fieldForm.area}
               onChange={(e) => setFieldForm((c) => ({ ...c, area: e.target.value }))}
             />
+            <FarmLocationPicker
+              title="Field location"
+              helpText="Pick a field point without typing coordinates. Coordinates are in Advanced."
+              value={selectedFieldLocation}
+              confirmed={fieldLocationConfirmed}
+              disabled={saving}
+              onChange={(location) => {
+                setSelectedFieldLocation(location);
+                setFieldLocationConfirmed(false);
+              }}
+              onConfirm={() => setFieldLocationConfirmed(true)}
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { setOpenField(false); setSetupError(''); }}>Cancel</Button>
-          <Button variant="contained" onClick={submitField} disabled={saving || !fieldForm.name.trim()}>
+          <Button
+            onClick={() => {
+              setOpenField(false);
+              setSetupError('');
+              setSelectedFieldLocation(null);
+              setFieldLocationConfirmed(false);
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={submitField}
+            disabled={saving || !fieldForm.name.trim() || Boolean(selectedFieldLocation && !fieldLocationConfirmed)}
+          >
             {saving ? 'Saving' : 'Add'}
           </Button>
         </DialogActions>
