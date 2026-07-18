@@ -40,6 +40,9 @@ type LocationMode = 'device' | 'map' | 'search';
 const sriLankaCenter = { latitude: 7.8731, longitude: 80.7718 };
 
 const tileSize = 256;
+const currentLocationScanMs = 9000;
+const goodAccuracyM = 75;
+const approximateAccuracyM = 1000;
 
 const lonToPixelX = (lon: number, zoom: number) => ((lon + 180) / 360) * tileSize * 2 ** zoom;
 
@@ -73,6 +76,16 @@ const userLocationMessage = (code: number) => {
     default:
       return 'Could not detect your current location.';
   }
+};
+
+const currentLocationHint = (accuracyM?: number | null) => {
+  if (accuracyM === undefined || accuracyM === null) {
+    return 'Pin placed from your device. Please check it on the map.';
+  }
+  if (accuracyM > approximateAccuracyM) {
+    return 'This location looks approximate. Please adjust the pin on the map.';
+  }
+  return 'Pin placed from your device. You can adjust it on the map.';
 };
 
 const tileURL = (z: number, x: number, y: number) =>
@@ -211,6 +224,10 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
   const [manualLat, setManualLat] = useState('');
   const [manualLon, setManualLon] = useState('');
   const [mapCenter, setMapCenter] = useState(sriLankaCenter);
+  const [locationHint, setLocationHint] = useState('');
+  const watchIdRef = useRef<number | null>(null);
+  const locationTimerRef = useRef<number | null>(null);
+  const bestPositionRef = useRef<GeolocationPosition | null>(null);
 
   useEffect(() => {
     setManualLat(value ? formatCoord(value.latitude) : '');
@@ -244,6 +261,17 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
     return () => window.clearTimeout(handle);
   }, [mode, searchText]);
 
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+      if (locationTimerRef.current !== null) {
+        window.clearTimeout(locationTimerRef.current);
+      }
+    };
+  }, []);
+
   const pickLocation = async (
     latitude: number,
     longitude: number,
@@ -260,6 +288,9 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
     };
     if (source !== 'map_pin') {
       setMapCenter({ latitude, longitude });
+    }
+    if (source !== 'device_geolocation') {
+      setLocationHint('');
     }
     onChange(baseLocation);
     setStatus('Detecting location name...');
@@ -280,32 +311,91 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
     }
   };
 
+  const stopCurrentLocationScan = () => {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    if (locationTimerRef.current !== null) {
+      window.clearTimeout(locationTimerRef.current);
+      locationTimerRef.current = null;
+    }
+  };
+
+  const applyDevicePosition = (position: GeolocationPosition) => {
+    stopCurrentLocationScan();
+    setLocating(false);
+    setMode('map');
+    setStatus('');
+    setLocationHint(currentLocationHint(position.coords.accuracy));
+    setMapCenter({ latitude: position.coords.latitude, longitude: position.coords.longitude });
+    void pickLocation(
+      position.coords.latitude,
+      position.coords.longitude,
+      'device_geolocation',
+      position.coords.accuracy,
+    );
+  };
+
   const useCurrentLocation = () => {
     setMode('device');
     setError('');
-    setStatus('');
+    setLocationHint('');
     if (!navigator.geolocation) {
       setError('This browser does not support current location. Use search or the map.');
       return;
     }
+    stopCurrentLocationScan();
+    bestPositionRef.current = null;
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLocating(false);
-        setMapCenter({ latitude: position.coords.latitude, longitude: position.coords.longitude });
-        void pickLocation(
-          position.coords.latitude,
-          position.coords.longitude,
-          'device_geolocation',
-          position.coords.accuracy,
-        );
-      },
-      (geoError) => {
-        setLocating(false);
-        setError(userLocationMessage(geoError.code));
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    setStatus('Finding your current location...');
+
+    const handlePosition = (position: GeolocationPosition) => {
+      const currentBest = bestPositionRef.current;
+      if (!currentBest || position.coords.accuracy < currentBest.coords.accuracy) {
+        bestPositionRef.current = position;
+        setStatus(`Finding best location... Accuracy about ${Math.round(position.coords.accuracy)} m`);
+      }
+      if (position.coords.accuracy <= goodAccuracyM) {
+        applyDevicePosition(position);
+      }
+    };
+
+    const handleError = (geoError: GeolocationPositionError) => {
+      if (bestPositionRef.current) {
+        applyDevicePosition(bestPositionRef.current);
+        return;
+      }
+      stopCurrentLocationScan();
+      setLocating(false);
+      setStatus('');
+      setError(userLocationMessage(geoError.code));
+    };
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      handlePosition,
+      handleError,
+      { enableHighAccuracy: true, timeout: currentLocationScanMs, maximumAge: 0 },
     );
+
+    locationTimerRef.current = window.setTimeout(() => {
+      if (bestPositionRef.current) {
+        applyDevicePosition(bestPositionRef.current);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          applyDevicePosition(position);
+        },
+        (geoError) => {
+          stopCurrentLocationScan();
+          setLocating(false);
+          setStatus('');
+          setError(userLocationMessage(geoError.code));
+        },
+        { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 },
+      );
+    }, currentLocationScanMs);
   };
 
   const applyManualCoordinates = () => {
@@ -319,6 +409,7 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
       setError('Longitude must be between -180 and 180.');
       return;
     }
+    setLocationHint('');
     setMapCenter({ latitude, longitude });
     void pickLocation(latitude, longitude, 'manual_coordinates');
   };
@@ -454,6 +545,7 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
       </Collapse>
 
       {status && <Alert severity="info">{status}</Alert>}
+      {locationHint && <Alert severity={value?.accuracyM && value.accuracyM > approximateAccuracyM ? 'warning' : 'info'}>{locationHint}</Alert>}
       {error && <Alert severity="warning">{error}</Alert>}
 
       {value && (
