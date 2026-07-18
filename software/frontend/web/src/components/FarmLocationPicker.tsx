@@ -233,8 +233,10 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
         setError('');
         setSearchResults(await searchPlaces(trimmed));
       } catch (err) {
-        console.error(err);
-        setError('Place search is not available right now.');
+        if (!(err instanceof Error && /backend is restarted/i.test(err.message))) {
+          console.error(err);
+        }
+        setError(err instanceof Error ? err.message : 'Place search is not available right now.');
       } finally {
         setSearching(false);
       }
@@ -270,9 +272,11 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
       });
       setStatus('');
     } catch (err) {
-      console.error(err);
+      if (!(err instanceof Error && /backend is restarted/i.test(err.message))) {
+        console.error(err);
+      }
       setStatus('');
-      setError('Place name is unavailable right now. You can still confirm this location.');
+      setError(err instanceof Error ? err.message : 'Place name is unavailable right now. You can still confirm this location.');
     }
   };
 
