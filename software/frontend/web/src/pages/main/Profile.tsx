@@ -30,7 +30,6 @@ import {
   LockReset,
   Visibility,
   VisibilityOff,
-  ContentCopy,
   DeleteOutline,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
@@ -83,7 +82,6 @@ const Profile: React.FC = () => {
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState('');
   const [profileError, setProfileError] = useState('');
-  const [linkCopied, setLinkCopied] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
   const [deleteSaving, setDeleteSaving] = useState(false);
@@ -145,12 +143,6 @@ const Profile: React.FC = () => {
   const email = user?.email || '';
   const username = email ? `@${email.split('@')[0]}` : `@${profileDisplayName.replace(/\s+/g, '')}`;
   const canConfirmDeletion = Boolean(email) && deleteConfirmEmail.trim().toLowerCase() === email.toLowerCase();
-  const profileUrl = useMemo(() => {
-    if (typeof window === 'undefined') {
-      return '';
-    }
-    return `${window.location.origin}/profile`;
-  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -212,21 +204,6 @@ const Profile: React.FC = () => {
   const handleRemoveAvatar = () => {
     setAvatarUrl('');
     saveAvatar('');
-  };
-
-  const handleCopyProfileLink = async () => {
-    if (!profileUrl) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(profileUrl);
-      setLinkCopied(true);
-      setProfileMessage('Profile link copied.');
-      window.setTimeout(() => setLinkCopied(false), 1800);
-    } catch (error) {
-      setProfileError('Could not copy profile link.');
-    }
   };
 
   const handleSaveProfile = async () => {
@@ -434,28 +411,6 @@ const Profile: React.FC = () => {
                   <Typography variant="subtitle1" sx={{ mt: 1 }}>
                     {username}
                   </Typography>
-                  <Stack
-                    direction={{ xs: 'column', sm: 'row' }}
-                    spacing={1}
-                    alignItems={{ xs: 'center', sm: 'center' }}
-                    sx={{ mt: 1, display: { xs: 'none', sm: 'flex' } }}
-                  >
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{ fontStyle: 'italic', wordBreak: 'break-all' }}
-                    >
-                      {profileUrl}
-                    </Typography>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<ContentCopy />}
-                      onClick={handleCopyProfileLink}
-                    >
-                      {linkCopied ? 'Copied' : 'Copy link'}
-                    </Button>
-                  </Stack>
                 </Box>
               </Stack>
 
