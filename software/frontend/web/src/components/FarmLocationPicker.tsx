@@ -79,11 +79,11 @@ const tileURL = (z: number, x: number, y: number) =>
   MAP_TILE_URL.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y));
 
 const MiniMap: React.FC<{
+  center: { latitude: number; longitude: number };
   location: FarmLocationSelection | null;
   onPick: (latitude: number, longitude: number) => void;
-}> = ({ location, onPick }) => {
+}> = ({ center, location, onPick }) => {
   const ref = useRef<HTMLDivElement | null>(null);
-  const center = location || sriLankaCenter;
   const zoom = location ? 13 : 8;
   const centerX = lonToPixelX(center.longitude, zoom);
   const centerY = latToPixelY(center.latitude, zoom);
@@ -171,8 +171,8 @@ const MiniMap: React.FC<{
           color="secondary"
           sx={{
             position: 'absolute',
-            left: '50%',
-            top: '50%',
+            left: `calc(50% + ${lonToPixelX(location.longitude, zoom) - centerX}px)`,
+            top: `calc(50% + ${latToPixelY(location.latitude, zoom) - centerY}px)`,
             transform: 'translate(-50%, -95%)',
             fontSize: 46,
             filter: 'drop-shadow(0 6px 10px rgba(38,36,17,0.35))',
@@ -210,6 +210,7 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [manualLat, setManualLat] = useState('');
   const [manualLon, setManualLon] = useState('');
+  const [mapCenter, setMapCenter] = useState(sriLankaCenter);
 
   useEffect(() => {
     setManualLat(value ? formatCoord(value.latitude) : '');
@@ -255,6 +256,9 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
       label: fallbackLabel || `Selected location (${coordinateLabel(latitude, longitude)})`,
       source,
     };
+    if (source !== 'map_pin') {
+      setMapCenter({ latitude, longitude });
+    }
     onChange(baseLocation);
     setStatus('Detecting location name...');
     setError('');
@@ -284,6 +288,7 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setLocating(false);
+        setMapCenter({ latitude: position.coords.latitude, longitude: position.coords.longitude });
         void pickLocation(
           position.coords.latitude,
           position.coords.longitude,
@@ -310,6 +315,7 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
       setError('Longitude must be between -180 and 180.');
       return;
     }
+    setMapCenter({ latitude, longitude });
     void pickLocation(latitude, longitude, 'manual_coordinates');
   };
 
@@ -379,7 +385,11 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
             <Button
               key={`${result.latitude}-${result.longitude}-${result.label}`}
               variant="outlined"
-              onClick={() => void pickLocation(result.latitude, result.longitude, 'place_search', result.accuracy_m, result.label)}
+              onClick={() => {
+                setMode('map');
+                setMapCenter({ latitude: result.latitude, longitude: result.longitude });
+                void pickLocation(result.latitude, result.longitude, 'place_search', result.accuracy_m, result.label);
+              }}
               sx={{ justifyContent: 'flex-start', textAlign: 'left' }}
             >
               <Box>
@@ -396,7 +406,11 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
       </Collapse>
 
       <Collapse in={mode === 'map' || mode === 'search'} timeout={200}>
-        <MiniMap location={value} onPick={(latitude, longitude) => void pickLocation(latitude, longitude, 'map_pin')} />
+        <MiniMap
+          center={mapCenter}
+          location={value}
+          onPick={(latitude, longitude) => void pickLocation(latitude, longitude, 'map_pin')}
+        />
       </Collapse>
 
       <Button
