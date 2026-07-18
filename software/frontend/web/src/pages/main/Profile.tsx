@@ -423,16 +423,6 @@ const Profile: React.FC = () => {
                 >
                   Logout
                 </Button>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  startIcon={<Save />}
-                  onClick={handleSaveProfile}
-                  disabled={profileSaving || avatarSaving}
-                  sx={{ minWidth: { xs: 0, sm: 154 }, width: { xs: '100%', sm: 'auto' } }}
-                >
-                  {profileSaving ? 'Saving...' : 'Save changes'}
-                </Button>
               </Stack>
             </Stack>
           </CardContent>
@@ -489,6 +479,18 @@ const Profile: React.FC = () => {
                 />
               </Grid>
             </Grid>
+            <Stack direction="row" justifyContent="flex-end" sx={{ mt: 3 }}>
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<Save />}
+                onClick={handleSaveProfile}
+                disabled={profileSaving || avatarSaving}
+                sx={{ minWidth: { xs: '100%', sm: 154 } }}
+              >
+                {profileSaving ? 'Saving...' : 'Save changes'}
+              </Button>
+            </Stack>
           </CardContent>
         </Card>
 
