@@ -8,6 +8,7 @@ import {
   CircularProgress,
   Collapse,
   IconButton,
+  InputAdornment,
   Stack,
   TextField,
   Tooltip,
@@ -56,6 +57,7 @@ const pixelYToLat = (y: number, zoom: number) => {
 };
 
 const formatCoord = (value: number) => value.toFixed(6);
+const coordinateLabel = (latitude: number, longitude: number) => `${formatCoord(latitude)}, ${formatCoord(longitude)}`;
 
 const isValidLatitude = (value: number) => Number.isFinite(value) && value >= -90 && value <= 90;
 const isValidLongitude = (value: number) => Number.isFinite(value) && value >= -180 && value <= 180;
@@ -250,7 +252,7 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
       latitude,
       longitude,
       accuracyM,
-      label: fallbackLabel || null,
+      label: fallbackLabel || `Selected location (${coordinateLabel(latitude, longitude)})`,
       source,
     };
     onChange(baseLocation);
@@ -266,7 +268,7 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
     } catch (err) {
       console.error(err);
       setStatus('');
-      setError('Location selected, but the place name could not be detected.');
+      setError('Place name is unavailable right now. You can still confirm this location.');
     }
   };
 
@@ -359,8 +361,18 @@ const FarmLocationPicker: React.FC<Props> = ({ value, confirmed, disabled, onCha
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
             disabled={disabled}
+            helperText={searching ? 'Searching...' : ' '}
             InputProps={{
-              endAdornment: searching ? <CircularProgress size={18} /> : undefined,
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search fontSize="small" color="action" />
+                </InputAdornment>
+              ),
+              endAdornment: searching ? (
+                <InputAdornment position="end">
+                  <CircularProgress size={18} aria-label="Searching places" />
+                </InputAdornment>
+              ) : undefined,
             }}
           />
           {searchResults.map((result) => (
