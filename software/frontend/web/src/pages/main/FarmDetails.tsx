@@ -74,6 +74,7 @@ import {
   SensorModule,
 } from '../../services/farmService';
 import FarmLocationPicker, { FarmLocationSelection } from '../../components/FarmLocationPicker';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 type CropForm = {
   cropId: string;
@@ -239,6 +240,7 @@ const FarmDetails: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+  useRealtimeRefresh('customer', load);
 
   useEffect(() => {
     if (navigationMessage) {

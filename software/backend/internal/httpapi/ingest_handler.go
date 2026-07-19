@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,6 +31,12 @@ type IngestHandler struct {
 	processor *iot.RawReadingsProcessor
 }
 
+type ingestControllerContext struct {
+	id        uuid.UUID
+	accountID *uuid.UUID
+	farmID    *uuid.UUID
+}
+
 func NewIngestHandler(db *pgxpool.Pool, publisher iot.RawReadingsPublisher) *IngestHandler {
 	if publisher == nil {
 		publisher = iot.NewDisabledPublisher("raw readings publisher is not configured")
@@ -55,12 +62,7 @@ func (h *IngestHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deviceID := strings.TrimSpace(req.DeviceID)
-	var controllerID uuid.UUID
-	err := h.db.QueryRow(r.Context(), `
-		SELECT id
-		FROM controllers
-		WHERE hw_id = $1
-	`, deviceID).Scan(&controllerID)
+	controllerCtx, err := h.resolveIngestController(r.Context(), deviceID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "unknown controller", http.StatusNotFound)
@@ -76,6 +78,7 @@ func (h *IngestHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to persist sensor data", http.StatusInternalServerError)
 		return
 	}
+	h.broadcastIngestChange(controllerCtx, "sensor.readings.changed")
 
 	// TODO: Learning phase feedback - implementation pending
 	// for _, sensor := range req.Sensors {
@@ -104,7 +107,7 @@ func (h *IngestHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		"ok":            true,
 		"persisted":     true,
 		"queued":        queued,
-		"controller_id": controllerID,
+		"controller_id": controllerCtx.id,
 		"device_id":     event.DeviceID,
 		"event_id":      event.EventID,
 		"reading_time":  event.ReadingTime,
@@ -126,15 +129,7 @@ func (h *IngestHandler) Discover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deviceID := strings.TrimSpace(req.DeviceID)
-	var controllerID uuid.UUID
-	err := h.db.QueryRow(r.Context(), `
-		SELECT c.id
-		FROM controllers c
-		LEFT JOIN system_controller_assignments sca
-		  ON sca.controller_id = c.id
-		 AND sca.unassigned_at IS NULL
-		WHERE c.hw_id = $1
-	`, deviceID).Scan(&controllerID)
+	controllerCtx, err := h.resolveIngestController(r.Context(), deviceID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "unknown controller", http.StatusNotFound)
@@ -144,7 +139,7 @@ func (h *IngestHandler) Discover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	system, err := loadActiveSystemForController(r.Context(), h.db, controllerID)
+	system, err := loadActiveSystemForController(r.Context(), h.db, controllerCtx.id)
 	if err != nil && err != pgx.ErrNoRows {
 		http.Error(w, "failed to resolve active system", http.StatusInternalServerError)
 		return
@@ -169,7 +164,7 @@ func (h *IngestHandler) Discover(w http.ResponseWriter, r *http.Request) {
 		    END,
 		    min_reporting_interval_sec = LEAST(min_reporting_interval_sec, $3)
 		WHERE id = $1
-	`, controllerID, discoveredAt, defaultDeviceMinReportingIntervalSec)
+	`, controllerCtx.id, discoveredAt, defaultDeviceMinReportingIntervalSec)
 	if err != nil {
 		http.Error(w, "failed to update controller discovery status", http.StatusInternalServerError)
 		return
@@ -193,7 +188,7 @@ func (h *IngestHandler) Discover(w http.ResponseWriter, r *http.Request) {
 			    status = 'OK',
 			    last_seen = EXCLUDED.last_seen
 			RETURNING id
-		`, uuid.New(), controllerID, sensorHWID, sensorType, name, defaultName, unit, discoveredAt).Scan(&legacySensorID)
+	`, uuid.New(), controllerCtx.id, sensorHWID, sensorType, name, defaultName, unit, discoveredAt).Scan(&legacySensorID)
 		if err != nil {
 			http.Error(w, "failed to register sensor list", http.StatusInternalServerError)
 			return
@@ -245,7 +240,7 @@ func (h *IngestHandler) Discover(w http.ResponseWriter, r *http.Request) {
 			    updated_at = NOW()
 			WHERE controller_sensors.controller_id = EXCLUDED.controller_id
 			RETURNING id
-		`, uuid.New(), sensorHWID, controllerID, hardwareName, normalizeHardwareSensorType(sensorType), "live", hardwareConfigured).Scan(&controllerSensorID)
+	`, uuid.New(), sensorHWID, controllerCtx.id, hardwareName, normalizeHardwareSensorType(sensorType), "live", hardwareConfigured).Scan(&controllerSensorID)
 		if err != nil {
 			http.Error(w, "failed to sync hardware sensor list", http.StatusInternalServerError)
 			return
@@ -256,7 +251,7 @@ func (h *IngestHandler) Discover(w http.ResponseWriter, r *http.Request) {
 				r.Context(),
 				tx,
 				system.id,
-				controllerID,
+				controllerCtx.id,
 				sensorHWID,
 				sensorType,
 				hardwareName,
@@ -276,13 +271,14 @@ func (h *IngestHandler) Discover(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to save sensor discovery", http.StatusInternalServerError)
 		return
 	}
+	h.broadcastIngestChange(controllerCtx, "farm.hardware.changed")
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"ok":            true,
 		"discovered":    true,
-		"controller_id": controllerID,
+		"controller_id": controllerCtx.id,
 		"device_id":     deviceID,
 		"sensor_count":  len(req.Sensors),
 		"discovered_at": discoveredAt,
@@ -308,17 +304,7 @@ func (h *IngestHandler) Config(w http.ResponseWriter, r *http.Request) {
 		sensorType = "temperature_humidity"
 	}
 
-	var controllerID uuid.UUID
-	var sessionStart time.Time
-	minIntervalSec := defaultDeviceMinReportingIntervalSec
-	err := h.db.QueryRow(r.Context(), `
-		SELECT c.id, COALESCE(active_sca.assigned_at, c.updated_at), LEAST(COALESCE(c.min_reporting_interval_sec, $2), $2)
-		FROM controllers c
-		LEFT JOIN system_controller_assignments active_sca
-		  ON active_sca.controller_id = c.id
-		 AND active_sca.unassigned_at IS NULL
-		WHERE c.hw_id = $1
-	`, deviceID, defaultDeviceMinReportingIntervalSec).Scan(&controllerID, &sessionStart, &minIntervalSec)
+	controllerCtx, err := h.resolveIngestController(r.Context(), deviceID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "unknown controller", http.StatusNotFound)
@@ -328,7 +314,26 @@ func (h *IngestHandler) Config(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	system, err := loadActiveSystemForController(r.Context(), h.db, controllerID)
+	var sessionStart time.Time
+	minIntervalSec := defaultDeviceMinReportingIntervalSec
+	err = h.db.QueryRow(r.Context(), `
+		SELECT COALESCE(active_sca.assigned_at, c.updated_at), LEAST(COALESCE(c.min_reporting_interval_sec, $2), $2)
+		FROM controllers c
+		LEFT JOIN system_controller_assignments active_sca
+		  ON active_sca.controller_id = c.id
+		 AND active_sca.unassigned_at IS NULL
+		WHERE c.id = $1
+	`, controllerCtx.id, defaultDeviceMinReportingIntervalSec).Scan(&sessionStart, &minIntervalSec)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "unknown controller", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to resolve controller", http.StatusInternalServerError)
+		return
+	}
+
+	system, err := loadActiveSystemForController(r.Context(), h.db, controllerCtx.id)
 	if err != nil && err != pgx.ErrNoRows {
 		http.Error(w, "failed to resolve active system", http.StatusInternalServerError)
 		return
@@ -346,7 +351,8 @@ func (h *IngestHandler) Config(w http.ResponseWriter, r *http.Request) {
 		    END,
 		    min_reporting_interval_sec = LEAST(min_reporting_interval_sec, $3)
 		WHERE id = $1
-	`, controllerID, now, defaultDeviceMinReportingIntervalSec)
+	`, controllerCtx.id, now, defaultDeviceMinReportingIntervalSec)
+	h.broadcastIngestChange(controllerCtx, "farm.hardware.changed")
 
 	resp := iot.ConfigPullResponse{
 		OK:                      true,
@@ -410,7 +416,7 @@ func (h *IngestHandler) Config(w http.ResponseWriter, r *http.Request) {
 				) sc ON true
 				WHERE s.controller_id = $1
 				  AND s.hw_id = $2
-			`, controllerID, sensorID, sessionStart).Scan(&persistedSensorType, &configID, &configuredAt, &rawConfig)
+			`, controllerCtx.id, sensorID, sessionStart).Scan(&persistedSensorType, &configID, &configuredAt, &rawConfig)
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				http.Error(w, "failed to load sensor config", http.StatusInternalServerError)
 				return
@@ -430,7 +436,7 @@ func (h *IngestHandler) Config(w http.ResponseWriter, r *http.Request) {
 				   AND sc.updated_at >= $3
 				WHERE cs.controller_id = $1
 				  AND cs.sensor_uid = $2
-			`, controllerID, sensorID, sessionStart).Scan(&persistedSensorType, &configID, &configuredAt, &rawConfig)
+			`, controllerCtx.id, sensorID, sessionStart).Scan(&persistedSensorType, &configID, &configuredAt, &rawConfig)
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				http.Error(w, "failed to load hardware sensor config", http.StatusInternalServerError)
 				return
@@ -475,6 +481,34 @@ func (h *IngestHandler) Config(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (h *IngestHandler) resolveIngestController(ctx context.Context, deviceID string) (ingestControllerContext, error) {
+	var result ingestControllerContext
+	err := h.db.QueryRow(ctx, `
+		SELECT c.id, c.owner_account_id, g.farm_id
+		FROM controllers c
+		LEFT JOIN gateways g
+		  ON g.legacy_controller_id = c.id
+		WHERE c.hw_id = $1
+		ORDER BY g.created_at DESC NULLS LAST
+		LIMIT 1
+	`, deviceID).Scan(&result.id, &result.accountID, &result.farmID)
+	if err != nil {
+		return ingestControllerContext{}, err
+	}
+	return result, nil
+}
+
+func (h *IngestHandler) broadcastIngestChange(controllerCtx ingestControllerContext, kind string) {
+	if controllerCtx.accountID == nil {
+		return
+	}
+	if controllerCtx.farmID != nil {
+		broadcastCustomerChange(*controllerCtx.accountID, *controllerCtx.farmID, kind)
+		return
+	}
+	broadcastCustomerChange(*controllerCtx.accountID, uuid.Nil, kind)
 }
 
 func nullableTrimmed(value string) *string {

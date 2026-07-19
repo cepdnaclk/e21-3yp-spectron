@@ -10,10 +10,11 @@ import (
 	"spectron-backend/internal/config"
 	"spectron-backend/internal/geocoding"
 	"spectron-backend/internal/iot"
+	"spectron-backend/internal/realtime"
 )
 
 // RegisterRoutes wires all HTTP routes for the API.
-func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, rawReadingsPublisher iot.RawReadingsPublisher, emailConfig config.EmailConfig, geocoder geocoding.Provider) {
+func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, rawReadingsPublisher iot.RawReadingsPublisher, emailConfig config.EmailConfig, geocoder geocoding.Provider, realtimeUpdates *realtime.Hub) {
 	if len(allowedOrigins) == 0 {
 		allowedOrigins = []string{
 			"http://localhost:3000",
@@ -26,6 +27,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 			"capacitor://localhost",
 		}
 	}
+	setRealtimeHub(realtimeUpdates, allowedOrigins)
 
 	// CORS middleware
 	r.Use(cors.Handler(cors.Options{
@@ -51,6 +53,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 	r.Get("/favicon.ico", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
+	r.Get("/ws/updates", RealtimeUpdatesHandler(db))
 
 	// Initialize handlers
 	authHandler := NewAuthHandler(db, emailConfig)

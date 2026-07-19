@@ -235,6 +235,7 @@ func (h *AlertHandler) AcknowledgeFarmAlert(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "failed to load alert", http.StatusInternalServerError)
 		return
 	}
+	notifyCustomerChange(r, access.farmID, "alert.changed")
 	writeJSON(w, http.StatusOK, map[string]any{"alert": alert})
 }
 
@@ -272,6 +273,7 @@ func (h *AlertHandler) Acknowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	broadcastCustomerChange(accountID, uuid.Nil, "alert.changed")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
@@ -512,6 +514,7 @@ func (h *AlertHandler) ApplyRecommendation(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	broadcastCustomerChange(accountID, uuid.Nil, "alert.changed")
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": recommendationText})
 }

@@ -37,6 +37,7 @@ import {
   SensorBase,
   SensorModule,
 } from '../../services/farmService';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 type FarmMonitoringSummary = {
   farm: Farm;
@@ -119,6 +120,7 @@ const Monitoring: React.FC = () => {
   useEffect(() => {
     loadMonitoring();
   }, [loadMonitoring]);
+  useRealtimeRefresh('customer', loadMonitoring);
 
   const totalFields = useMemo(() => summaries.reduce((sum, item) => sum + item.fields.length, 0), [summaries]);
   const totalBases = useMemo(() => summaries.reduce((sum, item) => sum + item.bases.length, 0), [summaries]);

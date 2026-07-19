@@ -281,6 +281,7 @@ func (h *ControllerHandler) AdminCreateDeviceAPI(w http.ResponseWriter, r *http.
 		return
 	}
 
+	broadcastAdminChange("admin.device.changed")
 	devices, err := h.loadAdminDevices(r.Context())
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)

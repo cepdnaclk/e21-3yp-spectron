@@ -28,6 +28,7 @@ import {
   getFarms,
   removeFarmCollaborator,
 } from '../../services/farmService';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -104,6 +105,7 @@ const Team: React.FC = () => {
   useEffect(() => {
     refresh();
   }, [refresh]);
+  useRealtimeRefresh('customer', refresh);
 
   useEffect(() => {
     const run = async () => {

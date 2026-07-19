@@ -102,7 +102,7 @@ func newIntegrationApp(t *testing.T) *integrationApp {
 	})
 
 	r := chi.NewRouter()
-	RegisterRoutes(r, pool, []string{"http://localhost:3000"}, iot.NewDisabledPublisher("integration test"), config.EmailConfig{}, testGeocoder{})
+	RegisterRoutes(r, pool, []string{"http://localhost:3000"}, iot.NewDisabledPublisher("integration test"), config.EmailConfig{}, testGeocoder{}, nil)
 
 	return &integrationApp{pool: pool, rr: r}
 }

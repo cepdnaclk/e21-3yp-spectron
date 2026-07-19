@@ -27,6 +27,7 @@ import {
   getFarmAlerts,
   getFarms,
 } from '../../services/farmService';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 type AlertStatusFilter = 'open' | 'acknowledged' | 'all';
 
@@ -112,6 +113,7 @@ const Alerts: React.FC = () => {
   useEffect(() => {
     loadAlerts();
   }, [loadAlerts]);
+  useRealtimeRefresh('customer', loadAlerts);
 
   const handleAcknowledge = async (alert: FarmAlertRow) => {
     try {

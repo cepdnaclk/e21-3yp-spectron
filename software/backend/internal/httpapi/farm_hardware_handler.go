@@ -181,6 +181,7 @@ func (h *FarmHandler) AttachFarmController(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "failed to load farm controllers", http.StatusInternalServerError)
 		return
 	}
+	notifyCustomerChange(r, access.farmID, "farm.controller.changed")
 	writeJSON(w, http.StatusCreated, map[string]any{"controllers": controllers})
 }
 
@@ -246,6 +247,7 @@ func (h *FarmHandler) CreateSensorBase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	notifyCustomerChange(r, access.farmID, "farm.sensor_base.changed")
 	writeJSON(w, http.StatusCreated, base)
 }
 
@@ -333,6 +335,7 @@ func (h *FarmHandler) AssignSensorBase(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load sensor base", http.StatusInternalServerError)
 		return
 	}
+	notifyCustomerChange(r, access.farmID, "farm.sensor_base.changed")
 	writeJSON(w, http.StatusOK, base)
 }
 
@@ -365,7 +368,7 @@ func (h *FarmHandler) ListSensorModules(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *FarmHandler) CreateSensorModule(w http.ResponseWriter, r *http.Request) {
-	_, baseID, ok := h.requireSensorBaseAccess(w, r, true)
+	access, baseID, ok := h.requireSensorBaseAccess(w, r, true)
 	if !ok {
 		return
 	}
@@ -437,6 +440,7 @@ func (h *FarmHandler) CreateSensorModule(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "failed to load sensor module", http.StatusInternalServerError)
 		return
 	}
+	notifyCustomerChange(r, access.farmID, "farm.sensor_module.changed")
 	writeJSON(w, http.StatusCreated, module)
 }
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Box,
   Button,
@@ -32,6 +32,7 @@ import {
 } from '../../services/adminService';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { AdminPageShell, AdminStatCard, adminCardSx, compactAdminButtonSx } from '../../components/admin/AdminSurface';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 const statusColor = (status: AdminOwner['status']) => {
   if (status === 'ACTIVE') return 'success';
@@ -56,7 +57,7 @@ const AdminUsers: React.FC = () => {
     phone: '',
   });
 
-  const loadOwners = async () => {
+  const loadOwners = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -67,11 +68,12 @@ const AdminUsers: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadOwners();
-  }, []);
+  }, [loadOwners]);
+  useRealtimeRefresh('admin', loadOwners);
 
   const handleCreateOwner = async (event: React.FormEvent) => {
     event.preventDefault();

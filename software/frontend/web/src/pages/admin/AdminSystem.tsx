@@ -1,15 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Box, Card, CardContent, Chip, Grid, Typography } from '@mui/material';
 import { Api, Storage, AccessTime } from '@mui/icons-material';
 import { AdminSystemHealth, getAdminSystemHealth } from '../../services/adminService';
 import { AdminPageShell, AdminStatCard, adminCardSx } from '../../components/admin/AdminSurface';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 const AdminSystem: React.FC = () => {
   const [health, setHealth] = useState<AdminSystemHealth | null>(null);
 
-  useEffect(() => {
+  const loadHealth = useCallback(async () => {
     getAdminSystemHealth().then(setHealth).catch(() => setHealth({ apiStatus: 'error', databaseStatus: 'error', serverTime: new Date().toISOString() }));
   }, []);
+
+  useEffect(() => {
+    void loadHealth();
+  }, [loadHealth]);
+  useRealtimeRefresh('admin', loadHealth);
 
   const cards = [
     { label: 'API', value: health?.apiStatus || '-', icon: Api, tone: '#f4f8ea', color: '#6c8930' },

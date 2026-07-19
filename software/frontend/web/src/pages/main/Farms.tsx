@@ -24,6 +24,7 @@ import AutoDismissAlert from '../../components/AutoDismissAlert';
 import FarmLocationPicker, { FarmLocationSelection } from '../../components/FarmLocationPicker';
 import { PageHeaderSkeleton } from '../../components/LoadingSkeletons';
 import { createFarm, Farm, getFarms } from '../../services/farmService';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 const shortPoint = (value?: number | null) => (typeof value === 'number' ? value.toFixed(4) : '—');
 const roleLabel = (role: Farm['role']) => (role === 'owner' ? 'Owner' : 'Viewer');
@@ -89,6 +90,7 @@ const Farms: React.FC = () => {
   useEffect(() => {
     void load();
   }, []);
+  useRealtimeRefresh('customer', load);
 
   useEffect(() => {
     if (navigationMessage) {

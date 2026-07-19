@@ -207,6 +207,7 @@ func (h *FarmHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	notifyCustomerChange(r, farmID, "farm.created")
 	writeJSON(w, http.StatusCreated, farm)
 }
 
@@ -275,6 +276,7 @@ func (h *FarmHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	notifyCustomerChange(r, access.farmID, "farm.updated")
 	writeJSON(w, http.StatusOK, farm)
 }
 
@@ -346,6 +348,7 @@ func (h *FarmHandler) CreateField(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	notifyCustomerChange(r, access.farmID, "farm.field.created")
 	writeJSON(w, http.StatusCreated, field)
 }
 
@@ -468,6 +471,7 @@ func (h *FarmHandler) AddCollaborator(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		notifyCustomerChange(r, access.farmID, "farm.access.changed")
 		writeJSON(w, http.StatusCreated, map[string]any{
 			"farm_id": access.farmID.String(),
 			"user_id": targetUserID.String(),
@@ -500,6 +504,7 @@ func (h *FarmHandler) AddCollaborator(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to finish invitation", http.StatusInternalServerError)
 			return
 		}
+		notifyCustomerChange(r, access.farmID, "farm.access.changed")
 		writeJSON(w, http.StatusCreated, map[string]any{
 			"farm_id": access.farmID.String(),
 			"email":   email,
@@ -561,6 +566,7 @@ func (h *FarmHandler) RemoveCollaborator(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	notifyCustomerChange(r, access.farmID, "farm.access.changed")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"farm_id": access.farmID.String(),
 		"user_id": targetUserID.String(),

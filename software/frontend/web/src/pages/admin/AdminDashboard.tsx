@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Box, Button, Card, CardContent, Chip, Grid, LinearProgress, Stack, Typography } from '@mui/material';
 import { Add, Agriculture, DeviceHub, DevicesOther, WarningAmber } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { AdminOverview, getAdminOverview } from '../../services/adminService';
 import { AdminPageShell, AdminStatCard, compactAdminButtonSx, adminCardSx } from '../../components/admin/AdminSurface';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 const statCards = [
   { key: 'totalDevices', label: 'Registered', icon: DevicesOther, tone: '#fffaf4', color: '#eb4f12' },
@@ -16,9 +17,14 @@ const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const [overview, setOverview] = useState<AdminOverview | null>(null);
 
-  useEffect(() => {
+  const loadOverview = useCallback(async () => {
     getAdminOverview().then(setOverview).catch(() => setOverview(null));
   }, []);
+
+  useEffect(() => {
+    void loadOverview();
+  }, [loadOverview]);
+  useRealtimeRefresh('admin', loadOverview);
 
   const totalDevices = overview?.totalDevices || 0;
   const farmAttached = overview?.farmControllers || 0;

@@ -321,6 +321,7 @@ func (h *FarmHandler) CreateCropInstance(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	notifyCustomerChange(r, access.farmID, "farm.crop.changed")
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"farm_id":       access.farmID.String(),
 		"crop_instance": instance,
@@ -391,6 +392,7 @@ func (h *FarmHandler) ConfirmGrowthStage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	notifyCustomerChange(r, access.farmID, "farm.crop.changed")
 	writeJSON(w, http.StatusOK, map[string]any{"crop_instance": instance})
 }
 

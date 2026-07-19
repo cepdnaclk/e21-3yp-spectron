@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Button,
@@ -24,6 +24,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { AdminDevice, getAdminDevices } from '../../services/adminService';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { AdminPageShell, AdminStatCard, adminCardSx, compactAdminButtonSx } from '../../components/admin/AdminSurface';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 const formatDate = (value?: string) => (value ? new Date(value).toLocaleString() : '-');
 
@@ -67,14 +68,15 @@ const AdminDevices: React.FC = () => {
     bases: devices.reduce((total, device) => total + (device.sensorBaseCount || 0), 0),
   }), [devices]);
 
-  const loadDevices = () => {
+  const loadDevices = useCallback(() => {
     setError('');
     getAdminDevices().then(setDevices).catch(() => setError('Failed to load devices.'));
-  };
+  }, []);
 
   useEffect(() => {
     loadDevices();
-  }, []);
+  }, [loadDevices]);
+  useRealtimeRefresh('admin', loadDevices);
 
   const handleCopy = async (controllerId: string) => {
     try {

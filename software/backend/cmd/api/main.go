@@ -17,6 +17,7 @@ import (
 	"spectron-backend/internal/geocoding"
 	"spectron-backend/internal/httpapi"
 	"spectron-backend/internal/iot"
+	"spectron-backend/internal/realtime"
 )
 
 func main() {
@@ -41,6 +42,10 @@ func main() {
 	}
 
 	auth.SetJWTSecret(cfg.JWTSecret)
+	realtimeHub := realtime.NewHub()
+	realtimeCtx, stopRealtime := context.WithCancel(context.Background())
+	defer stopRealtime()
+	go realtimeHub.Run(realtimeCtx)
 
 	rawReadingsPublisher, err := iot.NewKafkaPublisherWithConfig(cfg.Kafka)
 	if err != nil {
@@ -60,7 +65,7 @@ func main() {
 		UserAgent: cfg.Geocoding.UserAgent,
 		Timeout:   time.Duration(cfg.Geocoding.TimeoutMS) * time.Millisecond,
 	})
-	httpapi.RegisterRoutes(r, pool, cfg.AllowedOrigins, rawReadingsPublisher, cfg.Email, geocoder)
+	httpapi.RegisterRoutes(r, pool, cfg.AllowedOrigins, rawReadingsPublisher, cfg.Email, geocoder, realtimeHub)
 
 	monitorCtx, stopMonitor := context.WithCancel(context.Background())
 	defer stopMonitor()

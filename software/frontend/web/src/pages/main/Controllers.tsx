@@ -29,6 +29,7 @@ import {
   SensorBase,
   SensorModule,
 } from '../../services/farmService';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 type ControllerRow = {
   farm: Farm;
@@ -116,6 +117,7 @@ const Controllers: React.FC = () => {
   useEffect(() => {
     loadControllers();
   }, [loadControllers]);
+  useRealtimeRefresh('customer', loadControllers);
 
   useEffect(() => {
     if (navigationMessage) {

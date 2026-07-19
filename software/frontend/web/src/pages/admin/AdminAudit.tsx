@@ -31,6 +31,7 @@ import {
   getAdminAuditEvents,
 } from '../../services/adminService';
 import { AdminPageShell, adminCardSx, compactAdminButtonSx } from '../../components/admin/AdminSurface';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 const PAGE_SIZE = 25;
 
@@ -95,6 +96,7 @@ const AdminAudit: React.FC = () => {
   useEffect(() => {
     loadEvents();
   }, [loadEvents]);
+  useRealtimeRefresh('admin', loadEvents);
 
   const applySearch = (event: React.FormEvent) => {
     event.preventDefault();
