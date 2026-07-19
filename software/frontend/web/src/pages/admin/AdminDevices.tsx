@@ -6,6 +6,7 @@ import {
   CardContent,
   Chip,
   GlobalStyles,
+  Grid,
   IconButton,
   Stack,
   Table,
@@ -22,6 +23,7 @@ import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { AdminDevice, getAdminDevices } from '../../services/adminService';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
+import { AdminPageShell, AdminStatCard, adminCardSx, compactAdminButtonSx } from '../../components/admin/AdminSurface';
 
 const formatDate = (value?: string) => (value ? new Date(value).toLocaleString() : '-');
 
@@ -49,20 +51,6 @@ const architectureColor = (state?: string) => {
     default:
       return 'error' as const;
   }
-};
-
-const compactButtonSx = {
-  minHeight: 36,
-  px: 1.5,
-  py: 0.5,
-  borderRadius: 2,
-  transition: 'transform 160ms ease, background-color 160ms ease, border-color 160ms ease',
-  '&:hover': {
-    transform: 'translateY(-1px)',
-  },
-  '&:active': {
-    transform: 'translateY(0)',
-  },
 };
 
 const AdminDevices: React.FC = () => {
@@ -103,21 +91,20 @@ const AdminDevices: React.FC = () => {
   };
 
   return (
-    <Box
-      sx={{
-        position: 'relative',
-        '&::before': {
-          content: '""',
-          position: 'absolute',
-          inset: { xs: '-8px -8px auto -8px', md: '-16px -16px auto -16px' },
-          height: 150,
-          borderRadius: 4,
-          background:
-            'linear-gradient(90deg, rgba(235,79,18,0.08), rgba(108,137,48,0.1) 52%, rgba(51,122,133,0.07))',
-          pointerEvents: 'none',
-          zIndex: 0,
-        },
-      }}
+    <AdminPageShell
+      eyebrow="Internal"
+      title="Controllers"
+      subtitle="Internal hardware inventory with farm attachment status."
+      actions={(
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems="stretch" sx={{ width: { xs: '100%', md: 'auto' } }}>
+          <Button variant="outlined" startIcon={<Refresh />} onClick={loadDevices} sx={compactAdminButtonSx}>
+            Refresh
+          </Button>
+          <Button variant="contained" color="secondary" startIcon={<Add />} onClick={() => navigate('/admin/devices/new')} sx={compactAdminButtonSx}>
+            Add Device
+          </Button>
+        </Stack>
+      )}
     >
       <GlobalStyles
         styles={{
@@ -180,92 +167,20 @@ const AdminDevices: React.FC = () => {
           </Typography>
         </Box>
       )}
-      <Stack
-        direction={{ xs: 'column', md: 'row' }}
-        justifyContent="space-between"
-        alignItems={{ xs: 'stretch', md: 'center' }}
-        spacing={2}
-        sx={{
-          mb: 2,
-          p: { xs: 2, md: 2.5 },
-          borderRadius: 4,
-          border: '1px solid rgba(60,57,17,0.1)',
-          bgcolor: 'rgba(255,253,248,0.92)',
-          boxShadow: '0 16px 40px rgba(60,57,17,0.08)',
-          position: 'relative',
-          zIndex: 1,
-        }}
-      >
-        <Box>
-          <Typography variant="h4">Controllers</Typography>
-          <Typography color="text.secondary" sx={{ mt: 0.75 }}>
-            Internal hardware inventory with farm attachment status.
-          </Typography>
-        </Box>
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          spacing={1}
-          alignItems="stretch"
-          sx={{ flexShrink: 0, width: { xs: '100%', md: 'auto' } }}
-        >
-          <Button variant="outlined" startIcon={<Refresh />} onClick={loadDevices} sx={compactButtonSx}>
-            Refresh
-          </Button>
-          <Button variant="contained" color="secondary" startIcon={<Add />} onClick={() => navigate('/admin/devices/new')} sx={compactButtonSx}>
-            Add Device
-          </Button>
-        </Stack>
-      </Stack>
-
-      <Stack
-        direction={{ xs: 'column', sm: 'row' }}
-        spacing={1.5}
-        sx={{ mb: 2.5, position: 'relative', zIndex: 1 }}
-      >
-        {[
-          { label: 'Registered', value: summary.total, icon: <Inventory2 fontSize="small" />, tone: '#fffaf4' },
-          { label: 'Farm attached', value: summary.farmAttached, icon: <Agriculture fontSize="small" />, tone: '#f4f8ea' },
-          { label: 'Legacy review', value: summary.legacyOnly, icon: <WarningAmber fontSize="small" />, tone: '#fff7ef' },
-          { label: 'Sensor bases', value: summary.bases, icon: <DeviceHub fontSize="small" />, tone: '#eff8f8' },
-        ].map((item) => (
-          <Card
-            key={item.label}
-            sx={{
-              flex: 1,
-              bgcolor: item.tone,
-              border: '1px solid rgba(60,57,17,0.08)',
-              boxShadow: '0 10px 24px rgba(60,57,17,0.06)',
-            }}
-          >
-            <CardContent sx={{ p: 1.75, '&:last-child': { pb: 1.75 } }}>
-              <Stack direction="row" spacing={1.25} alignItems="center">
-                <Box
-                  sx={{
-                    width: 38,
-                    height: 38,
-                    borderRadius: 2,
-                    display: 'grid',
-                    placeItems: 'center',
-                    bgcolor: 'rgba(255,255,255,0.72)',
-                    color: 'primary.main',
-                    flexShrink: 0,
-                  }}
-                >
-                  {item.icon}
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    {item.label}
-                  </Typography>
-                  <Typography variant="h5" sx={{ lineHeight: 1 }}>
-                    {item.value}
-                  </Typography>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-        ))}
-      </Stack>
+      <Grid container spacing={1.5} sx={{ mb: 2.5 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <AdminStatCard label="Registered" value={summary.total} icon={<Inventory2 fontSize="small" />} tone="#fffaf4" color="#eb4f12" />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <AdminStatCard label="Farm attached" value={summary.farmAttached} icon={<Agriculture fontSize="small" />} tone="#f4f8ea" color="#6c8930" />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <AdminStatCard label="Legacy review" value={summary.legacyOnly} icon={<WarningAmber fontSize="small" />} tone="#fff7ef" color="#b95416" />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <AdminStatCard label="Sensor bases" value={summary.bases} icon={<DeviceHub fontSize="small" />} tone="#eff8f8" color="#337a85" />
+        </Grid>
+      </Grid>
 
       <AutoDismissAlert open={Boolean(error)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setError('')}>
         {error}
@@ -279,7 +194,7 @@ const AdminDevices: React.FC = () => {
         {helperMessage}
       </AutoDismissAlert>
 
-      <Card sx={{ border: '1px solid rgba(60,57,17,0.08)', boxShadow: '0 12px 28px rgba(60,57,17,0.06)', position: 'relative', zIndex: 1 }}>
+      <Card sx={{ ...adminCardSx, position: 'relative', zIndex: 1 }}>
         <CardContent sx={{ p: { xs: 1.5, md: 2 } }}>
           <TableContainer className="mobile-card-table">
             <Table size="small">
@@ -328,6 +243,7 @@ const AdminDevices: React.FC = () => {
                           size="small"
                           aria-label={`Copy QR for ${device.controllerId}`}
                           onClick={() => handleCopy(device.controllerId)}
+                          sx={compactAdminButtonSx}
                         >
                           <ContentCopy fontSize="small" />
                         </IconButton>
@@ -337,6 +253,7 @@ const AdminDevices: React.FC = () => {
                           size="small"
                           aria-label={`Print QR for ${device.controllerId}`}
                           onClick={() => handlePrint(device)}
+                          sx={compactAdminButtonSx}
                         >
                           <Print fontSize="small" />
                         </IconButton>
@@ -358,7 +275,7 @@ const AdminDevices: React.FC = () => {
           </TableContainer>
         </CardContent>
       </Card>
-    </Box>
+    </AdminPageShell>
   );
 };
 

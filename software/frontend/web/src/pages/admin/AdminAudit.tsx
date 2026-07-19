@@ -30,6 +30,7 @@ import {
   AdminAuditEvent,
   getAdminAuditEvents,
 } from '../../services/adminService';
+import { AdminPageShell, adminCardSx, compactAdminButtonSx } from '../../components/admin/AdminSurface';
 
 const PAGE_SIZE = 25;
 
@@ -104,32 +105,22 @@ const AdminAudit: React.FC = () => {
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <Box>
-      <Stack
-        direction={{ xs: 'column', md: 'row' }}
-        justifyContent="space-between"
-        alignItems={{ xs: 'stretch', md: 'center' }}
-        spacing={2}
-        sx={{ mb: 3 }}
-      >
-        <Box>
-          <Typography variant="h4" sx={{ mb: 1 }}>
-            Operational audit trail
-          </Typography>
-          <Typography color="text.secondary">
-            Immutable records of successful system-administrator changes.
-          </Typography>
-        </Box>
-        <Button startIcon={<Refresh />} variant="outlined" onClick={loadEvents} disabled={loading}>
+    <AdminPageShell
+      eyebrow="Internal"
+      title="Operational audit trail"
+      subtitle="Immutable records of successful system-administrator changes."
+      actions={(
+        <Button startIcon={<Refresh />} variant="outlined" onClick={loadEvents} disabled={loading} sx={compactAdminButtonSx}>
           Refresh
         </Button>
-      </Stack>
+      )}
+    >
 
       <AutoDismissAlert open={Boolean(error)} severity="error" onCloseAlert={() => setError('')} sx={{ mb: 2 }}>
         {error}
       </AutoDismissAlert>
 
-      <Card>
+      <Card sx={adminCardSx}>
         <CardContent>
           <Stack
             component="form"
@@ -164,7 +155,7 @@ const AdminAudit: React.FC = () => {
                 ))}
               </Select>
             </FormControl>
-            <Button type="submit" variant="contained" startIcon={<Search />}>
+            <Button type="submit" variant="contained" startIcon={<Search />} sx={compactAdminButtonSx}>
               Search
             </Button>
           </Stack>
@@ -290,7 +281,7 @@ const AdminAudit: React.FC = () => {
           )}
         </CardContent>
       </Card>
-    </Box>
+    </AdminPageShell>
   );
 };
 

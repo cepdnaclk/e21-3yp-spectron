@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Card, CardContent, Chip, Grid, Stack, Typography } from '@mui/material';
+import { Box, Card, CardContent, Chip, Grid, Typography } from '@mui/material';
 import { Api, Storage, AccessTime } from '@mui/icons-material';
 import { AdminSystemHealth, getAdminSystemHealth } from '../../services/adminService';
+import { AdminPageShell, AdminStatCard, adminCardSx } from '../../components/admin/AdminSurface';
 
 const AdminSystem: React.FC = () => {
   const [health, setHealth] = useState<AdminSystemHealth | null>(null);
@@ -11,17 +12,17 @@ const AdminSystem: React.FC = () => {
   }, []);
 
   const cards = [
-    { label: 'API', value: health?.apiStatus || '-', icon: Api },
-    { label: 'Database', value: health?.databaseStatus || '-', icon: Storage },
-    { label: 'Server Time', value: health?.serverTime ? new Date(health.serverTime).toLocaleString() : '-', icon: AccessTime },
+    { label: 'API', value: health?.apiStatus || '-', icon: Api, tone: '#f4f8ea', color: '#6c8930' },
+    { label: 'Database', value: health?.databaseStatus || '-', icon: Storage, tone: '#eff8f8', color: '#337a85' },
+    { label: 'Server Time', value: health?.serverTime ? new Date(health.serverTime).toLocaleString() : '-', icon: AccessTime, tone: '#fffaf4', color: '#eb4f12' },
   ];
 
   return (
-    <Box>
-      <Typography variant="h4" sx={{ mb: 1 }}>Infrastructure status</Typography>
-      <Typography color="text.secondary" sx={{ mb: 3, display: { xs: 'none', sm: 'block' } }}>
-        First-pass health checks for the API and database. MQTT and Kafka panels can be added once those services expose metrics.
-      </Typography>
+    <AdminPageShell
+      eyebrow="Internal"
+      title="Infrastructure status"
+      subtitle="First-pass health checks for the API and database. MQTT and Kafka panels can be added once those services expose metrics."
+    >
 
       <Grid container spacing={2}>
         {cards.map((card) => {
@@ -29,28 +30,27 @@ const AdminSystem: React.FC = () => {
           const ok = String(card.value).toLowerCase() === 'ok';
           return (
             <Grid item xs={card.label === 'Server Time' ? 12 : 6} md={4} key={card.label}>
-              <Card>
-                <CardContent>
-                  <Stack direction="row" spacing={1.5} alignItems="center">
-                    <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'rgba(108, 137, 48, 0.12)', color: 'primary.main' }}>
-                      <Icon />
-                    </Box>
-                    <Box>
-                      <Typography variant="body2" color="text.secondary" fontWeight={800}>{card.label}</Typography>
-                      {card.label === 'Server Time' ? (
-                        <Typography fontWeight={800}>{card.value}</Typography>
-                      ) : (
-                        <Chip size="small" label={card.value} color={ok ? 'success' : 'error'} />
-                      )}
-                    </Box>
-                  </Stack>
-                </CardContent>
-              </Card>
+              <AdminStatCard
+                label={card.label}
+                value={card.label === 'Server Time' ? card.value : <Chip size="small" label={card.value} color={ok ? 'success' : 'error'} />}
+                icon={<Icon />}
+                tone={card.tone}
+                color={card.color}
+              />
             </Grid>
           );
         })}
       </Grid>
-    </Box>
+      <Box sx={{ mt: 2 }}>
+        <Card sx={adminCardSx}>
+          <CardContent>
+            <Typography variant="body2" color="text.secondary">
+              Good health keeps the admin portal responsive. If a panel turns red here, verify the backend service before moving hardware or user records.
+            </Typography>
+          </CardContent>
+        </Card>
+      </Box>
+    </AdminPageShell>
   );
 };
 
