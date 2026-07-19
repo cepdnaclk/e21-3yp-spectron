@@ -17,7 +17,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { DeleteOutline, GroupAdd, Refresh } from '@mui/icons-material';
+import { DeleteOutline, GroupAdd } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { EmptyStateCard, PageHeaderPanel, PageShell } from '../../components/ui/PageSurface';
 import {
@@ -200,9 +200,6 @@ const Team: React.FC = () => {
                   ))}
                 </Select>
               </FormControl>
-              <Button startIcon={<Refresh />} variant="outlined" onClick={refresh} disabled={loading}>
-                Refresh
-              </Button>
             </Stack>
           }
         />

@@ -21,7 +21,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { CheckCircle, PersonAddAlt, Refresh, Block, Delete, People } from '@mui/icons-material';
+import { CheckCircle, PersonAddAlt, Block, Delete, People } from '@mui/icons-material';
 import {
   AdminOwner,
   approveAdminOwner,
@@ -43,7 +43,6 @@ const statusColor = (status: AdminOwner['status']) => {
 
 const AdminUsers: React.FC = () => {
   const [owners, setOwners] = useState<AdminOwner[]>([]);
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -58,15 +57,12 @@ const AdminUsers: React.FC = () => {
   });
 
   const loadOwners = useCallback(async () => {
-    setLoading(true);
     setError('');
     try {
       setOwners(await getAdminOwners());
     } catch {
       setError('Failed to load owner accounts.');
       setOwners([]);
-    } finally {
-      setLoading(false);
     }
   }, []);
 
@@ -148,17 +144,6 @@ const AdminUsers: React.FC = () => {
       eyebrow="Internal"
       title="Users and approvals"
       subtitle="Approve owner signup requests or create owner credentials directly."
-      actions={(
-        <Button
-          startIcon={<Refresh />}
-          variant="outlined"
-          onClick={loadOwners}
-          disabled={loading}
-          sx={{ ...compactAdminButtonSx, alignSelf: { xs: 'stretch', md: 'center' } }}
-        >
-          Refresh
-        </Button>
-      )}
     >
 
       <AutoDismissAlert open={Boolean(error)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setError('')}>

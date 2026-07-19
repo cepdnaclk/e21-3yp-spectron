@@ -19,7 +19,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { Add, Agriculture, ArrowForward, Info, Place, Refresh, Terrain, VisibilityOutlined } from '@mui/icons-material';
+import { Add, Agriculture, ArrowForward, Info, Place, Terrain, VisibilityOutlined } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import FarmLocationPicker, { FarmLocationSelection } from '../../components/FarmLocationPicker';
 import { PageHeaderSkeleton } from '../../components/LoadingSkeletons';
@@ -228,9 +228,6 @@ const Farms: React.FC = () => {
           </Stack>
 
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} sx={{ alignSelf: { xs: 'stretch', md: 'auto' } }}>
-            <Button startIcon={<Refresh />} variant="outlined" onClick={load} sx={{ minWidth: { xs: '100%', sm: 0 } }}>
-              Refresh
-            </Button>
             <Button
               startIcon={<Add />}
               variant="contained"

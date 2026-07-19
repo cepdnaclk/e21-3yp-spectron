@@ -18,7 +18,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { Add, Agriculture, ContentCopy, DeviceHub, Inventory2, Print, Refresh, WarningAmber } from '@mui/icons-material';
+import { Add, Agriculture, ContentCopy, DeviceHub, Inventory2, Print, WarningAmber } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { AdminDevice, getAdminDevices } from '../../services/adminService';
@@ -99,9 +99,6 @@ const AdminDevices: React.FC = () => {
       subtitle="Internal hardware inventory with farm attachment status."
       actions={(
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems="stretch" sx={{ width: { xs: '100%', md: 'auto' } }}>
-          <Button variant="outlined" startIcon={<Refresh />} onClick={loadDevices} sx={compactAdminButtonSx}>
-            Refresh
-          </Button>
           <Button variant="contained" color="secondary" startIcon={<Add />} onClick={() => navigate('/admin/devices/new')} sx={compactAdminButtonSx}>
             Add Device
           </Button>

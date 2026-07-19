@@ -24,7 +24,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { ExpandLess, ExpandMore, Refresh, Search } from '@mui/icons-material';
+import { ExpandLess, ExpandMore, Search } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import {
   AdminAuditEvent,
@@ -111,11 +111,6 @@ const AdminAudit: React.FC = () => {
       eyebrow="Internal"
       title="Operational audit trail"
       subtitle="Immutable records of successful system-administrator changes."
-      actions={(
-        <Button startIcon={<Refresh />} variant="outlined" onClick={loadEvents} disabled={loading} sx={compactAdminButtonSx}>
-          Refresh
-        </Button>
-      )}
     >
 
       <AutoDismissAlert open={Boolean(error)} severity="error" onCloseAlert={() => setError('')} sx={{ mb: 2 }}>
