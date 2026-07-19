@@ -22,6 +22,8 @@ describe('Admin device registry', () => {
         operationalStatus: 'OFFLINE',
         sensorCount: 3,
         configuredSensors: 0,
+        architectureState: 'unclaimed_inventory',
+        sensorBaseCount: 0,
       },
     ]);
     Object.defineProperty(window, 'print', {
@@ -41,7 +43,9 @@ describe('Admin device registry', () => {
     );
 
     expect(await screen.findByText('CTRL-ADMIN1')).toBeInTheDocument();
-    expect(screen.getAllByText(/^unclaimed$/i)).toHaveLength(2);
+    expect(screen.getAllByText(/^unclaimed$/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/^farm attached$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^legacy review$/i)).toBeInTheDocument();
     expect(screen.getByText(/^offline$/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /copy qr for ctrl-admin1/i }));

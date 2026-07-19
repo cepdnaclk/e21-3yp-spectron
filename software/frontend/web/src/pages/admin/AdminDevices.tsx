@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Button,
@@ -17,13 +17,39 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { Add, ContentCopy, Print, Refresh } from '@mui/icons-material';
+import { Add, Agriculture, ContentCopy, DeviceHub, Inventory2, Print, Refresh, WarningAmber } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { AdminDevice, getAdminDevices } from '../../services/adminService';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 
 const formatDate = (value?: string) => (value ? new Date(value).toLocaleString() : '-');
+
+const architectureLabel = (state?: string) => {
+  switch (state) {
+    case 'farm_attached':
+      return 'Farm attached';
+    case 'legacy_claimed':
+      return 'Legacy claimed';
+    case 'unclaimed_inventory':
+      return 'Unclaimed';
+    default:
+      return 'Needs review';
+  }
+};
+
+const architectureColor = (state?: string) => {
+  switch (state) {
+    case 'farm_attached':
+      return 'primary' as const;
+    case 'legacy_claimed':
+      return 'warning' as const;
+    case 'unclaimed_inventory':
+      return 'default' as const;
+    default:
+      return 'error' as const;
+  }
+};
 
 const compactButtonSx = {
   minHeight: 36,
@@ -45,6 +71,13 @@ const AdminDevices: React.FC = () => {
   const [error, setError] = useState('');
   const [helperMessage, setHelperMessage] = useState('');
   const [printDevice, setPrintDevice] = useState<AdminDevice | null>(null);
+
+  const summary = useMemo(() => ({
+    total: devices.length,
+    farmAttached: devices.filter((device) => device.architectureState === 'farm_attached').length,
+    legacyOnly: devices.filter((device) => device.architectureState === 'legacy_claimed').length,
+    bases: devices.reduce((total, device) => total + (device.sensorBaseCount || 0), 0),
+  }), [devices]);
 
   const loadDevices = () => {
     setError('');
@@ -70,7 +103,22 @@ const AdminDevices: React.FC = () => {
   };
 
   return (
-    <Box>
+    <Box
+      sx={{
+        position: 'relative',
+        '&::before': {
+          content: '""',
+          position: 'absolute',
+          inset: { xs: '-8px -8px auto -8px', md: '-16px -16px auto -16px' },
+          height: 150,
+          borderRadius: 4,
+          background:
+            'linear-gradient(90deg, rgba(235,79,18,0.08), rgba(108,137,48,0.1) 52%, rgba(51,122,133,0.07))',
+          pointerEvents: 'none',
+          zIndex: 0,
+        },
+      }}
+    >
       <GlobalStyles
         styles={{
           '@media print': {
@@ -137,12 +185,21 @@ const AdminDevices: React.FC = () => {
         justifyContent="space-between"
         alignItems={{ xs: 'stretch', md: 'center' }}
         spacing={2}
-        sx={{ mb: 3 }}
+        sx={{
+          mb: 2,
+          p: { xs: 2, md: 2.5 },
+          borderRadius: 4,
+          border: '1px solid rgba(60,57,17,0.1)',
+          bgcolor: 'rgba(255,253,248,0.92)',
+          boxShadow: '0 16px 40px rgba(60,57,17,0.08)',
+          position: 'relative',
+          zIndex: 1,
+        }}
       >
         <Box>
           <Typography variant="h4">Controllers</Typography>
-          <Typography color="text.secondary" sx={{ mt: 0.75, display: { xs: 'none', sm: 'block' } }}>
-            Register physical controller IDs and review which account owns each device.
+          <Typography color="text.secondary" sx={{ mt: 0.75 }}>
+            Internal hardware inventory with farm attachment status.
           </Typography>
         </Box>
         <Stack
@@ -160,6 +217,56 @@ const AdminDevices: React.FC = () => {
         </Stack>
       </Stack>
 
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1.5}
+        sx={{ mb: 2.5, position: 'relative', zIndex: 1 }}
+      >
+        {[
+          { label: 'Registered', value: summary.total, icon: <Inventory2 fontSize="small" />, tone: '#fffaf4' },
+          { label: 'Farm attached', value: summary.farmAttached, icon: <Agriculture fontSize="small" />, tone: '#f4f8ea' },
+          { label: 'Legacy review', value: summary.legacyOnly, icon: <WarningAmber fontSize="small" />, tone: '#fff7ef' },
+          { label: 'Sensor bases', value: summary.bases, icon: <DeviceHub fontSize="small" />, tone: '#eff8f8' },
+        ].map((item) => (
+          <Card
+            key={item.label}
+            sx={{
+              flex: 1,
+              bgcolor: item.tone,
+              border: '1px solid rgba(60,57,17,0.08)',
+              boxShadow: '0 10px 24px rgba(60,57,17,0.06)',
+            }}
+          >
+            <CardContent sx={{ p: 1.75, '&:last-child': { pb: 1.75 } }}>
+              <Stack direction="row" spacing={1.25} alignItems="center">
+                <Box
+                  sx={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 2,
+                    display: 'grid',
+                    placeItems: 'center',
+                    bgcolor: 'rgba(255,255,255,0.72)',
+                    color: 'primary.main',
+                    flexShrink: 0,
+                  }}
+                >
+                  {item.icon}
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    {item.label}
+                  </Typography>
+                  <Typography variant="h5" sx={{ lineHeight: 1 }}>
+                    {item.value}
+                  </Typography>
+                </Box>
+              </Stack>
+            </CardContent>
+          </Card>
+        ))}
+      </Stack>
+
       <AutoDismissAlert open={Boolean(error)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setError('')}>
         {error}
       </AutoDismissAlert>
@@ -172,18 +279,17 @@ const AdminDevices: React.FC = () => {
         {helperMessage}
       </AutoDismissAlert>
 
-      <Card>
-        <CardContent>
+      <Card sx={{ border: '1px solid rgba(60,57,17,0.08)', boxShadow: '0 12px 28px rgba(60,57,17,0.06)', position: 'relative', zIndex: 1 }}>
+        <CardContent sx={{ p: { xs: 1.5, md: 2 } }}>
           <TableContainer className="mobile-card-table">
             <Table size="small">
               <TableHead>
                 <TableRow>
                   <TableCell>Controller ID</TableCell>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Claim Status</TableCell>
-                  <TableCell>Operational</TableCell>
-                  <TableCell>Owner</TableCell>
-                  <TableCell>Sensors</TableCell>
+                  <TableCell>Attachment</TableCell>
+                  <TableCell>Owner / Farm</TableCell>
+                  <TableCell>Bases</TableCell>
+                  <TableCell>Status</TableCell>
                   <TableCell>Updated</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
@@ -193,19 +299,28 @@ const AdminDevices: React.FC = () => {
                   <TableRow key={device.id} hover>
                     <TableCell data-label="Controller">
                       <Typography fontWeight={800}>{device.controllerId}</Typography>
-                      <Typography variant="caption" color="text.secondary">{device.location || 'No location'}</Typography>
+                      <Typography variant="caption" color="text.secondary">{device.name || device.location || 'Registered controller'}</Typography>
                     </TableCell>
-                    <TableCell data-label="Name">{device.name}</TableCell>
-                    <TableCell data-label="Claim status">
+                    <TableCell data-label="Attachment">
                       <Chip
                         size="small"
-                        label={device.claimStatus}
-                        color={device.claimStatus === 'CLAIMED' ? 'primary' : 'default'}
+                        label={architectureLabel(device.architectureState)}
+                        color={architectureColor(device.architectureState)}
                       />
                     </TableCell>
-                    <TableCell data-label="Operational"><Chip size="small" label={device.operationalStatus || device.status} /></TableCell>
-                    <TableCell data-label="Owner">{device.ownerEmail || 'Unclaimed'}</TableCell>
-                    <TableCell data-label="Sensors">{device.configuredSensors}/{device.sensorCount} configured</TableCell>
+                    <TableCell data-label="Owner / Farm">
+                      <Typography fontWeight={800}>{device.farmName || device.ownerEmail || 'Unclaimed'}</Typography>
+                      {device.farmName && (
+                        <Typography variant="caption" color="text.secondary">{device.ownerEmail || 'Owner not shown'}</Typography>
+                      )}
+                    </TableCell>
+                    <TableCell data-label="Bases">{device.sensorBaseCount || 0}</TableCell>
+                    <TableCell data-label="Status">
+                      <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                        <Chip size="small" label={device.operationalStatus || device.status} />
+                        <Chip size="small" variant="outlined" label={`${device.configuredSensors}/${device.sensorCount} sensors`} />
+                      </Stack>
+                    </TableCell>
                     <TableCell data-label="Updated">{formatDate(device.updatedAt)}</TableCell>
                     <TableCell data-label="Actions" align="right">
                       <Tooltip title="Copy QR payload">
@@ -231,7 +346,7 @@ const AdminDevices: React.FC = () => {
                 ))}
                 {devices.length === 0 && (
                   <TableRow className="mobile-empty-row">
-                    <TableCell colSpan={8}>
+                    <TableCell colSpan={7}>
                       <Typography align="center" color="text.secondary" sx={{ py: 3 }}>
                         No devices registered yet.
                       </Typography>

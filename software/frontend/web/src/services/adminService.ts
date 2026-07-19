@@ -8,6 +8,9 @@ export interface AdminOverview {
   offlineDevices: number;
   configuredSensors: number;
   unconfiguredSensors: number;
+  farmControllers?: number;
+  legacyOnlyDevices?: number;
+  sensorBases?: number;
 }
 
 export interface AdminDevice {
@@ -23,6 +26,11 @@ export interface AdminDevice {
   configuredSensors: number;
   lastSeen?: string;
   updatedAt?: string;
+  farmId?: string;
+  farmName?: string;
+  gatewayId?: string;
+  sensorBaseCount?: number;
+  architectureState?: 'farm_attached' | 'legacy_claimed' | 'unclaimed_inventory' | string;
 }
 
 export interface CreateAdminDeviceRequest {

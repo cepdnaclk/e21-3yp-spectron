@@ -131,6 +131,19 @@ func (h *ControllerHandler) AdminOverviewAPI(w http.ResponseWriter, r *http.Requ
 		JOIN controllers c ON c.id = cs.controller_id
 	`).Scan(&response.ConfiguredSensors, &response.UnconfiguredSensors)
 
+	_ = h.db.QueryRow(r.Context(), `
+		SELECT
+			(SELECT COUNT(*)::int FROM gateways),
+			(
+				SELECT COUNT(*)::int
+				FROM controllers c
+				WHERE NOT EXISTS (
+					SELECT 1 FROM gateways g WHERE g.legacy_controller_id = c.id
+				)
+			),
+			(SELECT COUNT(*)::int FROM sensor_bases)
+	`).Scan(&response.FarmControllers, &response.LegacyOnlyDevices, &response.SensorBases)
+
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -2917,12 +2930,19 @@ func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.Admi
 			COALESCE(u.email, ''),
 			COUNT(cs.id)::int,
 			COUNT(cs.id) FILTER (WHERE cs.configured = true)::int,
+			g.id,
+			f.id,
+			COALESCE(f.name, ''),
+			COUNT(DISTINCT sb.id)::int,
 			c.last_seen,
 			c.updated_at
 		FROM controllers c
 		LEFT JOIN users u ON u.id = c.owner_user_id
 		LEFT JOIN controller_sensors cs ON cs.controller_id = c.id
-		GROUP BY c.id, c.controller_uid, c.hw_id, c.name, c.location, c.operational_status, c.claim_status, u.email, c.last_seen, c.updated_at
+		LEFT JOIN gateways g ON g.legacy_controller_id = c.id
+		LEFT JOIN farms f ON f.id = g.farm_id
+		LEFT JOIN sensor_bases sb ON sb.gateway_id = g.id
+		GROUP BY c.id, c.controller_uid, c.hw_id, c.name, c.location, c.operational_status, c.claim_status, u.email, g.id, f.id, f.name, c.last_seen, c.updated_at
 		ORDER BY c.updated_at DESC, c.created_at DESC
 	`)
 	if err != nil {
@@ -2934,6 +2954,8 @@ func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.Admi
 	for rows.Next() {
 		var device models.AdminDeviceResponse
 		var id uuid.UUID
+		var gatewayID *uuid.UUID
+		var farmID *uuid.UUID
 		var lastSeen *time.Time
 		var updatedAt *time.Time
 		if err := rows.Scan(
@@ -2947,12 +2969,29 @@ func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.Admi
 			&device.OwnerEmail,
 			&device.SensorCount,
 			&device.ConfiguredSensors,
+			&gatewayID,
+			&farmID,
+			&device.FarmName,
+			&device.SensorBaseCount,
 			&lastSeen,
 			&updatedAt,
 		); err != nil {
 			return nil, err
 		}
 		device.ID = id.String()
+		device.ArchitectureState = "unclaimed_inventory"
+		if device.ClaimStatus == "CLAIMED" {
+			device.ArchitectureState = "legacy_claimed"
+		}
+		if gatewayID != nil {
+			gatewayIDValue := gatewayID.String()
+			device.GatewayID = &gatewayIDValue
+			device.ArchitectureState = "farm_attached"
+		}
+		if farmID != nil {
+			farmIDValue := farmID.String()
+			device.FarmID = &farmIDValue
+		}
 		if lastSeen != nil {
 			device.LastSeen = lastSeen.Format(time.RFC3339)
 		}
