@@ -24,6 +24,7 @@ import {
   getSensorModules,
   removeFarmCollaborator,
 } from '../../services/farmService';
+import { getSensorReadings, getSensors } from '../../services/sensorService';
 
 vi.mock('../../components/FarmLocationPicker', () => ({
   default: () => <div data-testid="field-location-picker" />,
@@ -52,6 +53,11 @@ vi.mock('../../services/farmService', () => ({
   removeFarmCollaborator: vi.fn(),
 }));
 
+vi.mock('../../services/sensorService', () => ({
+  getSensorReadings: vi.fn(),
+  getSensors: vi.fn(),
+}));
+
 describe('FarmDetails field location setup', () => {
   beforeEach(() => {
     vi.mocked(getFarm).mockResolvedValue({
@@ -70,6 +76,8 @@ describe('FarmDetails field location setup', () => {
     vi.mocked(getFieldCropInstances).mockResolvedValue([]);
     vi.mocked(getSensorModules).mockResolvedValue([]);
     vi.mocked(getSensorBaseAssignments).mockResolvedValue([]);
+    vi.mocked(getSensors).mockResolvedValue([]);
+    vi.mocked(getSensorReadings).mockResolvedValue([]);
     vi.mocked(createField).mockResolvedValue({
       id: 'field-1',
       farm_id: 'farm-1',

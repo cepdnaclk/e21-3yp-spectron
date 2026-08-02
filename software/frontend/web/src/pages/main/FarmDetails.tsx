@@ -28,6 +28,9 @@ import {
   ArrowBack,
   CheckCircle,
   Delete,
+  DeviceThermostat,
+  Edit,
+  Grass,
   GroupAdd,
   History,
   Hub,
@@ -36,11 +39,15 @@ import {
   Place,
   Router,
   Sensors,
+  ShowChart,
+  Speed,
   WarningAmber,
+  WaterDrop,
+  WbSunny,
 } from '@mui/icons-material';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
 import { PageHeaderSkeleton } from '../../components/LoadingSkeletons';
-import { EmptyStateCard, MetricCard, PageHeaderPanel, PageShell } from '../../components/ui/PageSurface';
+import { EmptyStateCard, PageShell } from '../../components/ui/PageSurface';
 import {
   addFarmCollaborator,
   acknowledgeFarmAlert,
@@ -73,6 +80,7 @@ import {
   SensorBaseAssignment,
   SensorModule,
 } from '../../services/farmService';
+import { getSensorReadings, getSensors, Sensor, SensorReading } from '../../services/sensorService';
 import FarmLocationPicker, { FarmLocationSelection } from '../../components/FarmLocationPicker';
 import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
@@ -125,6 +133,8 @@ const FarmDetails: React.FC = () => {
   const [controllers, setControllers] = useState<FarmController[]>([]);
   const [sensorBases, setSensorBases] = useState<SensorBase[]>([]);
   const [modulesByBase, setModulesByBase] = useState<Record<string, SensorModule[]>>({});
+  const [sensorsByController, setSensorsByController] = useState<Record<string, Sensor[]>>({});
+  const [latestReadingsBySensor, setLatestReadingsBySensor] = useState<Record<string, SensorReading | null>>({});
   const [farmAlerts, setFarmAlerts] = useState<FarmAlert[]>([]);
   const [assignmentHistory, setAssignmentHistory] = useState<SensorBaseAssignment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -139,6 +149,7 @@ const FarmDetails: React.FC = () => {
   const [openAssignBase, setOpenAssignBase] = useState(false);
   const [openModule, setOpenModule] = useState(false);
   const [openHistory, setOpenHistory] = useState(false);
+  const [openFarmTools, setOpenFarmTools] = useState(false);
   const [selectedField, setSelectedField] = useState<Field | null>(null);
   const [selectedCropInstance, setSelectedCropInstance] = useState<CropInstance | null>(null);
   const [selectedBase, setSelectedBase] = useState<SensorBase | null>(null);
@@ -189,6 +200,12 @@ const FarmDetails: React.FC = () => {
           return [base.id, modules] as const;
         }),
       );
+      const sensorPairs = await Promise.allSettled(
+        nextControllers.map(async (controller) => {
+          const sensors = await getSensors(controller.id);
+          return [controller.id, sensors] as const;
+        }),
+      );
       const nextCropInstances: Record<string, CropInstance[]> = {};
       cropPairs.forEach((result) => {
         if (result.status === 'fulfilled') {
@@ -203,6 +220,27 @@ const FarmDetails: React.FC = () => {
           nextModulesByBase[baseID] = modules;
         }
       });
+      const nextSensorsByController: Record<string, Sensor[]> = {};
+      sensorPairs.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          const [controllerID, sensors] = result.value;
+          nextSensorsByController[controllerID] = sensors;
+        }
+      });
+      const allSensors = Object.values(nextSensorsByController).flat();
+      const latestReadingPairs = await Promise.allSettled(
+        allSensors.map(async (sensor) => {
+          const readings = await getSensorReadings(sensor.id);
+          return [sensor.id, readings[0] || null] as const;
+        }),
+      );
+      const nextLatestReadingsBySensor: Record<string, SensorReading | null> = {};
+      latestReadingPairs.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          const [sensorID, reading] = result.value;
+          nextLatestReadingsBySensor[sensorID] = reading;
+        }
+      });
 
       setFarm(nextFarm);
       setFields(nextFields);
@@ -212,6 +250,8 @@ const FarmDetails: React.FC = () => {
       setControllers(nextControllers);
       setSensorBases(nextBases);
       setModulesByBase(nextModulesByBase);
+      setSensorsByController(nextSensorsByController);
+      setLatestReadingsBySensor(nextLatestReadingsBySensor);
       setFarmAlerts(nextAlerts);
       const failedSections = [
         fieldsResult.status,
@@ -222,6 +262,8 @@ const FarmDetails: React.FC = () => {
         alertsResult.status,
         ...cropPairs.map((result) => result.status),
         ...modulePairs.map((result) => result.status),
+        ...sensorPairs.map((result) => result.status),
+        ...latestReadingPairs.map((result) => result.status),
       ].some((status) => status === 'rejected');
       if (failedSections) {
         setError('Some farm sections could not be loaded.');
@@ -249,7 +291,6 @@ const FarmDetails: React.FC = () => {
   }, [location.pathname, navigate, navigationMessage]);
 
   const fieldCount = useMemo(() => fields.length, [fields]);
-  const collaboratorCount = useMemo(() => collaborators.length, [collaborators]);
   const baseCount = useMemo(() => sensorBases.length, [sensorBases]);
   const openAlertCount = useMemo(() => farmAlerts.filter((alert) => alert.status !== 'acknowledged').length, [farmAlerts]);
   const activeCropCount = useMemo(
@@ -269,6 +310,197 @@ const FarmDetails: React.FC = () => {
   const fieldNameById = (fieldId?: string | null) => fields.find((field) => field.id === fieldId)?.name || 'Field';
   const controllerNameById = (gatewayId: string) => controllers.find((controller) => controller.id === gatewayId)?.serial_number || 'Controller';
   const modulesForBase = (baseId: string) => modulesByBase[baseId] || [];
+  const normalizeText = (value?: string | null) => String(value || '').trim().toLowerCase();
+  const titleText = (value?: string | null) => {
+    const cleaned = String(value || '').replace(/[_-]+/g, ' ').trim();
+    return cleaned ? cleaned.replace(/\b\w/g, (letter) => letter.toUpperCase()) : 'Sensor';
+  };
+  const readingNumber = (reading?: SensorReading | null) => reading?.value ?? reading?.avg_value;
+  const friendlyUnit = (unit?: string | null) => {
+    const cleaned = String(unit || '').trim();
+    if (!cleaned) {
+      return '';
+    }
+    if (cleaned.toLowerCase() === 'c') {
+      return ' C';
+    }
+    return ` ${cleaned}`;
+  };
+  const formatReadingValue = (reading?: SensorReading | null, unit?: string | null) => {
+    const value = readingNumber(reading);
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return 'Waiting';
+    }
+    const rounded = Math.abs(value) >= 100 ? value.toFixed(1) : value.toFixed(1).replace(/\.0$/, '');
+    return `${rounded}${friendlyUnit(unit)}`;
+  };
+  const formatShortDate = (value?: string | null) => {
+    if (!value) {
+      return 'No recent reading';
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return 'No recent reading';
+    }
+    return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+  const basesForField = (fieldId: string) =>
+    sensorBases.filter((base) => base.current_assignment?.field_id === fieldId);
+  const channelsForBase = (base: SensorBase) =>
+    modulesForBase(base.id).flatMap((module) =>
+      module.channels.map((channel) => ({ base, module, channel })),
+    );
+  const latestReadingForChannel = (base: SensorBase, channel: SensorModule['channels'][number]) => {
+    const baseID = normalizeText(base.id);
+    const baseSerial = normalizeText(base.serial_number);
+    const channelID = normalizeText(channel.id);
+    const channelKey = normalizeText(channel.channel_key);
+    const measurementType = normalizeText(channel.measurement_type);
+    const sensors = sensorsByController[base.gateway_id] || [];
+    const exactMetaMatch = sensors.find((sensor) => {
+      const meta = latestReadingsBySensor[sensor.id]?.meta || {};
+      return normalizeText(String(meta.sensor_channel_id || '')) === channelID;
+    });
+    if (exactMetaMatch) {
+      return latestReadingsBySensor[exactMetaMatch.id] || null;
+    }
+    const baseMetaMatch = sensors.find((sensor) => {
+      const meta = latestReadingsBySensor[sensor.id]?.meta || {};
+      return (
+        normalizeText(String(meta.sensor_base_id || '')) === baseID &&
+        normalizeText(String(meta.sensor_channel_key || '')) === channelKey
+      );
+    });
+    if (baseMetaMatch) {
+      return latestReadingsBySensor[baseMetaMatch.id] || null;
+    }
+    const serialMatch = sensors.find((sensor) => {
+      const hwID = normalizeText(sensor.hw_id);
+      const sensorType = normalizeText(sensor.type);
+      return hwID.includes(baseSerial) && (sensorType === measurementType || sensorType.includes(measurementType));
+    });
+    if (serialMatch) {
+      return latestReadingsBySensor[serialMatch.id] || null;
+    }
+    const metricMatch = sensors.find((sensor) => normalizeText(sensor.type) === measurementType);
+    return metricMatch ? latestReadingsBySensor[metricMatch.id] || null : null;
+  };
+  const liveConditionItems = (() => {
+    const priority = ['temperature', 'humidity', 'pressure'];
+    const seen = new Set<string>();
+    const items: Array<{ key: string; label: string; value: string; updatedAt?: string | null; icon: React.ReactNode }> = [];
+    const iconByKey: Record<string, React.ReactNode> = {
+      temperature: <DeviceThermostat fontSize="small" />,
+      humidity: <WaterDrop fontSize="small" />,
+      pressure: <Speed fontSize="small" />,
+    };
+    sensorBases.forEach((base) => {
+      channelsForBase(base).forEach(({ channel }) => {
+        const metric = normalizeText(channel.measurement_type || channel.channel_key);
+        if (seen.has(metric)) {
+          return;
+        }
+        const reading = latestReadingForChannel(base, channel);
+        seen.add(metric);
+        items.push({
+          key: metric,
+          label: titleText(channel.measurement_type || channel.channel_key),
+          value: formatReadingValue(reading, channel.unit),
+          updatedAt: reading?.time,
+          icon: iconByKey[metric] || <Sensors fontSize="small" />,
+        });
+      });
+    });
+    return items.sort((a, b) => {
+      const first = priority.indexOf(a.key);
+      const second = priority.indexOf(b.key);
+      return (first === -1 ? 99 : first) - (second === -1 ? 99 : second);
+    }).slice(0, 3);
+  })();
+  const totalChannelCount = useMemo(
+    () => Object.values(modulesByBase).flatMap((modules) => modules.flatMap((module) => module.channels)).length,
+    [modulesByBase],
+  );
+  const offlineBaseCount = useMemo(
+    () => sensorBases.filter((base) => ['offline', 'error'].includes(normalizeText(base.status))).length,
+    [sensorBases],
+  );
+  const waitingBaseCount = useMemo(
+    () => sensorBases.filter((base) => normalizeText(base.status) === 'waiting_setup' || !base.current_assignment).length,
+    [sensorBases],
+  );
+  const farmAttention = useMemo(() => {
+    if (openAlertCount > 0 || offlineBaseCount > 0) {
+      return {
+        label: 'Needs attention',
+        detail: openAlertCount > 0 ? `${openAlertCount} alert${openAlertCount === 1 ? '' : 's'} to check` : `${offlineBaseCount} base${offlineBaseCount === 1 ? '' : 's'} offline`,
+        color: '#dba048',
+        bg: 'rgba(219, 160, 72, 0.16)',
+      };
+    }
+    if (fieldCount === 0 || waitingBaseCount > 0) {
+      return {
+        label: 'Waiting setup',
+        detail: fieldCount === 0 ? 'Add your first field' : `${waitingBaseCount} base${waitingBaseCount === 1 ? '' : 's'} need setup`,
+        color: '#337a85',
+        bg: 'rgba(51, 122, 133, 0.12)',
+      };
+    }
+    return {
+      label: 'Good',
+      detail: 'Farm is monitored',
+      color: '#6c8930',
+      bg: 'rgba(108, 137, 48, 0.13)',
+    };
+  }, [fieldCount, offlineBaseCount, openAlertCount, waitingBaseCount]);
+  const farmLocationLabel = farm?.location_label || (
+    typeof farm?.latitude === 'number' && typeof farm?.longitude === 'number'
+      ? `${farm.latitude.toFixed(4)}, ${farm.longitude.toFixed(4)}`
+      : 'Farm location'
+  );
+  const fieldAttention = (field: Field) => {
+    const fieldAlerts = farmAlerts.filter((alert) => alert.field_id === field.id && alert.status !== 'acknowledged');
+    const fieldBases = basesForField(field.id);
+    const problemBases = fieldBases.filter((base) => ['offline', 'error'].includes(normalizeText(base.status)));
+    if (fieldAlerts.length || problemBases.length) {
+      return {
+        label: 'Needs attention',
+        detail: fieldAlerts[0]?.message || `${problemBases.length} base${problemBases.length === 1 ? '' : 's'} offline`,
+        color: '#dba048',
+        bg: 'rgba(219, 160, 72, 0.16)',
+      };
+    }
+    if (fieldBases.length === 0) {
+      return {
+        label: 'Waiting setup',
+        detail: 'Assign a sensor base when ready.',
+        color: '#337a85',
+        bg: 'rgba(51, 122, 133, 0.12)',
+      };
+    }
+    return {
+      label: 'Good',
+      detail: 'No open issues.',
+      color: '#6c8930',
+      bg: 'rgba(108, 137, 48, 0.13)',
+    };
+  };
+  const surfaceCardSx = {
+    height: '100%',
+    borderRadius: 2.5,
+    borderColor: 'rgba(60, 57, 17, 0.1)',
+    bgcolor: 'rgba(255,253,248,0.9)',
+    boxShadow: '0 12px 28px rgba(60, 57, 17, 0.06)',
+  };
+  const softMetricSx = {
+    p: 1.4,
+    borderRadius: 2,
+    bgcolor: 'rgba(108, 137, 48, 0.07)',
+    minHeight: 86,
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+  };
   const alertSeverityColor = (severity: FarmAlert['severity']) => {
     const normalized = String(severity).toLowerCase();
     if (normalized === 'critical') {
@@ -710,42 +942,544 @@ const FarmDetails: React.FC = () => {
       </AutoDismissAlert>
 
       <PageShell>
-        <PageHeaderPanel
-          title={farm.name}
-          subtitle={`${farm.role} access`}
-          icon={<Agriculture />}
-          info="Farm-level view. Fields, crops, and people live here."
-          actions={
-            <Stack direction="row" spacing={1}>
-              <IconButton onClick={() => navigate('/farms')} aria-label="Back to farms">
-                <ArrowBack />
-              </IconButton>
+        <IconButton onClick={() => navigate('/farms')} aria-label="Back to farms" sx={{ mb: 1 }}>
+          <ArrowBack />
+        </IconButton>
+
+        <Box
+          sx={{
+            mb: 3,
+            px: { xs: 2, md: 3 },
+            py: { xs: 2.25, md: 3 },
+            borderRadius: { xs: 3, md: 5 },
+            border: '1px solid rgba(60, 57, 17, 0.08)',
+            bgcolor: 'rgba(255,253,248,0.92)',
+            boxShadow: '0 18px 44px rgba(60, 57, 17, 0.08)',
+          }}
+        >
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            justifyContent="space-between"
+            alignItems={{ xs: 'stretch', sm: 'center' }}
+            spacing={2}
+          >
+            <Stack direction="row" spacing={1.75} alignItems="center" sx={{ minWidth: 0 }}>
+              <Box
+                sx={{
+                  width: { xs: 50, md: 60 },
+                  height: { xs: 50, md: 60 },
+                  borderRadius: '50%',
+                  display: 'grid',
+                  placeItems: 'center',
+                  bgcolor: 'rgba(108, 137, 48, 0.12)',
+                  color: 'primary.main',
+                  flexShrink: 0,
+                }}
+              >
+                <Agriculture />
+              </Box>
+              <Box sx={{ minWidth: 0 }}>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                  <Typography variant="h4" sx={{ overflowWrap: 'anywhere', textTransform: 'uppercase' }}>
+                    {farm.name}
+                  </Typography>
+                  <Tooltip title={`${farm.role} access. Farm-level view for fields, crops, people, and hardware.`}>
+                    <IconButton size="small" aria-label="Farm details help">
+                      <Info fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+                <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+                  {farmLocationLabel}
+                </Typography>
+              </Box>
             </Stack>
-          }
-        />
+            {ownerMode && (
+              <Button
+                variant="outlined"
+                startIcon={<Edit />}
+                onClick={() => setOpenFarmTools(true)}
+                sx={{
+                  alignSelf: { xs: 'flex-start', sm: 'center' },
+                  borderRadius: 999,
+                  px: 2.25,
+                  bgcolor: 'rgba(255,253,248,0.75)',
+                }}
+              >
+                Farm settings
+              </Button>
+            )}
+          </Stack>
+        </Box>
 
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <MetricCard label="Fields" value={fieldCount} icon={<Place fontSize="small" />} />
+        <Grid container spacing={2.5} sx={{ mb: 3 }}>
+          <Grid item xs={12} md={4}>
+            <Card variant="outlined" sx={surfaceCardSx}>
+              <CardContent sx={{ p: { xs: 2.25, md: 2.75 }, '&:last-child': { pb: { xs: 2.25, md: 2.75 } } }}>
+                <Stack direction="row" spacing={1.75} alignItems="flex-start">
+                  <WbSunny sx={{ color: '#dba048' }} />
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="h6">Weather</Typography>
+                    <Typography color="text.secondary">Waiting for weather</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {farmLocationLabel}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Forecast source not connected
+                    </Typography>
+                  </Box>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <Card variant="outlined" sx={surfaceCardSx}>
+              <CardContent sx={{ p: { xs: 2.25, md: 2.75 }, '&:last-child': { pb: { xs: 2.25, md: 2.75 } } }}>
+                <Stack direction="row" spacing={1.75} alignItems="flex-start">
+                  <ShowChart sx={{ color: 'primary.main' }} />
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="h6">Live conditions</Typography>
+                    <Typography color="text.secondary">
+                      {totalChannelCount > 0 ? `${totalChannelCount} sensor channels` : 'Waiting for sensors'}
+                    </Typography>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mt: 1 }}>
+                      {liveConditionItems.length ? liveConditionItems.map((item) => (
+                        <Chip key={item.key} size="small" icon={item.icon as React.ReactElement} label={`${item.label}: ${item.value}`} />
+                      )) : (
+                        <Chip size="small" label="No readings yet" />
+                      )}
+                    </Stack>
+                  </Box>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <Card variant="outlined" sx={surfaceCardSx}>
+              <CardContent sx={{ p: { xs: 2.25, md: 2.75 }, '&:last-child': { pb: { xs: 2.25, md: 2.75 } } }}>
+                <Stack direction="row" spacing={1.75} alignItems="flex-start">
+                  <WarningAmber sx={{ color: '#dba048' }} />
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="h6">
+                      {openAlertCount === 1 ? '1 alert to check' : `${openAlertCount} alerts to check`}
+                    </Typography>
+                    <Typography color="text.secondary">
+                      {openAlertCount > 0 ? 'Conditions that need your attention' : 'No open alerts'}
+                    </Typography>
+                    <Chip
+                      size="small"
+                      label={farmAttention.label}
+                      sx={{ mt: 1, color: farmAttention.color, bgcolor: farmAttention.bg, fontWeight: 800 }}
+                    />
+                  </Box>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <MetricCard label="People" value={collaboratorCount} icon={<GroupAdd fontSize="small" />} />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <MetricCard label="Crops" value={activeCropCount} icon={<Agriculture fontSize="small" />} />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <MetricCard label="Alerts" value={openAlertCount} icon={<WarningAmber fontSize="small" />} tone="error.main" />
-        </Grid>
-      </Grid>
 
-      {ownerMode && (
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 3 }}>
-          <Tooltip title="Create a field to hold crops and monitoring areas.">
+        {ownerMode && (
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} sx={{ mb: 3 }}>
+            <Tooltip title="Create a field to hold crops and monitoring areas.">
+              <Button
+                startIcon={<Add />}
+                variant="contained"
+                onClick={() => {
+                  setSetupError('');
+                  setFieldForm({ name: '', area: '' });
+                  setSelectedFieldLocation(null);
+                  setFieldLocationConfirmed(false);
+                  setOpenField(true);
+                }}
+              >
+                Add field
+              </Button>
+            </Tooltip>
+            <Tooltip title="Invite a viewer to read this farm.">
+              <Button variant="outlined" onClick={() => setOpenAccess(true)}>
+                Invite viewer
+              </Button>
+            </Tooltip>
+            <Tooltip title="Register a physical controller for this farm.">
+              <Button variant="outlined" startIcon={<Router />} onClick={() => setOpenController(true)}>
+                Link controller
+              </Button>
+            </Tooltip>
+            <Tooltip title={baseActionDisabled ? 'Add a controller first.' : 'Register a sensor base under a controller.'}>
+              <span>
+                <Button
+                  variant="outlined"
+                  startIcon={<Hub />}
+                  onClick={() => {
+                    setBaseForm({ gatewayId: controllers[0]?.id || '', serialNumber: '', label: '' });
+                    setOpenBase(true);
+                  }}
+                  disabled={baseActionDisabled}
+                >
+                  Register base
+                </Button>
+              </span>
+            </Tooltip>
+          </Stack>
+        )}
+
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+          <Typography variant="h5">Fields</Typography>
+          <Tooltip title="Fields show crops, readings, and what needs attention.">
+            <IconButton size="small" aria-label="Fields help">
+              <Info fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+        {fields.length === 0 ? (
+          <EmptyStateCard
+            icon={<Place sx={{ fontSize: 38 }} />}
+            title="No fields yet"
+            action={ownerMode ? (
+              <Button
+                variant="contained"
+                startIcon={<Add />}
+                onClick={() => {
+                  setSetupError('');
+                  setFieldForm({ name: '', area: '' });
+                  setSelectedFieldLocation(null);
+                  setFieldLocationConfirmed(false);
+                  setOpenField(true);
+                }}
+              >
+                Add field
+              </Button>
+            ) : undefined}
+          />
+        ) : (
+          <Grid container spacing={2.5}>
+            {fields.map((field) => {
+              const activeCrop = activeCropForField(field.id);
+              const attention = fieldAttention(field);
+              const fieldBases = basesForField(field.id);
+              const fieldChannels = fieldBases.flatMap(channelsForBase).slice(0, 6);
+              return (
+                <Grid item xs={12} md={6} key={field.id}>
+                  <Card variant="outlined" sx={{ ...surfaceCardSx, bgcolor: 'rgba(255,253,248,0.94)' }}>
+                    <CardContent sx={{ p: { xs: 2, md: 2.5 }, '&:last-child': { pb: { xs: 2, md: 2.5 } } }}>
+                      <Stack direction="row" justifyContent="space-between" spacing={1.5} alignItems="flex-start">
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="h6" sx={{ overflowWrap: 'anywhere' }}>
+                            {field.name}
+                          </Typography>
+                          <Typography color="text.secondary">
+                            {activeCrop
+                              ? `${activeCrop.crop_name} - ${activeCrop.current_stage?.name || 'Stage pending'}`
+                              : 'No crop set'}
+                          </Typography>
+                        </Box>
+                        <Chip
+                          size="small"
+                          label={attention.label}
+                          sx={{ bgcolor: attention.bg, color: attention.color, fontWeight: 800, flexShrink: 0 }}
+                        />
+                      </Stack>
+
+                      <Grid container spacing={1.5} sx={{ mt: 2 }}>
+                        {fieldChannels.length ? fieldChannels.slice(0, 3).map(({ base, channel }) => {
+                          const reading = latestReadingForChannel(base, channel);
+                          return (
+                            <Grid item xs={12} sm={4} key={channel.id}>
+                              <Box sx={softMetricSx}>
+                                <Typography variant="caption" color="text.secondary" noWrap>
+                                  {titleText(channel.measurement_type || channel.channel_key)}
+                                </Typography>
+                                <Typography variant="h6">{formatReadingValue(reading, channel.unit)}</Typography>
+                                <Typography variant="caption" color="text.secondary" noWrap>
+                                  {formatShortDate(reading?.time)}
+                                </Typography>
+                              </Box>
+                            </Grid>
+                          );
+                        }) : (
+                          <Grid item xs={12}>
+                            <Box sx={{ ...softMetricSx, minHeight: 76 }}>
+                              <Typography fontWeight={800}>Sensor readings</Typography>
+                              <Typography color="text.secondary">Waiting for sensor base setup</Typography>
+                            </Box>
+                          </Grid>
+                        )}
+                      </Grid>
+
+                      <Box
+                        sx={{
+                          mt: 2,
+                          p: 1.75,
+                          borderRadius: 2,
+                          border: '1px solid',
+                          borderColor: attention.label === 'Needs attention' ? 'rgba(219, 160, 72, 0.45)' : 'rgba(60, 57, 17, 0.09)',
+                          bgcolor: attention.label === 'Needs attention' ? 'rgba(235, 79, 18, 0.06)' : 'rgba(108, 137, 48, 0.045)',
+                        }}
+                      >
+                        <Stack direction="row" spacing={1} alignItems="flex-start">
+                          <WarningAmber fontSize="small" sx={{ color: attention.color, mt: 0.2 }} />
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography fontWeight={800}>
+                              {attention.label === 'Needs attention' ? 'Why this needs attention' : 'Attention status'}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                              {attention.detail}
+                            </Typography>
+                          </Box>
+                        </Stack>
+                      </Box>
+
+                      <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mt: 2 }}>
+                        <Chip size="small" icon={<Grass />} label={field.area ? `${field.area} ha` : 'Area n/a'} />
+                        <Chip size="small" icon={<Sensors />} label={`${fieldChannels.length} readings`} />
+                        {ownerMode && (
+                          <Button size="small" startIcon={<Agriculture />} onClick={() => openCropDialog(field)}>
+                            {activeCrop ? 'Change crop' : 'Set crop'}
+                          </Button>
+                        )}
+                        {ownerMode && activeCrop?.current_stage && (
+                          <Button size="small" onClick={() => openStageDialog(activeCrop)}>
+                            Stage
+                          </Button>
+                        )}
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              );
+            })}
+          </Grid>
+        )}
+
+        <Grid container spacing={2.5} sx={{ mt: 3 }}>
+          <Grid item xs={12} lg={4}>
+            <Card variant="outlined" sx={surfaceCardSx}>
+              <CardContent>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+                  <Typography variant="h6">Alerts to Check</Typography>
+                  <Chip size="small" label={openAlertCount} />
+                </Stack>
+                {farmAlerts.length === 0 ? (
+                  <Typography color="text.secondary">No open alerts.</Typography>
+                ) : (
+                  <Stack spacing={1.25}>
+                    {farmAlerts.slice(0, 3).map((alert) => (
+                      <Box key={alert.id} sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(219, 160, 72, 0.08)' }}>
+                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                          <Chip size="small" color={alertSeverityColor(alert.severity)} label={String(alert.severity).toLowerCase()} />
+                          {alert.field_name && <Chip size="small" variant="outlined" label={alert.field_name} />}
+                        </Stack>
+                        <Typography sx={{ mt: 1 }} fontWeight={800}>
+                          {alert.message}
+                        </Typography>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1} sx={{ mt: 1 }}>
+                          <Typography variant="caption" color="text.secondary">
+                            {new Date(alert.created_at).toLocaleDateString()}
+                          </Typography>
+                          {ownerMode && alert.status !== 'acknowledged' && (
+                            <Button size="small" onClick={() => acknowledgeAlert(alert.id)} disabled={saving}>
+                              Ack
+                            </Button>
+                          )}
+                        </Stack>
+                      </Box>
+                    ))}
+                  </Stack>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={12} lg={4}>
+            <Card variant="outlined" sx={surfaceCardSx}>
+              <CardContent>
+                <Typography variant="h6" sx={{ mb: 1.5 }}>Sensor readings</Typography>
+                {liveConditionItems.length === 0 ? (
+                  <Typography color="text.secondary">No recent readings yet.</Typography>
+                ) : (
+                  <Stack spacing={1.25}>
+                    {liveConditionItems.map((item) => (
+                      <Stack key={item.key} direction="row" spacing={1.25} alignItems="center">
+                        <Box
+                          sx={{
+                            width: 38,
+                            height: 38,
+                            borderRadius: '50%',
+                            display: 'grid',
+                            placeItems: 'center',
+                            bgcolor: 'rgba(108, 137, 48, 0.1)',
+                            color: 'primary.main',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {item.icon}
+                        </Box>
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Typography fontWeight={800}>{item.label}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {formatShortDate(item.updatedAt)}
+                          </Typography>
+                        </Box>
+                        <Typography variant="h6">{item.value}</Typography>
+                      </Stack>
+                    ))}
+                  </Stack>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={12} lg={4}>
+            <Card variant="outlined" sx={surfaceCardSx}>
+              <CardContent>
+                <Typography variant="h6" sx={{ mb: 1.5 }}>Attention status</Typography>
+                <Chip
+                  label={farmAttention.label}
+                  sx={{ bgcolor: farmAttention.bg, color: farmAttention.color, fontWeight: 800, mb: 1.5 }}
+                />
+                <Typography color="text.secondary">{farmAttention.detail}</Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mt: 2 }}>
+                  <Chip size="small" label={`${fieldCount} fields`} />
+                  <Chip size="small" label={`${baseCount} bases`} />
+                  <Chip size="small" label={`${activeCropCount} crops`} />
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+
+        <Grid container spacing={2.5} sx={{ mt: 3 }}>
+          <Grid item xs={12} lg={5}>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+              <Typography variant="h6">People</Typography>
+              <Tooltip title="Owners manage access. Viewers can only read.">
+                <IconButton size="small" aria-label="People help">
+                  <Info fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Stack>
+            <Stack spacing={1.25}>
+              {collaborators.map((person) => (
+                <Card key={person.user_id} variant="outlined" sx={surfaceCardSx}>
+                  <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography fontWeight={800} noWrap>{person.name || person.email}</Typography>
+                        <Typography variant="body2" color="text.secondary" noWrap>
+                          {person.email}
+                        </Typography>
+                      </Box>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Chip size="small" label={person.role} />
+                        {ownerMode && person.role === 'viewer' && (
+                          <IconButton size="small" onClick={() => handleRemove(person.user_id)} aria-label="Remove viewer">
+                            <PersonRemove fontSize="small" />
+                          </IconButton>
+                        )}
+                      </Stack>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              ))}
+              {collaborators.length === 0 && <EmptyStateCard title="No people yet" />}
+            </Stack>
+          </Grid>
+
+          <Grid item xs={12} lg={7}>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+              <Typography variant="h6">Hardware</Typography>
+              <Tooltip title="Controllers belong to the farm. Fields are linked through sensor bases.">
+                <IconButton size="small" aria-label="Hardware help">
+                  <Info fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Chip size="small" label={baseCount} />
+            </Stack>
+            <Grid container spacing={1.5}>
+              {controllers.map((controller) => (
+                <Grid item xs={12} md={6} key={controller.id}>
+                  <Card variant="outlined" sx={surfaceCardSx}>
+                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                      <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography fontWeight={800} noWrap>{controller.serial_number}</Typography>
+                          <Typography variant="body2" color="text.secondary" noWrap>
+                            {controller.field_ids.length ? controller.field_ids.map(fieldNameById).join(', ') : 'No field link'}
+                          </Typography>
+                        </Box>
+                        <Chip size="small" label={controller.status} />
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+              {sensorBases.map((base) => (
+                <Grid item xs={12} md={6} key={base.id}>
+                  <Card variant="outlined" sx={surfaceCardSx}>
+                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                      <Stack direction="row" justifyContent="space-between" spacing={1.5} alignItems="flex-start">
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography fontWeight={800} noWrap>{base.label || base.serial_number}</Typography>
+                          <Typography variant="body2" color="text.secondary" noWrap>
+                            {controllerNameById(base.gateway_id)}
+                          </Typography>
+                          <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap">
+                            <Chip size="small" label={base.status} />
+                            <Chip
+                              size="small"
+                              label={
+                                base.current_assignment?.field_id
+                                  ? fieldNameById(base.current_assignment.field_id)
+                                  : base.current_assignment?.monitoring_zone || 'Unassigned'
+                              }
+                            />
+                          </Stack>
+                        </Box>
+                        <Stack direction="row" spacing={0.5} alignItems="center">
+                          {ownerMode && (
+                            <Tooltip title="Module">
+                              <IconButton size="small" onClick={() => openModuleDialog(base)} aria-label="Add module">
+                                <Sensors fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                          {ownerMode && (
+                            <Tooltip title="Assign">
+                              <IconButton size="small" onClick={() => openAssignDialog(base)} aria-label="Assign base">
+                                <Place fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                          <Tooltip title="History">
+                            <IconButton size="small" onClick={() => openBaseHistory(base)} aria-label="Base history">
+                              <History fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Stack>
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+              {controllers.length === 0 && sensorBases.length === 0 && (
+                <Grid item xs={12}>
+                  <EmptyStateCard icon={<Hub sx={{ fontSize: 38 }} />} title="No hardware yet" />
+                </Grid>
+              )}
+            </Grid>
+          </Grid>
+        </Grid>
+      </PageShell>
+
+      <Dialog open={openFarmTools} onClose={() => setOpenFarmTools(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Farm settings</DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <Stack spacing={1.25} sx={{ mt: 1 }}>
             <Button
+              variant="outlined"
               startIcon={<Add />}
-              variant="contained"
               onClick={() => {
+                setOpenFarmTools(false);
                 setSetupError('');
                 setFieldForm({ name: '', area: '' });
                 setSelectedFieldLocation(null);
@@ -755,302 +1489,44 @@ const FarmDetails: React.FC = () => {
             >
               Add field
             </Button>
-          </Tooltip>
-          <Tooltip title="Invite a viewer to read this farm.">
-            <Button variant="outlined" onClick={() => setOpenAccess(true)}>
+            <Button
+              variant="outlined"
+              startIcon={<GroupAdd />}
+              onClick={() => {
+                setOpenFarmTools(false);
+                setOpenAccess(true);
+              }}
+            >
               Invite viewer
             </Button>
-          </Tooltip>
-          <Tooltip title="Register a physical controller for this farm.">
-            <Button variant="outlined" startIcon={<Router />} onClick={() => setOpenController(true)}>
+            <Button
+              variant="outlined"
+              startIcon={<Router />}
+              onClick={() => {
+                setOpenFarmTools(false);
+                setOpenController(true);
+              }}
+            >
               Link controller
             </Button>
-          </Tooltip>
-          <Tooltip title={baseActionDisabled ? 'Add a controller first.' : 'Register a sensor base under a controller.'}>
-            <span>
-              <Button
-                variant="outlined"
-                startIcon={<Hub />}
-                onClick={() => {
-                  setBaseForm({ gatewayId: controllers[0]?.id || '', serialNumber: '', label: '' });
-                  setOpenBase(true);
-                }}
-                disabled={baseActionDisabled}
-              >
-                Register base
-              </Button>
-            </span>
-          </Tooltip>
-        </Stack>
-      )}
-
-      <Grid container spacing={3}>
-        <Grid item xs={12} lg={7}>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-            <Typography variant="h6">Fields</Typography>
-            <Tooltip title="Fields hold crop setup. Controller links come later through sensor bases.">
-              <IconButton size="small" aria-label="Fields help">
-                <Info fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            <Button
+              variant="outlined"
+              startIcon={<Hub />}
+              disabled={baseActionDisabled}
+              onClick={() => {
+                setOpenFarmTools(false);
+                setBaseForm({ gatewayId: controllers[0]?.id || '', serialNumber: '', label: '' });
+                setOpenBase(true);
+              }}
+            >
+              Register base
+            </Button>
           </Stack>
-          <Grid container spacing={2}>
-            {fields.length === 0 ? (
-              <Grid item xs={12}>
-                <EmptyStateCard icon={<Place sx={{ fontSize: 38 }} />} title="No fields yet" />
-              </Grid>
-            ) : (
-              fields.map((field) => {
-                const activeCrop = activeCropForField(field.id);
-                return (
-                  <Grid item xs={12} sm={6} key={field.id}>
-                    <Card variant="outlined" sx={{ height: '100%', bgcolor: 'rgba(255,253,248,0.94)', boxShadow: '0 12px 28px rgba(60, 57, 17, 0.06)' }}>
-                      <CardContent>
-                        <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="flex-start">
-                          <Box>
-                            <Typography fontWeight={800}>{field.name}</Typography>
-                            <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap">
-                              <Chip size="small" label={field.area ? `${field.area} ha` : 'Area n/a'} />
-                            </Stack>
-                          </Box>
-                          {ownerMode && (
-                            <Tooltip title="Set crop">
-                              <IconButton size="small" onClick={() => openCropDialog(field)} aria-label={`Set crop for ${field.name}`}>
-                                <Agriculture fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          )}
-                        </Stack>
-
-                        {activeCrop ? (
-                          <Box sx={{ mt: 2, p: 1.5, border: 1, borderColor: 'divider', borderRadius: 2, bgcolor: 'rgba(108, 137, 48, 0.06)' }}>
-                            <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
-                              <Box>
-                                <Typography fontWeight={700}>{activeCrop.crop_name}</Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                  {activeCrop.current_stage?.name || 'Stage pending'}
-                                </Typography>
-                              </Box>
-                              {ownerMode && activeCrop.current_stage && (
-                                <Button size="small" onClick={() => openStageDialog(activeCrop)}>
-                                  Stage
-                                </Button>
-                              )}
-                            </Stack>
-                          </Box>
-                        ) : (
-                          <Stack direction="row" spacing={1} sx={{ mt: 2 }} alignItems="center">
-                            <Chip size="small" icon={<Agriculture />} label="No crop" />
-                            {ownerMode && (
-                              <Button size="small" onClick={() => openCropDialog(field)}>
-                                Set
-                              </Button>
-                            )}
-                          </Stack>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                );
-              })
-            )}
-          </Grid>
-        </Grid>
-
-        <Grid item xs={12} lg={5}>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-            <Typography variant="h6">People</Typography>
-            <Tooltip title="Owners manage access. Viewers can only read.">
-              <IconButton size="small" aria-label="People help">
-                <Info fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Stack>
-          <Stack spacing={1.25}>
-            {collaborators.map((person) => (
-              <Card key={person.user_id} variant="outlined" sx={{ bgcolor: 'rgba(255,253,248,0.94)', boxShadow: '0 12px 28px rgba(60, 57, 17, 0.06)' }}>
-                <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                    <Box sx={{ minWidth: 0 }}>
-                      <Typography fontWeight={800} noWrap>{person.name || person.email}</Typography>
-                      <Typography variant="body2" color="text.secondary" noWrap>
-                        {person.email}
-                      </Typography>
-                    </Box>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Chip size="small" label={person.role} />
-                      {ownerMode && person.role === 'viewer' && (
-                        <IconButton size="small" onClick={() => handleRemove(person.user_id)} aria-label="Remove viewer">
-                          <PersonRemove fontSize="small" />
-                        </IconButton>
-                      )}
-                    </Stack>
-                  </Stack>
-                </CardContent>
-              </Card>
-            ))}
-            {collaborators.length === 0 && (
-              <EmptyStateCard title="No people yet" />
-            )}
-          </Stack>
-        </Grid>
-      </Grid>
-
-      <Box sx={{ mt: 4 }}>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-          <Typography variant="h6">Alerts</Typography>
-          <Tooltip title="Farm alerts are scoped to fields, bases, and crops.">
-            <IconButton size="small" aria-label="Farm alerts help">
-              <Info fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Chip size="small" label={openAlertCount} />
-        </Stack>
-        {farmAlerts.length === 0 ? (
-          <EmptyStateCard icon={<WarningAmber sx={{ fontSize: 38 }} />} title="No alerts" />
-        ) : (
-          <Grid container spacing={2}>
-            {farmAlerts.slice(0, 4).map((alert) => (
-              <Grid item xs={12} md={6} key={alert.id}>
-                <Card variant="outlined" sx={{ bgcolor: 'rgba(255,253,248,0.94)', boxShadow: '0 12px 28px rgba(60, 57, 17, 0.06)' }}>
-                  <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                    <Stack direction="row" justifyContent="space-between" spacing={1.5} alignItems="flex-start">
-                      <Box sx={{ minWidth: 0 }}>
-                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                          <Chip size="small" color={alertSeverityColor(alert.severity)} label={String(alert.severity).toLowerCase()} />
-                          <Chip size="small" variant="outlined" label={alert.status} />
-                          {alert.field_name && <Chip size="small" variant="outlined" label={alert.field_name} />}
-                        </Stack>
-                        <Typography sx={{ mt: 1 }} fontWeight={800}>
-                          {alert.message}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {new Date(alert.created_at).toLocaleDateString()}
-                        </Typography>
-                      </Box>
-                      {ownerMode && alert.status !== 'acknowledged' && (
-                        <Button size="small" onClick={() => acknowledgeAlert(alert.id)} disabled={saving}>
-                          Ack
-                        </Button>
-                      )}
-                    </Stack>
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
-        )}
-      </Box>
-      </PageShell>
-
-      <Box sx={{ mt: 4 }}>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-          <Typography variant="h6">Hardware</Typography>
-          <Tooltip title="Controllers belong to the farm. Fields are linked through sensor bases.">
-            <IconButton size="small" aria-label="Hardware help">
-              <Info fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Chip size="small" label={baseCount} />
-        </Stack>
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={5}>
-            <Stack spacing={1.25}>
-              {controllers.map((controller) => (
-                <Card key={controller.id} variant="outlined">
-                  <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                    <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
-                      <Box sx={{ minWidth: 0 }}>
-                        <Typography fontWeight={800} noWrap>{controller.serial_number}</Typography>
-                        <Typography variant="body2" color="text.secondary" noWrap>
-                          {controller.field_ids.length ? controller.field_ids.map(fieldNameById).join(', ') : 'No field link'}
-                        </Typography>
-                      </Box>
-                      <Chip size="small" label={controller.status} />
-                    </Stack>
-                  </CardContent>
-                </Card>
-              ))}
-              {controllers.length === 0 && (
-                <Box sx={{ py: 4, textAlign: 'center', border: 1, borderColor: 'divider', borderRadius: 1 }}>
-                  <Router color="primary" sx={{ fontSize: 36 }} />
-                  <Typography sx={{ mt: 1 }}>No controllers</Typography>
-                </Box>
-              )}
-            </Stack>
-          </Grid>
-          <Grid item xs={12} md={7}>
-            <Stack spacing={1.25}>
-              {sensorBases.map((base) => (
-                <Card key={base.id} variant="outlined">
-                  <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.5}>
-                      <Box sx={{ minWidth: 0 }}>
-                        <Typography fontWeight={800} noWrap>{base.label || base.serial_number}</Typography>
-                        <Typography variant="body2" color="text.secondary" noWrap>
-                          {controllerNameById(base.gateway_id)}
-                        </Typography>
-                        <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap">
-                          <Chip size="small" label={base.status} />
-                          <Chip
-                            size="small"
-                            label={
-                              base.current_assignment?.field_id
-                                ? fieldNameById(base.current_assignment.field_id)
-                                : base.current_assignment?.monitoring_zone || 'Unassigned'
-                            }
-                          />
-                        </Stack>
-                        {modulesForBase(base.id).length > 0 && (
-                          <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap">
-                            {modulesForBase(base.id).flatMap((module) =>
-                              module.channels.map((channel) => (
-                                <Chip
-                                  key={channel.id}
-                                  size="small"
-                                  variant="outlined"
-                                  label={channel.unit ? `${channel.measurement_type} ${channel.unit}` : channel.measurement_type}
-                                />
-                              )),
-                            )}
-                          </Stack>
-                        )}
-                      </Box>
-                      <Stack direction="row" spacing={0.5} alignItems="center">
-                        {ownerMode && (
-                          <Tooltip title="Module">
-                            <IconButton size="small" onClick={() => openModuleDialog(base)} aria-label="Add module">
-                              <Sensors fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {ownerMode && (
-                          <Tooltip title="Assign">
-                            <IconButton size="small" onClick={() => openAssignDialog(base)} aria-label="Assign base">
-                              <Place fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        <Tooltip title="History">
-                          <IconButton size="small" onClick={() => openBaseHistory(base)} aria-label="Base history">
-                            <History fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Stack>
-                    </Stack>
-                  </CardContent>
-                </Card>
-              ))}
-              {sensorBases.length === 0 && (
-                <Box sx={{ py: 4, textAlign: 'center', border: 1, borderColor: 'divider', borderRadius: 1 }}>
-                  <Hub color="primary" sx={{ fontSize: 36 }} />
-                  <Typography sx={{ mt: 1 }}>No bases</Typography>
-                </Box>
-              )}
-            </Stack>
-          </Grid>
-        </Grid>
-      </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenFarmTools(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={openField}
