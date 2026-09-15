@@ -8,6 +8,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import { MonitoringSkeleton } from '../../components/LoadingSkeletons';
 import { PageHeaderPanel, PageShell } from '../../components/ui/PageSurface';
+import FarmLocationPicker from '../../components/FarmLocationPicker';
 import {
   confirmCropStage, createCropInstance, createField, Crop, CropInstance, deleteFarm,
   Farm, FarmController, Field, getCrops, getFarm, getFarmControllers, getFarmFields,
@@ -27,6 +28,7 @@ const FarmSettings: React.FC = () => {
   const [cropByField, setCropByField] = useState<Record<string, CropInstance | undefined>>({});
   const [name, setName] = useState('');
   const [fieldName, setFieldName] = useState('');
+  const [fieldLocationOpen, setFieldLocationOpen] = useState(false);
   const [setupField, setSetupField] = useState<Field | null>(null);
   const [cropId, setCropId] = useState('');
   const [plantingDate, setPlantingDate] = useState('');
@@ -250,6 +252,7 @@ const FarmSettings: React.FC = () => {
     <IconButton onClick={() => navigate(`/farms/${farmId}`)} aria-label="Back to farm" sx={{ mb: 1 }}><ArrowBack /></IconButton>
     <PageHeaderPanel title="Farm settings" subtitle="Manage this farm and its fields." icon={<Agriculture />} />
     <Stack spacing={2}>
+      {farm && <Typography variant="h5">{farm.name}</Typography>}
       {error && <Alert severity="error">{error}</Alert>}
       {notice && <Alert severity="success">{notice}</Alert>}
       {farm?.role === 'viewer' && <Alert severity="info">Only the farm owner can change these settings.</Alert>}
@@ -284,7 +287,7 @@ const FarmSettings: React.FC = () => {
           </Stack>;
         })}
         {fields.length === 0 && <Typography color="text.secondary">No fields added yet.</Typography>}
-        {farm?.role === 'owner' && <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><TextField fullWidth size="small" label="New field name" placeholder="Example: North field" value={fieldName} onChange={(event) => setFieldName(event.target.value)} inputProps={{ maxLength: 100 }} /><Button variant="outlined" startIcon={<Add />} onClick={addField} disabled={busy || fieldName.trim().length < 2} sx={{ whiteSpace: 'nowrap' }}>Add field</Button></Stack>}
+        {farm?.role === 'owner' && <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><TextField fullWidth size="small" label="New field name" placeholder="Example: North field" value={fieldName} onChange={(event) => setFieldName(event.target.value)} inputProps={{ maxLength: 100 }} /><Button variant="outlined" aria-label="Create a field to hold crops and monitoring areas" startIcon={<Add />} onClick={() => setFieldLocationOpen(true)} disabled={busy} sx={{ whiteSpace: 'nowrap' }}>Add field</Button></Stack>}
       </Stack></CardContent></Card>
 
       <Card variant="outlined"><CardContent><Stack spacing={2}>
@@ -538,6 +541,11 @@ const FarmSettings: React.FC = () => {
     </Dialog>
 
     <Dialog open={deleteOpen} onClose={() => !busy && setDeleteOpen(false)} fullWidth maxWidth="sm"><DialogTitle>Delete {farm?.name}?</DialogTitle><DialogContent><Alert severity="warning" sx={{ mb: 2 }}>This removes the farm from the app for the owner and all viewers.</Alert><Typography variant="body2" sx={{ mb: 1 }}>Type the farm name to confirm.</Typography><TextField fullWidth value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} label="Farm name" /></DialogContent><DialogActions><Button onClick={() => setDeleteOpen(false)} disabled={busy}>Cancel</Button><Button color="error" variant="contained" onClick={removeFarm} disabled={busy || deleteConfirmation.trim() !== farm?.name}>Delete farm</Button></DialogActions></Dialog>
+    <Dialog open={fieldLocationOpen} onClose={() => setFieldLocationOpen(false)} fullWidth maxWidth="md">
+      <DialogTitle>Field location</DialogTitle>
+      <DialogContent><FarmLocationPicker value={null} confirmed={false} onChange={() => undefined} onConfirm={() => undefined} /></DialogContent>
+      <DialogActions><Button onClick={() => setFieldLocationOpen(false)}>Close</Button></DialogActions>
+    </Dialog>
   </PageShell></Container>;
 };
 

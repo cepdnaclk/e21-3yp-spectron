@@ -567,6 +567,7 @@ CONFIGURABLE_DERIVED_METRICS.dht11 = CONFIGURABLE_DERIVED_METRICS.temperature_hu
 CONFIGURABLE_DERIVED_METRICS.dht22 = CONFIGURABLE_DERIVED_METRICS.temperature_humidity;
 CONFIGURABLE_DERIVED_METRICS.load_cell = CONFIGURABLE_DERIVED_METRICS.load;
 CONFIGURABLE_DERIVED_METRICS.gas = CONFIGURABLE_DERIVED_METRICS.gas_sensor;
+CONFIGURABLE_DERIVED_METRICS.vl53l0x = CONFIGURABLE_DERIVED_METRICS.ultrasonic;
 
 const SENSOR_KNOWLEDGE_PROFILES: Record<string, SensorKnowledgeProfile> = {
   temperature_humidity: {
@@ -962,7 +963,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       runtime_metric_key: 'fill_rate',
       use_case: 'fill_level_monitoring',
       recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'event_timeline'],
+      supported_profiles: ['single_trend', 'gauge_status', 'event_timeline'],
       purposes: [
         {
           key: 'collection_planning',
@@ -987,7 +988,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       runtime_metric_key: 'remaining_capacity_percent',
       use_case: 'fill_level_monitoring',
       recommended_profile: 'gauge_status',
-      supported_profiles: ['gauge_status', 'level_monitoring'],
+      supported_profiles: ['gauge_status', 'level_monitoring', 'single_trend'],
       purposes: [
         {
           key: 'storage_planning',
@@ -1108,7 +1109,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       runtime_metric_key: 'load_change_rate',
       use_case: 'load_monitoring',
       recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'event_timeline'],
+      supported_profiles: ['single_trend', 'gauge_status', 'event_timeline'],
       purposes: [
         {
           key: 'restock_behavior_monitoring',
@@ -1158,7 +1159,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       runtime_metric_key: 'depletion_rate',
       use_case: 'load_monitoring',
       recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'event_timeline'],
+      supported_profiles: ['single_trend', 'gauge_status', 'event_timeline'],
       purposes: [
         {
           key: 'stock_forecasting',
@@ -1942,13 +1943,18 @@ export const getDerivedMetrics = (sensorType: string, useCase?: string): SensorD
 
 export const getConfigurableDerivedMetrics = (sensorType: string): ConfigurableDerivedMetric[] => {
   const normalizedType = sensorType?.toLowerCase();
-  return CONFIGURABLE_DERIVED_METRICS[normalizedType] || [];
+  return CONFIGURABLE_DERIVED_METRICS[normalizedType] ||
+    (normalizedType === 'vl53l0x' ? CONFIGURABLE_DERIVED_METRICS.ultrasonic : []);
 };
 
 export const getObservableMetricCatalog = (sensorType: string): ObservableMetricDefinition[] => {
   const normalizedType = sensorType?.toLowerCase();
   if (!normalizedType) {
     return [];
+  }
+
+  if (normalizedType === 'vl53l0x') {
+    return getObservableMetricCatalog('ultrasonic');
   }
 
   const catalog = OBSERVABLE_METRIC_CATALOG[normalizedType];
@@ -2183,6 +2189,58 @@ const alertTemplateValuesForMetric = (
           description: 'Warn when attendance drops below the expected session target.',
           warning_label: 'Below target at or below',
           critical_label: 'Critical shortage at or below',
+        },
+      ];
+    case 'remaining_capacity_percent':
+      return [
+        {
+          key: `${metricKey}_capacity_band`,
+          label: 'Low Remaining Capacity Alert',
+          metric_key: metricKey,
+          condition: 'below',
+          unit,
+          description: 'Warn when the remaining free capacity falls below the service planning threshold.',
+          warning_label: 'Low capacity at or below',
+          critical_label: 'Critical capacity at or below',
+        },
+      ];
+    case 'fill_rate':
+      return [
+        {
+          key: `${metricKey}_limit_band`,
+          label: 'Rapid Fill Event',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Escalate when the container is filling faster than the expected operating rate.',
+          warning_label: 'Rapid fill at',
+          critical_label: 'Critical fill rate at',
+        },
+      ];
+    case 'occupancy_spike':
+      return [
+        {
+          key: `${metricKey}_limit_band`,
+          label: 'Sudden Occupancy Increase',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Escalate when occupancy rises sharply within the monitored area.',
+          warning_label: 'Increase at',
+          critical_label: 'Critical increase at',
+        },
+      ];
+    case 'peak_occupancy':
+      return [
+        {
+          key: `${metricKey}_capacity_band`,
+          label: 'Peak Occupancy Alert',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Warn when observed occupancy reaches the configured peak capacity.',
+          warning_label: 'Peak occupancy at',
+          critical_label: 'Critical occupancy at',
         },
       ];
     case 'weight':

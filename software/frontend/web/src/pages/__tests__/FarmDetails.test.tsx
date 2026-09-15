@@ -19,6 +19,7 @@ import {
   getFarmControllers,
   getFarmFields,
   getFarmSensorBases,
+  getFarms,
   getFieldCropInstances,
   getSensorBaseAssignments,
   getSensorModules,
@@ -46,6 +47,7 @@ vi.mock('../../services/farmService', () => ({
   getFarmControllers: vi.fn(),
   getFarmFields: vi.fn(),
   getFarmSensorBases: vi.fn(),
+  getFarms: vi.fn(),
   getFieldCropInstances: vi.fn(),
   getSensorBaseAssignments: vi.fn(),
   getSensorModules: vi.fn(),
@@ -66,6 +68,7 @@ describe('FarmDetails field location setup', () => {
     vi.mocked(getCrops).mockResolvedValue([]);
     vi.mocked(getFarmControllers).mockResolvedValue([]);
     vi.mocked(getFarmSensorBases).mockResolvedValue([]);
+    vi.mocked(getFarms).mockResolvedValue([]);
     vi.mocked(getFarmAlerts).mockResolvedValue([]);
     vi.mocked(getFieldCropInstances).mockResolvedValue([]);
     vi.mocked(getSensorModules).mockResolvedValue([]);

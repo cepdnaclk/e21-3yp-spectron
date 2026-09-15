@@ -81,11 +81,7 @@ const Farms: React.FC = () => {
         setFormError('Farm name is required.');
         return;
       }
-      if (!selectedLocation) {
-        setFormError('Select the farm location so weather information can be provided.');
-        return;
-      }
-      if (!locationConfirmed) {
+      if (selectedLocation && !locationConfirmed) {
         setFormError('Confirm the selected farm location before creating.');
         return;
       }
@@ -271,7 +267,7 @@ const Farms: React.FC = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={closeCreateDialog} disabled={saving}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreate} disabled={saving || !farmName.trim() || !selectedLocation || !locationConfirmed}>
+          <Button variant="contained" onClick={handleCreate} disabled={saving || !farmName.trim()}>
             {saving ? 'Saving' : 'Create'}
           </Button>
         </DialogActions>
