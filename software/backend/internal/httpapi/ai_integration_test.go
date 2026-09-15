@@ -149,6 +149,22 @@ func TestGenerateHostedAISuggestionRejectsUnsupportedProvider(t *testing.T) {
 	}
 }
 
+func TestGenerateHostedAISuggestionGeminiProviderDoesNotFallbackToOpenAI(t *testing.T) {
+	t.Setenv("AI_PROVIDER", "gemini")
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "test-openai-key")
+	t.Setenv("AI_API_KEY", "")
+
+	handler := &SensorHandler{}
+	_, _, err := handler.generateHostedAISuggestion(context.Background(), "temperature", models.AISuggestRequest{}, "")
+	if err == nil {
+		t.Fatal("expected hosted AI not configured error")
+	}
+	if !strings.Contains(err.Error(), "hosted AI not configured") {
+		t.Fatalf("expected hosted AI not configured error, got %v", err)
+	}
+}
+
 func formatFloatPtr(p *float64) string {
 	if p == nil {
 		return "nil"
