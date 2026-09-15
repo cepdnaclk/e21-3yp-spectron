@@ -1,7 +1,12 @@
 import { BriefcaseBusiness, Code2, RadioTower } from 'lucide-react'
 import { navigation } from '../data/siteData.js'
 
-export default function Footer({ onNavigate, copy }) {
+const defaultCopy = {
+  footerCopy: 'Modular monitoring for Sri Lankan agriculture.',
+  footerNote: 'SPECTRON · Built for local growers.',
+}
+
+export default function Footer({ onNavigate, copy = defaultCopy }) {
   function handleNavigate(event, href) {
     if (!onNavigate) return
     event.preventDefault()
