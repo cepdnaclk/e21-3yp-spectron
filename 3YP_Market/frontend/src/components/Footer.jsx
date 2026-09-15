@@ -2,8 +2,8 @@ import { BriefcaseBusiness, Code2, RadioTower } from 'lucide-react'
 import { navigation } from '../data/siteData.js'
 
 const defaultCopy = {
-  footerCopy: 'Sri Lankan agriculture storefront',
-  footerNote: 'Built for simple farm monitoring, quotes, and pilot requests.',
+  footerCopy: 'Modular monitoring for Sri Lankan agriculture.',
+  footerNote: 'SPECTRON - Built for local growers.',
 }
 
 export default function Footer({ onNavigate, copy }) {
@@ -35,11 +35,11 @@ export default function Footer({ onNavigate, copy }) {
           <div className="flex flex-wrap gap-2">
             {navigation.map((item) => (
               <a
-              key={item.href}
-              href={item.href}
-              onClick={(event) => handleNavigate(event, item.href)}
-              className="rounded-md px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-950"
-            >
+                key={item.href}
+                href={item.href}
+                onClick={(event) => handleNavigate(event, item.href)}
+                className="rounded-md px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-950"
+              >
                 {item.label}
               </a>
             ))}
