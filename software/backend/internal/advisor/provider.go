@@ -104,22 +104,15 @@ func (p fallbackProvider) Generate(ctx context.Context, input Request) (Result, 
 // NewProvider prefers Groq for every AI-backed product flow. Gemini remains
 // only as a fallback when a Groq key is not available.
 func NewProvider() Provider {
-    gemini := NewGeminiProvider()
-    groq := NewGroqProvider()
-    if groq.Key != "" {
-        if gemini.Key != "" {
-            return fallbackProvider{primary: groq, secondary: gemini}
-        }
-        return groq
-    }
-    return gemini
-}
-		return gemini
+	gemini := NewGeminiProvider()
+	groq := NewGroqProvider()
+	if groq.Key != "" {
+		if gemini.Key != "" {
+			return fallbackProvider{primary: groq, secondary: gemini}
+		}
+		return groq
 	}
-	if gemini.Key != "" {
-		return fallbackProvider{primary: groq, secondary: gemini}
-	}
-	return groq
+	return gemini
 }
 
 func NewGroqProvider() *GroqProvider {
