@@ -1,7 +1,14 @@
 import { BriefcaseBusiness, Code2, RadioTower } from 'lucide-react'
 import { navigation } from '../data/siteData.js'
 
+const defaultCopy = {
+  footerCopy: 'Sri Lankan agriculture storefront',
+  footerNote: 'Built for simple farm monitoring, quotes, and pilot requests.',
+}
+
 export default function Footer({ onNavigate, copy }) {
+  const footerCopy = copy ?? defaultCopy
+
   function handleNavigate(event, href) {
     if (!onNavigate) return
     event.preventDefault()
@@ -21,7 +28,7 @@ export default function Footer({ onNavigate, copy }) {
             />
             <div>
               <p className="font-bold uppercase text-slate-950">SPECTRON</p>
-              <p className="text-sm text-slate-600">{copy.footerCopy}</p>
+              <p className="text-sm text-slate-600">{footerCopy.footerCopy}</p>
             </div>
           </div>
 
@@ -41,7 +48,7 @@ export default function Footer({ onNavigate, copy }) {
 
         <div className="mt-8 flex flex-col gap-5 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-slate-500">
-            {copy.footerNote}
+            {footerCopy.footerNote}
           </p>
           <div className="flex gap-2">
             <FooterIcon href="#" label="SPECTRON network">

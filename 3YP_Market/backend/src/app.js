@@ -3,7 +3,6 @@ import cors from 'cors'
 import { env } from './config/env.js'
 import contactRoutes from './routes/contactRoutes.js'
 import recommendationRoutes from './routes/recommendationRoutes.js'
-import sensorConfigurationRoutes from './routes/sensorConfigurationRoutes.js'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
 
 const app = express()
@@ -45,7 +44,6 @@ app.get('/health', (req, res) => {
 
 app.use('/api/contact', contactRoutes)
 app.use('/api/recommendations', recommendationRoutes)
-app.use('/api/sensors', sensorConfigurationRoutes)
 
 app.use(notFoundHandler)
 app.use(errorHandler)
