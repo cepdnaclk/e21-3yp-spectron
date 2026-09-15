@@ -20,8 +20,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"spectron-backend/internal/agri"
 	"spectron-backend/internal/advisor"
+	"spectron-backend/internal/agri"
 	"spectron-backend/internal/models"
 )
 
@@ -1173,8 +1173,7 @@ func hasCountHint(text string) bool {
 }
 
 func (h *SensorHandler) generateHostedAISuggestion(ctx context.Context, sensorType string, req models.AISuggestRequest, historySummary string) (models.SensorConfig, string, error) {
-    return h.generateOpenAIAISuggestion(ctx, sensorType, req, historySummary)
-}
+	return h.generateOpenAIAISuggestion(ctx, sensorType, req, historySummary)
 }
 
 func generatePremiumExplanation(sensorType string, req models.AISuggestRequest, config models.SensorConfig) string {
@@ -1602,7 +1601,7 @@ func (h *SensorHandler) generateOpenAIAISuggestion(ctx context.Context, sensorTy
 }
 
 func configuredAIProvider() string {
-    return "groq"
+	return "groq"
 }
 
 func openAICompatibleAPIKey(provider string) string {
