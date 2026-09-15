@@ -3,6 +3,8 @@ import unittest
 from simulation.spectron_sim import (
     ControllerNode,
     Frame,
+    ModuleLoader,
+    ModulePackager,
     MessageType,
     SensorNode,
     SensorType,
@@ -10,7 +12,92 @@ from simulation.spectron_sim import (
     build_demo_network,
 )
 
+
 class SpectronSimulationTests(unittest.TestCase):
+    def test_controller_handles_sht30_app(self):
+        network, controller, sht30, _ = build_demo_network()
+
+        self.assertEqual(sht30.sensor_type, SensorType.SHT30)
+        self.assertTrue(sht30.discover())
+        self.assertTrue(sht30.send_reading())
+        self.assertEqual(controller.readings[0]["humidity_rh_x100"], 4820)
+        self.assertEqual(len(network.frames), 10)
+
+    def test_controller_handles_bmx280_app(self):
+        _, controller, _, bme280 = build_demo_network()
+
+        self.assertEqual(bme280.sensor_type, SensorType.PRESSURE)
+        self.assertTrue(bme280.discover())
+        self.assertTrue(bme280.send_reading())
+        self.assertEqual(controller.readings[0]["pressure_pa"], 101325)
+
+    def test_sht30_app_reports_temperature_and_humidity(self):
+        _, controller, sht30, _ = build_demo_network()
+
+        sht30.discover()
+        sht30.send_reading()
+
+        reading = controller.readings[0]
+        self.assertEqual(reading["temperature_c_x100"], 2315)
+        self.assertEqual(reading["humidity_rh_x100"], 4820)
+
+    def test_bmx280_app_reports_pressure_temperature_and_humidity(self):
+        _, controller, _, bme280 = build_demo_network()
+
+        bme280.discover()
+        bme280.send_reading()
+
+        reading = controller.readings[0]
+        self.assertEqual(reading["pressure_pa"], 101325)
+        self.assertEqual(reading["temperature_c_x100"], 2240)
+        self.assertEqual(reading["humidity_rh_x100"], 5010)
+
+    def test_packager_creates_a_valid_sht30_package(self):
+        package = ModulePackager().package(
+            SensorType.SHT30, "SHT30", 0x44, b"sht30-firmware"
+        )
+
+        self.assertEqual(package.firmware_address, 0x1000)
+        self.assertTrue(ModuleLoader().validate(package))
+
+    def test_packager_creates_a_valid_bmx280_package(self):
+        package = ModulePackager().package(
+            SensorType.PRESSURE, "BME280", 0x76, b"bmx280-firmware"
+        )
+
+        self.assertEqual(package.sensor_name, "BME280")
+        self.assertTrue(ModuleLoader().validate(package))
+
+    def test_loader_rejects_a_changed_firmware_crc(self):
+        package = ModulePackager().package(
+            SensorType.SHT30, "SHT30", 0x44, b"firmware"
+        )
+        changed = package.__class__(
+            sensor_type=package.sensor_type,
+            sensor_name=package.sensor_name,
+            i2c_address=package.i2c_address,
+            firmware_address=package.firmware_address,
+            firmware=b"changed-firmware",
+            firmware_crc=package.firmware_crc,
+        )
+
+        self.assertFalse(ModuleLoader().validate(changed))
+
+    def test_loader_rejects_an_invalid_i2c_address(self):
+        package = ModulePackager().package(
+            SensorType.PRESSURE, "BME280", 0x76, b"firmware"
+        )
+        invalid = package.__class__(
+            sensor_type=package.sensor_type,
+            sensor_name=package.sensor_name,
+            i2c_address=0x80,
+            firmware_address=package.firmware_address,
+            firmware=package.firmware,
+            firmware_crc=package.firmware_crc,
+        )
+
+        self.assertFalse(ModuleLoader().validate(invalid))
+
     def test_controller_requires_network_for_configuration(self):
         controller = ControllerNode()
         node = SensorNode("node", 1, SensorType.SHT30, "SHT30")
@@ -334,6 +421,7 @@ class SpectronSimulationTests(unittest.TestCase):
             controller.rejected_frames[-1],
             "sensor payload does not match sensor type",
         )
+
 
 if __name__ == "__main__":
     unittest.main()

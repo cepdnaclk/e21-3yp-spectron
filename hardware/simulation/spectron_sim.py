@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any, Dict, List, Optional
+from zlib import crc32
 
 
 class MessageType(IntEnum):
@@ -28,6 +29,53 @@ class AckStatus(IntEnum):
     BAD_PAYLOAD = 2
     BAD_TARGET = 3
     APPLY_FAIL = 4
+
+
+@dataclass(frozen=True)
+class ModulePackage:
+    sensor_type: SensorType
+    sensor_name: str
+    i2c_address: int
+    firmware_address: int
+    firmware: bytes
+    firmware_crc: int
+
+
+class ModulePackager:
+    firmware_address = 0x1000
+
+    def package(
+        self,
+        sensor_type: SensorType,
+        sensor_name: str,
+        i2c_address: int,
+        firmware: bytes,
+    ) -> ModulePackage:
+        return ModulePackage(
+            sensor_type=sensor_type,
+            sensor_name=sensor_name,
+            i2c_address=i2c_address,
+            firmware_address=self.firmware_address,
+            firmware=firmware,
+            firmware_crc=crc32(firmware) & 0xFFFFFFFF,
+        )
+
+
+class ModuleLoader:
+    max_firmware_size = 0x140000
+    supported_types = {
+        SensorType.SHT30,
+        SensorType.PRESSURE,
+    }
+
+    def validate(self, package: ModulePackage) -> bool:
+        return (
+            package.sensor_type in self.supported_types
+            and 0 < package.i2c_address <= 0x7F
+            and package.firmware_address >= ModulePackager.firmware_address
+            and 0 < len(package.firmware) <= self.max_firmware_size
+            and crc32(package.firmware) & 0xFFFFFFFF == package.firmware_crc
+        )
 
 
 @dataclass(frozen=True)
