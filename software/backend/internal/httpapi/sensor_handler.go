@@ -1176,6 +1176,10 @@ func (h *SensorHandler) generateHostedAISuggestion(ctx context.Context, sensorTy
 	return h.generateOpenAIAISuggestion(ctx, sensorType, req, historySummary)
 }
 
+func (h *SensorHandler) generateGroqAISuggestion(ctx context.Context, sensorType string, req models.AISuggestRequest, historySummary string) (models.SensorConfig, string, error) {
+	return h.generateOpenAIAISuggestion(ctx, sensorType, req, historySummary)
+}
+
 func generatePremiumExplanation(sensorType string, req models.AISuggestRequest, config models.SensorConfig) string {
 	purpose := strings.ToLower(req.Purpose)
 	if strings.Contains(purpose, "humidity") || strings.Contains(purpose, "greenhouse") || strings.Contains(purpose, "crop") {
