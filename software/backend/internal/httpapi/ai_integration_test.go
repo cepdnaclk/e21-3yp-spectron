@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/joho/godotenv"
@@ -131,6 +132,20 @@ func TestGenericAIAPIKeySelectsOpenRouter(t *testing.T) {
 	}
 	if apiKey := openAICompatibleAPIKey("openrouter"); apiKey != "test-generic-ai-key" {
 		t.Fatalf("openAICompatibleAPIKey(openrouter) = %q", apiKey)
+	}
+}
+
+func TestGenerateHostedAISuggestionRejectsUnsupportedProvider(t *testing.T) {
+	t.Setenv("AI_PROVIDER", "invalid-provider")
+	t.Setenv("GEMINI_API_KEY", "")
+
+	handler := &SensorHandler{}
+	_, _, err := handler.generateHostedAISuggestion(context.Background(), "temperature", models.AISuggestRequest{}, "")
+	if err == nil {
+		t.Fatal("expected unsupported provider error")
+	}
+	if !strings.Contains(err.Error(), "unsupported AI provider") {
+		t.Fatalf("expected unsupported provider error, got %v", err)
 	}
 }
 
