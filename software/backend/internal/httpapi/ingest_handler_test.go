@@ -8,19 +8,27 @@ import (
 )
 
 func TestEffectiveSamplePeriodMsDefaultsToControllerMinimum(t *testing.T) {
-	if got := effectiveSamplePeriodMs(0, 1); got != 1000 {
+	if got := effectiveSamplePeriodMs("", 0, 1); got != 1000 {
 		t.Fatalf("expected 1000ms default sample period, got %d", got)
 	}
 }
 
 func TestEffectiveSamplePeriodMsClampsToControllerMinimum(t *testing.T) {
-	if got := effectiveSamplePeriodMs(86400, 1); got != 1000 {
+	if got := effectiveSamplePeriodMs("distance", 86400, 1); got != 1000 {
 		t.Fatalf("expected clamp to 1000ms minimum, got %d", got)
 	}
 }
 
-func TestEffectiveSamplePeriodMsAllowsSlowerSchedules(t *testing.T) {
-	if got := effectiveSamplePeriodMs(24, 1); got != 3600000 {
+func TestEffectiveSamplePeriodMsKeepsTemperatureRealtime(t *testing.T) {
+	for _, sensorType := range []string{"temperature", "temperature_humidity", "sht30", "bme280"} {
+		if got := effectiveSamplePeriodMs(sensorType, 24, 1); got != 1000 {
+			t.Fatalf("expected %s to use 1000ms despite hourly config, got %d", sensorType, got)
+		}
+	}
+}
+
+func TestEffectiveSamplePeriodMsAllowsSlowerNonClimateSchedules(t *testing.T) {
+	if got := effectiveSamplePeriodMs("distance", 24, 1); got != 3600000 {
 		t.Fatalf("expected hourly schedule to map to 3600000ms, got %d", got)
 	}
 }

@@ -363,7 +363,7 @@ func (h *IngestHandler) Config(w http.ResponseWriter, r *http.Request) {
 		SensorID:                sensorID,
 		SensorType:              sensorType,
 		HasActiveConfig:         false,
-		SamplePeriodMs:          effectiveSamplePeriodMs(0, minIntervalSec),
+		SamplePeriodMs:          effectiveSamplePeriodMs(sensorType, 0, minIntervalSec),
 		TempThresholdHiX100:     defaultTempThresholdHiX100,
 		HumidityThresholdHiX100: defaultHumidityThresholdHiX100,
 	}
@@ -458,7 +458,7 @@ func (h *IngestHandler) Config(w http.ResponseWriter, r *http.Request) {
 			}
 
 			resp.HasActiveConfig = true
-			resp.SamplePeriodMs = effectiveSamplePeriodMs(activeConfig.ReportIntervalPerDay, minIntervalSec)
+			resp.SamplePeriodMs = effectiveSamplePeriodMs(resp.SensorType, activeConfig.ReportIntervalPerDay, minIntervalSec)
 			switch strings.ToLower(strings.TrimSpace(resp.SensorType)) {
 			case "bme280", "bmp280":
 				resp.TempThresholdHiX100 = int16(thresholdUpperX100(resolveMetricThreshold(activeConfig, "temperature"), defaultTempThresholdHiX100))
@@ -628,12 +628,15 @@ func flatConfigFloatPtr(config map[string]any, key string) *float64 {
 	}
 }
 
-func effectiveSamplePeriodMs(reportsPerDay int, minIntervalSec int) uint32 {
+func effectiveSamplePeriodMs(sensorType string, reportsPerDay int, minIntervalSec int) uint32 {
 	if minIntervalSec <= 0 {
 		minIntervalSec = defaultDeviceMinReportingIntervalSec
 	}
 
 	minDuration := time.Duration(minIntervalSec) * time.Second
+	if isRealtimeClimateSensor(sensorType) {
+		return uint32(minDuration / time.Millisecond)
+	}
 	if reportsPerDay <= 0 {
 		return uint32(minDuration / time.Millisecond)
 	}
@@ -644,6 +647,15 @@ func effectiveSamplePeriodMs(reportsPerDay int, minIntervalSec int) uint32 {
 	}
 
 	return uint32(sampleDuration / time.Millisecond)
+}
+
+func isRealtimeClimateSensor(sensorType string) bool {
+	switch strings.ToLower(strings.TrimSpace(sensorType)) {
+	case "temperature", "humidity", "temperature_humidity", "temp_humidity", "dht11", "dht22", "sht30", "bme280", "bmp280":
+		return true
+	default:
+		return false
+	}
 }
 
 func resolveMetricThreshold(config models.SensorConfig, metric string) models.ThresholdConfig {
