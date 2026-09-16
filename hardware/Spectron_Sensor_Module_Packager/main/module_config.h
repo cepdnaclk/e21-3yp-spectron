@@ -29,7 +29,7 @@
  * threshold_2 = humidity high x100
  * ============================================================ */
 
-#define MODULE_DEFAULT_SAMPLE_MS        5000
+#define MODULE_DEFAULT_SAMPLE_MS        1000
 #define MODULE_DEFAULT_THRESHOLD_1_X100 3500
 #define MODULE_DEFAULT_THRESHOLD_2_X100 8500
 

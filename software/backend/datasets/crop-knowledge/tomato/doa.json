@@ -1,0 +1,63 @@
+{
+  "crop": "Tomato",
+  "source": "Sri Lanka Department of Agriculture, HORDI tomato crop guide",
+  "source_url": "https://doa.gov.lk/hordi-crop-tomato/",
+  "publisher": "Sri Lanka Department of Agriculture",
+  "reviewed_at": "2026-07-20",
+  "language": "en",
+  "entries": [
+    {
+      "category": "crop_profile",
+      "topic": "Suitable growing conditions",
+      "content": "Tomato generally grows well in soil with pH 5.5 to 7.5; organic matter supports better growth.",
+      "evidence_type": "local_official_guidance",
+      "location_scope": "Sri Lanka"
+    },
+    {
+      "category": "irrigation",
+      "topic": "Avoid excess water",
+      "growth_stage": "Fruiting",
+      "content": "Avoid excessive watering during dry periods because rapid changes in water availability can contribute to fruit cracking.",
+      "actions": ["Check root-zone moisture before watering", "Keep water supply reasonably consistent"],
+      "requires_local_calibration": true
+    },
+    {
+      "category": "disease",
+      "topic": "Early blight",
+      "content": "Early blight can produce dark lesions with concentric ring patterns on tomato leaves, stems, or fruit.",
+      "symptoms": ["dark lesions", "concentric rings"],
+      "plant_parts": ["leaf", "stem", "fruit"],
+      "confirmation_questions": ["Do the spots contain ring-like circles?", "Did symptoms begin on older lower leaves?"]
+    },
+    {
+      "category": "disease",
+      "topic": "Late blight",
+      "content": "Late blight may begin on older lower leaves as water-soaked grey-green spots that darken; white growth may appear on the leaf underside.",
+      "symptoms": ["water-soaked grey-green spots", "darkening spots", "white growth under leaves"],
+      "plant_parts": ["older lower leaves", "leaf underside"],
+      "confirmation_questions": ["Is white growth visible beneath a fresh lesion?"],
+      "urgency": "needs_attention"
+    },
+    {
+      "category": "disease",
+      "topic": "Target spot",
+      "content": "Target spot may cause circular dark-brown lesions with concentric patterns and a yellow halo; severe cases can cause leaves to yellow and collapse.",
+      "symptoms": ["circular dark-brown lesions", "concentric pattern", "yellow halo", "leaf collapse"],
+      "plant_parts": ["leaf", "stem", "fruit"]
+    },
+    {
+      "category": "disease",
+      "topic": "Powdery mildew",
+      "content": "Powdery mildew may show light-green to yellow areas on the upper leaf surface and white powdery growth underneath.",
+      "symptoms": ["yellow upper-leaf areas", "white powdery growth under leaf"],
+      "confirmation_questions": ["Can the white powdery growth be seen on the lower surface?"]
+    },
+    {
+      "category": "field_management",
+      "topic": "Weed management",
+      "growth_stage": "Vegetative",
+      "content": "Keep young tomato fields free of weeds, especially roughly three to six weeks after transplanting, and weed before fertilizer application.",
+      "actions": ["Inspect around young plants", "Remove weeds before applying fertilizer"]
+    }
+  ]
+}

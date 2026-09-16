@@ -27,20 +27,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { createAdminDevice, CreateAdminDeviceResponse } from '../../services/adminService';
-
-const compactButtonSx = {
-  minHeight: 36,
-  px: 1.5,
-  py: 0.5,
-  borderRadius: 2,
-  transition: 'transform 160ms ease, background-color 160ms ease, border-color 160ms ease',
-  '&:hover': {
-    transform: 'translateY(-1px)',
-  },
-  '&:active': {
-    transform: 'translateY(0)',
-  },
-};
+import { AdminPageShell, adminCardSx, compactAdminButtonSx } from '../../components/admin/AdminSurface';
 
 const AdminAddDevice: React.FC = () => {
   const navigate = useNavigate();
@@ -107,39 +94,13 @@ const AdminAddDevice: React.FC = () => {
     window.print();
   };
 
-  const backButton = (
-    <Box
-      sx={{
-        position: 'sticky',
-        top: { xs: 12, md: 20 },
-        zIndex: 5,
-        display: 'flex',
-        justifyContent: 'flex-start',
-        mb: 1.5,
-        pointerEvents: 'none',
-      }}
-    >
-      <IconButton
-        aria-label="Go back"
-        onClick={() => navigate('/admin/devices')}
-        sx={{
-          pointerEvents: 'auto',
-          border: '1px solid rgba(60, 57, 17, 0.12)',
-          bgcolor: '#fffdf8',
-          boxShadow: '0 12px 24px rgba(60, 57, 17, 0.08)',
-          '&:hover': {
-            bgcolor: '#fff8ed',
-          },
-        }}
-      >
-        <ArrowBack />
-      </IconButton>
-    </Box>
-  );
-
   if (created) {
     return (
-      <Box>
+      <AdminPageShell
+        eyebrow="Internal"
+        title="Device created"
+        subtitle="The controller is now registered. Print the controller ID QR label or copy the ID before handing it off to the owner."
+      >
         <GlobalStyles
           styles={{
             '@page': {
@@ -165,7 +126,6 @@ const AdminAddDevice: React.FC = () => {
             },
           }}
         />
-        {backButton}
 
         <Box
           className="spectron-print-label"
@@ -185,36 +145,17 @@ const AdminAddDevice: React.FC = () => {
             textAlign: 'center',
           }}
         >
-          <Box
-            component="img"
-            src="/assets/spectron-logo-full.svg"
-            alt="Spectron"
-            sx={{ height: '8mm', width: 'auto', display: 'block' }}
-          />
           <QRCodeSVG
             value={qrPayload}
             size={120}
             bgColor="#ffffff"
             fgColor="#262411"
             includeMargin
-            imageSettings={{
-              src: '/assets/spectron-logo.svg',
-              height: 24,
-              width: 24,
-              excavate: true,
-            }}
           />
           <Typography sx={{ fontSize: '11pt', fontWeight: 900, letterSpacing: 0.5, lineHeight: 1.1 }}>
             {created.device.controllerId}
           </Typography>
         </Box>
-
-        <Typography variant="h4" sx={{ mb: 1 }}>
-          Device Created
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 3, maxWidth: 760, display: { xs: 'none', sm: 'block' } }}>
-          The controller is now registered. Print the controller ID QR label or copy the ID before handing it off to the owner.
-        </Typography>
 
         <Collapse in={Boolean(error)} timeout={260} unmountOnExit>
           <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
@@ -227,6 +168,7 @@ const AdminAddDevice: React.FC = () => {
           <Grid item xs={12} md={7}>
             <Card
               sx={{
+                ...adminCardSx,
                 '@media print': {
                   boxShadow: 'none',
                   borderColor: 'rgba(60, 57, 17, 0.2)',
@@ -262,12 +204,6 @@ const AdminAddDevice: React.FC = () => {
                     bgColor="#fffaf4"
                     fgColor="#262411"
                     includeMargin
-                    imageSettings={{
-                      src: '/assets/spectron-logo.svg',
-                      height: 44,
-                      width: 44,
-                      excavate: true,
-                    }}
                   />
                 </Box>
 
@@ -280,7 +216,7 @@ const AdminAddDevice: React.FC = () => {
 
           <Grid item xs={12} md={5}>
             <Stack spacing={2}>
-              <Card>
+              <Card sx={adminCardSx}>
                 <CardContent>
                   <Stack direction="row" spacing={1.2} alignItems="center" sx={{ mb: 2 }}>
                     <QrCode2 color="primary" />
@@ -324,7 +260,7 @@ const AdminAddDevice: React.FC = () => {
                       variant="outlined"
                       startIcon={<ContentCopy />}
                       onClick={() => handleCopy(qrPayload, 'Controller ID')}
-                      sx={compactButtonSx}
+                      sx={compactAdminButtonSx}
                     >
                       Copy Controller ID
                     </Button>
@@ -333,7 +269,7 @@ const AdminAddDevice: React.FC = () => {
                       variant="outlined"
                       startIcon={<ContentCopy />}
                       onClick={() => handleCopy(claimRoute, 'Claim route')}
-                      sx={compactButtonSx}
+                      sx={compactAdminButtonSx}
                     >
                       Copy Route
                     </Button>
@@ -343,7 +279,7 @@ const AdminAddDevice: React.FC = () => {
                       color="secondary"
                       startIcon={<Print />}
                       onClick={handlePrint}
-                      sx={compactButtonSx}
+                      sx={compactAdminButtonSx}
                     >
                       Print QR
                     </Button>
@@ -351,7 +287,7 @@ const AdminAddDevice: React.FC = () => {
                       fullWidth
                       variant="text"
                       onClick={() => navigate('/admin/devices')}
-                      sx={compactButtonSx}
+                      sx={compactAdminButtonSx}
                     >
                       Done
                     </Button>
@@ -361,31 +297,43 @@ const AdminAddDevice: React.FC = () => {
             </Stack>
           </Grid>
         </Grid>
-      </Box>
+      </AdminPageShell>
     );
   }
 
   return (
-    <Box>
-      {backButton}
-      <Typography variant="h4" sx={{ mb: 1 }}>
-        Add Controller
-      </Typography>
-      <Typography color="text.secondary" sx={{ mb: 3, maxWidth: 780, display: { xs: 'none', sm: 'block' } }}>
-        Register the controller first. Once it is created, this page will switch into a QR label view for printing and copying the controller ID.
-      </Typography>
-
+    <AdminPageShell
+      eyebrow="Internal"
+      title="Add Controller"
+      subtitle="Register the controller first. Once it is created, this page switches into a QR label view for printing and copying the controller ID."
+      actions={(
+        <IconButton
+          aria-label="Go back"
+          onClick={() => navigate('/admin/devices')}
+          sx={{
+            border: '1px solid rgba(60, 57, 17, 0.12)',
+            bgcolor: '#fffdf8',
+            boxShadow: '0 12px 24px rgba(60, 57, 17, 0.08)',
+            '&:hover': {
+              bgcolor: '#fff8ed',
+            },
+          }}
+        >
+          <ArrowBack />
+        </IconButton>
+      )}
+    >
       <Collapse in={Boolean(error)} timeout={260} unmountOnExit>
         <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
       </Collapse>
 
-      <Card sx={{ maxWidth: 820 }}>
+      <Card sx={{ maxWidth: 820, ...adminCardSx }}>
         <CardContent>
           <Box component="form" onSubmit={handleSubmit}>
             <TextField
               fullWidth
               label="Controller ID"
-              placeholder="CTRL-BOILER-001"
+              placeholder="eg: CTRL-FARM-001"
               value={controllerId}
               onChange={(e) => setControllerId(e.target.value)}
               helperText="Leave empty to generate a CTRL code automatically."
@@ -394,7 +342,7 @@ const AdminAddDevice: React.FC = () => {
             <TextField
               fullWidth
               label="Display Name"
-              placeholder="Main Controller"
+              placeholder="eg: Main field controller"
               value={name}
               onChange={(e) => setName(e.target.value)}
               margin="normal"
@@ -417,18 +365,18 @@ const AdminAddDevice: React.FC = () => {
                 color="secondary"
                 startIcon={<Save />}
                 disabled={saving}
-                sx={compactButtonSx}
+                sx={compactAdminButtonSx}
               >
                 {saving ? 'Creating...' : 'Create Device'}
               </Button>
-              <Button variant="text" onClick={() => navigate('/admin/devices')} sx={compactButtonSx}>
+              <Button variant="text" onClick={() => navigate('/admin/devices')} sx={compactAdminButtonSx}>
                 Cancel
               </Button>
             </Stack>
           </Box>
         </CardContent>
       </Card>
-    </Box>
+    </AdminPageShell>
   );
 };
 

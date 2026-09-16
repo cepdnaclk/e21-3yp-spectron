@@ -114,7 +114,7 @@ const AdminSignIn: React.FC = () => {
               fullWidth
               label="Admin Email"
               type="email"
-              placeholder="admin@example.com"
+              placeholder="eg: admin@example.com"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               margin="normal"

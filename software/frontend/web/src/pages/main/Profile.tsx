@@ -30,11 +30,11 @@ import {
   LockReset,
   Visibility,
   VisibilityOff,
-  ContentCopy,
   DeleteOutline,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { changePassword, deleteAccount, updateProfile } from '../../services/authService';
+import { PageHeaderPanel, PageShell } from '../../components/ui/PageSurface';
 
 const getApiMessage = (error: any, fallback: string) => {
   const responseData = error?.response?.data;
@@ -82,7 +82,6 @@ const Profile: React.FC = () => {
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState('');
   const [profileError, setProfileError] = useState('');
-  const [linkCopied, setLinkCopied] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
   const [deleteSaving, setDeleteSaving] = useState(false);
@@ -140,15 +139,9 @@ const Profile: React.FC = () => {
   const profileDisplayName = fullName || user?.email || 'Spectron User';
   const initials = useMemo(() => getInitials(profileDisplayName), [profileDisplayName]);
   const accountRole = user?.accounts?.[0]?.role || 'Free';
+  const accountLabel = accountRole === 'OWNER' ? 'Farm Owner' : accountRole === 'VIEWER' ? 'Viewer' : accountRole;
   const email = user?.email || '';
-  const username = email ? `@${email.split('@')[0]}` : `@${profileDisplayName.replace(/\s+/g, '')}`;
   const canConfirmDeletion = Boolean(email) && deleteConfirmEmail.trim().toLowerCase() === email.toLowerCase();
-  const profileUrl = useMemo(() => {
-    if (typeof window === 'undefined') {
-      return '';
-    }
-    return `${window.location.origin}/profile`;
-  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -210,21 +203,6 @@ const Profile: React.FC = () => {
   const handleRemoveAvatar = () => {
     setAvatarUrl('');
     saveAvatar('');
-  };
-
-  const handleCopyProfileLink = async () => {
-    if (!profileUrl) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(profileUrl);
-      setLinkCopied(true);
-      setProfileMessage('Profile link copied.');
-      window.setTimeout(() => setLinkCopied(false), 1800);
-    } catch (error) {
-      setProfileError('Could not copy profile link.');
-    }
   };
 
   const handleSaveProfile = async () => {
@@ -346,6 +324,12 @@ const Profile: React.FC = () => {
 
   return (
     <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 } }}>
+      <PageShell>
+      <PageHeaderPanel
+        title="Profile"
+        subtitle="Your personal details and account security."
+        icon={<Avatar src={avatarUrl || undefined} sx={{ width: 28, height: 28, bgcolor: 'primary.dark' }}>{initials}</Avatar>}
+      />
       <Stack spacing={2.5}>
         <Card>
           <CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}>
@@ -419,34 +403,10 @@ const Profile: React.FC = () => {
                     spacing={1.25}
                     alignItems={{ xs: 'center', sm: 'center' }}
                   >
-                    <Typography variant="h4">{profileDisplayName}</Typography>
-                    <Chip label={accountRole} color="primary" variant="outlined" size="small" />
+                    <Typography variant="h4">{fullName || email}</Typography>
+                      <Chip label={accountLabel} color="primary" variant="outlined" size="small" />
                   </Stack>
-                  <Typography variant="subtitle1" sx={{ mt: 1 }}>
-                    {username}
-                  </Typography>
-                  <Stack
-                    direction={{ xs: 'column', sm: 'row' }}
-                    spacing={1}
-                    alignItems={{ xs: 'center', sm: 'center' }}
-                    sx={{ mt: 1, display: { xs: 'none', sm: 'flex' } }}
-                  >
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{ fontStyle: 'italic', wordBreak: 'break-all' }}
-                    >
-                      {profileUrl}
-                    </Typography>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<ContentCopy />}
-                      onClick={handleCopyProfileLink}
-                    >
-                      {linkCopied ? 'Copied' : 'Copy link'}
-                    </Button>
-                  </Stack>
+                  {fullName && <Typography variant="subtitle1" color="text.secondary" sx={{ mt: 0.75 }}>{email}</Typography>}
                 </Box>
               </Stack>
 
@@ -458,16 +418,6 @@ const Profile: React.FC = () => {
                   sx={{ minWidth: { xs: 0, sm: 132 }, width: { xs: '100%', sm: 'auto' } }}
                 >
                   Logout
-                </Button>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  startIcon={<Save />}
-                  onClick={handleSaveProfile}
-                  disabled={profileSaving || avatarSaving}
-                  sx={{ minWidth: { xs: 0, sm: 154 }, width: { xs: '100%', sm: 'auto' } }}
-                >
-                  {profileSaving ? 'Saving...' : 'Save changes'}
                 </Button>
               </Stack>
             </Stack>
@@ -491,7 +441,7 @@ const Profile: React.FC = () => {
                   fullWidth
                   required
                   label="First Name"
-                  placeholder="First name"
+                  placeholder="eg: Varshan"
                   value={firstName}
                   onChange={(event) => setFirstName(event.target.value)}
                   disabled={profileSaving}
@@ -502,29 +452,35 @@ const Profile: React.FC = () => {
                 <TextField
                   fullWidth
                   label="Last Name"
-                  placeholder="Last name"
+                  placeholder="eg: Kumar"
                   value={lastName}
                   onChange={(event) => setLastName(event.target.value)}
                   disabled={profileSaving}
                 />
               </Grid>
               <Grid item xs={12}>
-                <TextField fullWidth label="Email" value={email} disabled />
-              </Grid>
-              <Grid item xs={12}>
-                <Alert severity="info">Email is managed by your Spectron account.</Alert>
-              </Grid>
-              <Grid item xs={12}>
                 <TextField
                   fullWidth
                   label="Phone"
-                  placeholder="+94 77 123 4567"
+                  placeholder="eg: +94 77 123 4567"
                   value={phone}
                   onChange={(event) => setPhone(event.target.value)}
                   disabled={profileSaving}
                 />
               </Grid>
             </Grid>
+            <Stack direction="row" justifyContent="flex-end" sx={{ mt: 3 }}>
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<Save />}
+                onClick={handleSaveProfile}
+                disabled={profileSaving || avatarSaving}
+                sx={{ minWidth: { xs: '100%', sm: 154 } }}
+              >
+                {profileSaving ? 'Saving...' : 'Save changes'}
+              </Button>
+            </Stack>
           </CardContent>
         </Card>
 
@@ -629,7 +585,7 @@ const Profile: React.FC = () => {
               Delete Account
             </Typography>
             <Typography color="text.secondary" sx={{ mt: 0.75, mb: 2 }}>
-              Permanently delete your account, controllers, sensors, readings, and alerts.
+              Permanently delete your account and farm workspace data.
             </Typography>
             <Button
               variant="outlined"
@@ -643,6 +599,7 @@ const Profile: React.FC = () => {
           </CardContent>
         </Card>
       </Stack>
+      </PageShell>
 
       <Dialog open={deleteDialogOpen} onClose={closeDeleteDialog} fullWidth maxWidth="sm">
         <DialogTitle>Delete Account</DialogTitle>
@@ -656,7 +613,7 @@ const Profile: React.FC = () => {
           <TextField
             fullWidth
             label="Confirm Email"
-            placeholder={email}
+            placeholder={`eg: ${email}`}
             value={deleteConfirmEmail}
             onChange={(event) => {
               setDeleteConfirmEmail(event.target.value);

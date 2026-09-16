@@ -1,100 +1,74 @@
-import React, { useEffect, useState } from 'react';
-import { Box, Button, Card, CardContent, Chip, Grid, Stack, Typography } from '@mui/material';
-import { Add, DevicesOther, Inventory2, Sensors, WarningAmber } from '@mui/icons-material';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Box, Button, Card, CardContent, Chip, Grid, LinearProgress, Stack, Typography } from '@mui/material';
+import { Add, Agriculture, DeviceHub, DevicesOther, WarningAmber } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { AdminOverview, getAdminOverview } from '../../services/adminService';
+import { AdminPageShell, AdminStatCard, compactAdminButtonSx, adminCardSx } from '../../components/admin/AdminSurface';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 const statCards = [
-  { key: 'totalDevices', label: 'Total Devices', icon: DevicesOther, tone: '#fffaf4' },
-  { key: 'unclaimedDevices', label: 'Unclaimed', icon: WarningAmber, tone: '#fff7ef' },
-  { key: 'pairedDevices', label: 'Owned Devices', icon: Inventory2, tone: '#f7fbf0' },
-  { key: 'configuredSensors', label: 'Configured Sensors', icon: Sensors, tone: '#f4fbfb' },
+  { key: 'totalDevices', label: 'Registered', icon: DevicesOther, tone: '#fffaf4', color: '#eb4f12' },
+  { key: 'farmControllers', label: 'Farm attached', icon: Agriculture, tone: '#f4f8ea', color: '#6c8930' },
+  { key: 'sensorBases', label: 'Sensor bases', icon: DeviceHub, tone: '#eff8f8', color: '#337a85' },
+  { key: 'legacyOnlyDevices', label: 'Needs review', icon: WarningAmber, tone: '#fff7ef', color: '#b95416' },
 ] as const;
-
-const compactButtonSx = {
-  minHeight: 36,
-  px: 1.5,
-  py: 0.5,
-  borderRadius: 2,
-  transition: 'transform 160ms ease, background-color 160ms ease, border-color 160ms ease',
-  '&:hover': {
-    transform: 'translateY(-1px)',
-  },
-  '&:active': {
-    transform: 'translateY(0)',
-  },
-};
 
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const [overview, setOverview] = useState<AdminOverview | null>(null);
 
-  useEffect(() => {
+  const loadOverview = useCallback(async () => {
     getAdminOverview().then(setOverview).catch(() => setOverview(null));
   }, []);
 
+  useEffect(() => {
+    void loadOverview();
+  }, [loadOverview]);
+  useRealtimeRefresh('admin', loadOverview);
+
+  const totalDevices = overview?.totalDevices || 0;
+  const farmAttached = overview?.farmControllers || 0;
+  const readiness = totalDevices > 0 ? Math.round((farmAttached / totalDevices) * 100) : 0;
+
   return (
-    <Box>
-      <Stack
-        direction={{ xs: 'column', md: 'row' }}
-        justifyContent="space-between"
-        alignItems={{ xs: 'stretch', md: 'center' }}
-        spacing={2}
-        sx={{ mb: 3 }}
-      >
-        <Box>
-          <Typography variant="h4">Device operations overview</Typography>
-          <Typography color="text.secondary" sx={{ mt: 0.75, maxWidth: 760, display: { xs: 'none', sm: 'block' } }}>
-            Register hardware IDs, print controller QR labels, and keep ownership visible after users claim controllers.
-          </Typography>
-        </Box>
+    <AdminPageShell
+      eyebrow="Internal"
+      title="Hardware operations"
+      subtitle="Register controllers, print QR labels, and track farm attachment."
+      actions={(
         <Button
           variant="contained"
           color="secondary"
           startIcon={<Add />}
           onClick={() => navigate('/admin/devices/new')}
-          sx={{ ...compactButtonSx, alignSelf: { xs: 'stretch', md: 'center' } }}
+          sx={{ ...compactAdminButtonSx, alignSelf: { xs: 'stretch', md: 'center' } }}
         >
           Add Device
         </Button>
-      </Stack>
-
+      )}
+    >
       <Grid container spacing={2}>
         {statCards.map((card) => {
           const Icon = card.icon;
           return (
             <Grid item xs={6} lg={3} key={card.key}>
-              <Card sx={{ bgcolor: card.tone }}>
-                <CardContent>
-                  <Stack direction="row" spacing={{ xs: 0.75, sm: 1.5 }} alignItems="center">
-                    <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'rgba(108, 137, 48, 0.13)', color: 'primary.main', display: { xs: 'none', sm: 'flex' } }}>
-                      <Icon />
-                    </Box>
-                    <Box>
-                      <Typography variant="body2" color="text.secondary" fontWeight={800}>
-                        {card.label}
-                      </Typography>
-                      <Typography variant="h4">{overview?.[card.key] ?? '-'}</Typography>
-                    </Box>
-                  </Stack>
-                </CardContent>
-              </Card>
+              <AdminStatCard label={card.label} value={overview?.[card.key] ?? '-'} icon={<Icon />} tone={card.tone} color={card.color} />
             </Grid>
           );
         })}
       </Grid>
 
-      <Grid container spacing={2} sx={{ mt: 1 }}>
+      <Grid container spacing={2} sx={{ mt: 0.5 }}>
         <Grid item xs={12} md={7}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6">Operating Flow</Typography>
+          <Card sx={{ height: '100%', ...adminCardSx }}>
+            <CardContent sx={{ p: 2.5 }}>
+              <Typography variant="h6">Setup Flow</Typography>
               <Stack spacing={1.3} sx={{ mt: 2 }}>
                 {[
-                  'Admin registers a physical controller ID.',
-                  'Admin prints the permanent controller ID QR label.',
-                  'User scans the QR code from the app and claims the controller if it is unowned.',
-                  'Sensors are configured and monitored from the normal user dashboard.',
+                  'Register physical controller ID.',
+                  'Print permanent QR label.',
+                  'Farm owner claims and attaches it to a farm.',
+                  'Sensor bases connect fields to controllers.',
                 ].map((item, index) => (
                   <Stack direction="row" spacing={1.2} alignItems="flex-start" key={item}>
                     <Chip label={index + 1} color="primary" size="small" />
@@ -106,20 +80,27 @@ const AdminDashboard: React.FC = () => {
           </Card>
         </Grid>
         <Grid item xs={12} md={5}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6">Readiness Snapshot</Typography>
-              <Stack spacing={1.2} sx={{ mt: 2 }}>
+          <Card sx={{ height: '100%', ...adminCardSx }}>
+            <CardContent sx={{ p: 2.5 }}>
+              <Typography variant="h6">Readiness</Typography>
+              <Box sx={{ mt: 2 }}>
+                <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
+                  <Typography color="text.secondary">Farm attachment</Typography>
+                  <Typography fontWeight={900}>{readiness}%</Typography>
+                </Stack>
+                <LinearProgress variant="determinate" value={readiness} sx={{ height: 8, borderRadius: 999 }} />
+              </Box>
+              <Stack spacing={1.2} sx={{ mt: 2.5 }}>
                 <Stack direction="row" justifyContent="space-between">
-                  <Typography color="text.secondary">Paired devices</Typography>
+                  <Typography color="text.secondary">Claimed</Typography>
                   <Typography fontWeight={800}>{overview?.pairedDevices ?? '-'}</Typography>
                 </Stack>
                 <Stack direction="row" justifyContent="space-between">
-                  <Typography color="text.secondary">Unclaimed devices</Typography>
+                  <Typography color="text.secondary">Unclaimed</Typography>
                   <Typography fontWeight={800}>{overview?.unclaimedDevices ?? '-'}</Typography>
                 </Stack>
                 <Stack direction="row" justifyContent="space-between">
-                  <Typography color="text.secondary">Unconfigured sensors</Typography>
+                  <Typography color="text.secondary">Unconfigured</Typography>
                   <Typography fontWeight={800}>{overview?.unconfiguredSensors ?? '-'}</Typography>
                 </Stack>
               </Stack>
@@ -127,7 +108,7 @@ const AdminDashboard: React.FC = () => {
           </Card>
         </Grid>
       </Grid>
-    </Box>
+    </AdminPageShell>
   );
 };
 

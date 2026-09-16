@@ -33,6 +33,7 @@ type Config struct {
 	Kafka          KafkaConfig
 	MQTT           MQTTConfig
 	Email          EmailConfig
+	Geocoding      GeocodingConfig
 }
 
 type KafkaConfig = kafkasecurity.KafkaConfig
@@ -58,6 +59,15 @@ type EmailConfig struct {
 	SMTPPass    string
 	EmailFrom   string
 	FrontendURL string
+}
+
+type GeocodingConfig struct {
+	BaseURL       string
+	APIKey        string
+	UserAgent     string
+	TimeoutMS     int
+	MapTileURL    string
+	MapTileAPIKey string
 }
 
 func Load() (*Config, error) {
@@ -121,6 +131,14 @@ func Load() (*Config, error) {
 			SMTPPass:    os.Getenv("SMTP_PASS"),
 			EmailFrom:   getenv("EMAIL_FROM", getenv("SMTP_USER", "no-reply@spectron.local")),
 			FrontendURL: strings.TrimRight(getenv("FRONTEND_URL", "http://localhost:3001"), "/"),
+		},
+		Geocoding: GeocodingConfig{
+			BaseURL:       strings.TrimRight(getenv("GEOCODING_BASE_URL", "https://nominatim.openstreetmap.org"), "/"),
+			APIKey:        os.Getenv("GEOCODING_API_KEY"),
+			UserAgent:     getenv("GEOCODING_USER_AGENT", "SpectronAgriAssist/1.0"),
+			TimeoutMS:     parseInt(getenv("GEOCODING_TIMEOUT_MS", "8000"), 8000),
+			MapTileURL:    getenv("MAP_TILE_URL", "https://tile.openstreetmap.org/{z}/{x}/{y}.png"),
+			MapTileAPIKey: os.Getenv("MAP_TILE_API_KEY"),
 		},
 	}, nil
 }

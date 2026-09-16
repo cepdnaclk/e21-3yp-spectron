@@ -75,6 +75,19 @@ svg {
     padding-top: env(safe-area-inset-top);
   }
 
+  /* Keep content comfortably clear of the persistent mobile navigation. */
+  .MuiContainer-root {
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
+  }
+
+  .MuiCard-root {
+    border-radius: 18px;
+  }
+
+  .MuiButton-root {
+    font-size: 0.9rem;
+  }
+
   .mobile-card-table,
   .mobile-card-table .MuiTableContainer-root {
     overflow: visible;

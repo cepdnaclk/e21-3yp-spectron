@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+*.pyc
+models/
+artifacts/
+data/generated/
+data/generated-draft/
+data/expert_scenarios.jsonl
+data/confidence_labels.jsonl
+.env
+dist/
+deploy/*.zip
+deploy/staging-*/
+*.egg-info/
+pytest-cache-files*/

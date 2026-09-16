@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Box,
   Button,
@@ -21,7 +21,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { CheckCircle, PersonAddAlt, Refresh, Block, Delete } from '@mui/icons-material';
+import { CheckCircle, PersonAddAlt, Block, Delete, People } from '@mui/icons-material';
 import {
   AdminOwner,
   approveAdminOwner,
@@ -31,6 +31,8 @@ import {
   rejectAdminOwner,
 } from '../../services/adminService';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
+import { AdminPageShell, AdminStatCard, adminCardSx, compactAdminButtonSx } from '../../components/admin/AdminSurface';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 const statusColor = (status: AdminOwner['status']) => {
   if (status === 'ACTIVE') return 'success';
@@ -39,23 +41,8 @@ const statusColor = (status: AdminOwner['status']) => {
   return 'default';
 };
 
-const compactButtonSx = {
-  minHeight: 36,
-  px: 1.5,
-  py: 0.5,
-  borderRadius: 2,
-  transition: 'transform 160ms ease, background-color 160ms ease, border-color 160ms ease',
-  '&:hover': {
-    transform: 'translateY(-1px)',
-  },
-  '&:active': {
-    transform: 'translateY(0)',
-  },
-};
-
 const AdminUsers: React.FC = () => {
   const [owners, setOwners] = useState<AdminOwner[]>([]);
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -69,22 +56,20 @@ const AdminUsers: React.FC = () => {
     phone: '',
   });
 
-  const loadOwners = async () => {
-    setLoading(true);
+  const loadOwners = useCallback(async () => {
     setError('');
     try {
       setOwners(await getAdminOwners());
     } catch {
       setError('Failed to load owner accounts.');
       setOwners([]);
-    } finally {
-      setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadOwners();
-  }, []);
+  }, [loadOwners]);
+  useRealtimeRefresh('admin', loadOwners);
 
   const handleCreateOwner = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -155,32 +140,11 @@ const AdminUsers: React.FC = () => {
   const pendingCount = owners.filter((owner) => owner.status === 'PENDING_APPROVAL').length;
 
   return (
-    <Box>
-      <Stack
-        direction={{ xs: 'column', md: 'row' }}
-        justifyContent="space-between"
-        alignItems={{ xs: 'stretch', md: 'center' }}
-        spacing={2}
-        sx={{ mb: 3 }}
-      >
-        <Box>
-          <Typography variant="h4" sx={{ mb: 1 }}>
-            Users and approvals
-          </Typography>
-          <Typography color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>
-            Approve owner signup requests or create owner credentials directly.
-          </Typography>
-        </Box>
-        <Button
-          startIcon={<Refresh />}
-          variant="outlined"
-          onClick={loadOwners}
-          disabled={loading}
-          sx={{ ...compactButtonSx, alignSelf: { xs: 'stretch', md: 'center' } }}
-        >
-          Refresh
-        </Button>
-      </Stack>
+    <AdminPageShell
+      eyebrow="Internal"
+      title="Users and approvals"
+      subtitle="Approve owner signup requests or create owner credentials directly."
+    >
 
       <AutoDismissAlert open={Boolean(error)} severity="error" sx={{ mb: 2 }} onCloseAlert={() => setError('')}>
         {error}
@@ -190,33 +154,18 @@ const AdminUsers: React.FC = () => {
       </AutoDismissAlert>
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={4}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary">Pending approvals</Typography>
-              <Typography variant="h4">{pendingCount}</Typography>
-            </CardContent>
-          </Card>
+        <Grid item xs={12} sm={4}>
+          <AdminStatCard label="Pending approvals" value={pendingCount} icon={<PersonAddAlt />} tone="#fff7ef" color="#b95416" />
         </Grid>
-        <Grid item xs={4}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary">Active owners</Typography>
-              <Typography variant="h4">{owners.filter((owner) => owner.status === 'ACTIVE').length}</Typography>
-            </CardContent>
-          </Card>
+        <Grid item xs={12} sm={4}>
+          <AdminStatCard label="Active owners" value={owners.filter((owner) => owner.status === 'ACTIVE').length} icon={<CheckCircle />} tone="#f4f8ea" color="#6c8930" />
         </Grid>
-        <Grid item xs={4}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary">Viewer accounts</Typography>
-              <Typography variant="h4">{owners.reduce((total, owner) => total + owner.viewerCount, 0)}</Typography>
-            </CardContent>
-          </Card>
+        <Grid item xs={12} sm={4}>
+          <AdminStatCard label="Viewer accounts" value={owners.reduce((total, owner) => total + owner.viewerCount, 0)} icon={<People />} tone="#eff8f8" color="#337a85" />
         </Grid>
       </Grid>
 
-      <Card sx={{ mb: 3 }}>
+      <Card sx={{ mb: 3, ...adminCardSx }}>
         <CardContent>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
             <PersonAddAlt color="secondary" />
@@ -225,22 +174,22 @@ const AdminUsers: React.FC = () => {
           <Box component="form" onSubmit={handleCreateOwner}>
             <Grid container spacing={2}>
               <Grid item xs={12} md={6}>
-                <TextField fullWidth required label="Owner email" type="email" placeholder="owner@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                <TextField fullWidth required label="Owner email" type="email" placeholder="eg: owner@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
               </Grid>
               <Grid item xs={12} md={6}>
                 <TextField fullWidth required label="Temporary password" type="password" placeholder="Create a temporary password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
               </Grid>
               <Grid item xs={12} md={6}>
-                <TextField fullWidth label="Owner name" placeholder="Owner name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                <TextField fullWidth label="Owner name" placeholder="eg: Varshan Kumar" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               </Grid>
               <Grid item xs={12} md={6}>
-                <TextField fullWidth label="Organization" placeholder="Organization name" value={form.organizationName} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} />
+                <TextField fullWidth label="Organization" placeholder="eg: Green Valley Farm" value={form.organizationName} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} />
               </Grid>
               <Grid item xs={12} md={6}>
-                <TextField fullWidth label="Phone" placeholder="+94 77 123 4567" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                <TextField fullWidth label="Phone" placeholder="eg: +94 77 123 4567" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
               </Grid>
               <Grid item xs={12} sx={{ mt: 1 }}>
-                <Button type="submit" variant="contained" color="secondary" disabled={saving} sx={{ ...compactButtonSx, minWidth: 200 }}>
+                <Button type="submit" variant="contained" color="secondary" disabled={saving} sx={{ ...compactAdminButtonSx, minWidth: 200 }}>
                   Create Owner
                 </Button>
               </Grid>
@@ -249,7 +198,7 @@ const AdminUsers: React.FC = () => {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card sx={adminCardSx}>
         <CardContent>
           <Typography variant="h6" sx={{ mb: 2 }}>Owner accounts</Typography>
           <Divider sx={{ mb: 2 }} />
@@ -281,16 +230,16 @@ const AdminUsers: React.FC = () => {
                     <TableCell data-label="Actions" align="right">
                       <Stack direction="row" spacing={1} justifyContent="flex-end">
                         {owner.status !== 'ACTIVE' && (
-                          <Button size="small" startIcon={<CheckCircle />} onClick={() => updateOwnerStatus(owner, 'approve')} sx={compactButtonSx}>
+                          <Button size="small" startIcon={<CheckCircle />} onClick={() => updateOwnerStatus(owner, 'approve')} sx={compactAdminButtonSx}>
                             Approve
                           </Button>
                         )}
                         {owner.status === 'PENDING_APPROVAL' && (
-                          <Button size="small" color="error" startIcon={<Block />} onClick={() => updateOwnerStatus(owner, 'reject')} sx={compactButtonSx}>
+                          <Button size="small" color="error" startIcon={<Block />} onClick={() => updateOwnerStatus(owner, 'reject')} sx={compactAdminButtonSx}>
                             Reject
                           </Button>
                         )}
-                        <Button size="small" color="error" startIcon={<Delete />} onClick={() => handleDeleteOwner(owner)} sx={compactButtonSx}>
+                        <Button size="small" color="error" startIcon={<Delete />} onClick={() => handleDeleteOwner(owner)} sx={compactAdminButtonSx}>
                           Delete
                         </Button>
                       </Stack>
@@ -336,7 +285,7 @@ const AdminUsers: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </AdminPageShell>
   );
 };
 

@@ -213,6 +213,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	broadcastAdminChange("admin.owner.pending")
 	writeSignupSuccessResponse(w)
 }
 
@@ -700,6 +701,7 @@ func (h *AuthHandler) CreateViewer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	broadcastCustomerChange(accountID, uuid.Nil, "customer.viewer.changed")
 	json.NewEncoder(w).Encode(models.User{
 		ID:          userID,
 		Email:       email,
@@ -785,6 +787,7 @@ func (h *AuthHandler) DeleteViewer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	broadcastCustomerChange(accountID, uuid.Nil, "customer.viewer.changed")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "viewer_removed",
 	})
@@ -930,6 +933,7 @@ func (h *AuthHandler) AdminCreateOwner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	broadcastAdminChange("admin.owner.changed")
 	json.NewEncoder(w).Encode(AdminOwnerResponse{
 		ID:               userID.String(),
 		Email:            email,
@@ -1022,6 +1026,7 @@ func (h *AuthHandler) adminSetOwnerStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	broadcastAdminChange("admin.owner.changed")
 	json.NewEncoder(w).Encode(map[string]string{
 		"id":     userID.String(),
 		"status": status,
@@ -1150,6 +1155,7 @@ func (h *AuthHandler) AdminDeleteOwner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	broadcastAdminChange("admin.owner.changed")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "owner_deleted",
 	})

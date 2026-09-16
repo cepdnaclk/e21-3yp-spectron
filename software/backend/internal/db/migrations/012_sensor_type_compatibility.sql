@@ -37,7 +37,12 @@ BEGIN
                     'bme280',
                     'bmp280',
                     'vl53l0x',
-                    'distance'
+                    'distance',
+                    'soil_moisture',
+                    'light',
+                    'rainfall',
+                    'ph',
+                    'conductivity'
                 ));
         END IF;
     END IF;
@@ -79,7 +84,12 @@ BEGIN
                     'bme280',
                     'bmp280',
                     'vl53l0x',
-                    'distance'
+                    'distance',
+                    'soil_moisture',
+                    'light',
+                    'rainfall',
+                    'ph',
+                    'conductivity'
                 ));
         END IF;
     END IF;

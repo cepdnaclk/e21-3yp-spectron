@@ -145,31 +145,52 @@ export interface SensorKnowledgeProfile {
   notes?: string[];
 }
 
+const SENSOR_TYPE_ALIASES: Record<string, string> = {
+  temperature_sensor: 'temperature',
+  temp: 'temperature',
+  humidity_sensor: 'humidity',
+  relative_humidity: 'humidity',
+  pressure_sensor: 'pressure',
+  sht30: 'temperature_humidity',
+  sht31: 'temperature_humidity',
+  sht35: 'temperature_humidity',
+  distance_sensor: 'distance',
+  ultrasonic_sensor: 'ultrasonic',
+  load_sensor: 'load',
+  weight: 'load',
+  air_quality_sensor: 'air_quality',
+};
+
+export const normalizeSensorType = (sensorType: string): string => {
+  const normalized = (sensorType || '').trim().toLowerCase();
+  return SENSOR_TYPE_ALIASES[normalized] || normalized;
+};
+
 const SENSOR_METRIC_MAP: Record<string, SensorMetric[]> = {
-  temperature: [{ key: 'temperature', label: 'Temperature', unit: '°C' }],
+  temperature: [{ key: 'temperature', label: 'Temperature', unit: 'C' }],
   humidity: [{ key: 'humidity', label: 'Humidity', unit: '%RH' }],
   temp_humidity: [
-    { key: 'temperature', label: 'Temperature', unit: '°C' },
+    { key: 'temperature', label: 'Temperature', unit: 'C' },
     { key: 'humidity', label: 'Humidity', unit: '%RH' },
   ],
   temperature_humidity: [
-    { key: 'temperature', label: 'Temperature', unit: '°C' },
+    { key: 'temperature', label: 'Temperature', unit: 'C' },
     { key: 'humidity', label: 'Humidity', unit: '%RH' },
   ],
   dht11: [
-    { key: 'temperature', label: 'Temperature', unit: '°C' },
+    { key: 'temperature', label: 'Temperature', unit: 'C' },
     { key: 'humidity', label: 'Humidity', unit: '%RH' },
   ],
   dht22: [
-    { key: 'temperature', label: 'Temperature', unit: '°C' },
+    { key: 'temperature', label: 'Temperature', unit: 'C' },
     { key: 'humidity', label: 'Humidity', unit: '%RH' },
   ],
   bme280: [
-    { key: 'temperature', label: 'Temperature', unit: '°C' },
+    { key: 'temperature', label: 'Temperature', unit: 'C' },
     { key: 'pressure', label: 'Pressure', unit: 'hPa' },
   ],
   bmp280: [
-    { key: 'temperature', label: 'Temperature', unit: '°C' },
+    { key: 'temperature', label: 'Temperature', unit: 'C' },
     { key: 'pressure', label: 'Pressure', unit: 'hPa' },
   ],
   pressure: [{ key: 'pressure', label: 'Pressure', unit: 'hPa' }],
@@ -336,7 +357,7 @@ const CONFIGURABLE_DERIVED_METRICS: Record<string, ConfigurableDerivedMetric[]> 
       key: 'temperature',
       label: 'Temperature',
       unit: 'C',
-      description: 'Observe the direct ambient temperature reading from the SHT30 sensor.',
+      description: 'Observe the direct temperature reading as the primary customer-facing metric.',
       runtime_metric_key: 'temperature',
       use_case: 'climate_monitoring',
       recommended_profile: 'dual_climate',
@@ -354,13 +375,8 @@ const CONFIGURABLE_DERIVED_METRICS: Record<string, ConfigurableDerivedMetric[]> 
         },
         {
           key: 'cold_storage_temperature_monitoring',
-          label: 'Cold Storage Monitoring',
+          label: 'Cold Storage Temperature Monitoring',
           description: 'Track refrigerated or protected storage temperature conditions.',
-        },
-        {
-          key: 'server_room_temperature_monitoring',
-          label: 'Server Room / Equipment Monitoring',
-          description: 'Track equipment enclosure temperature to prevent overheating.',
         },
       ],
     },
@@ -368,7 +384,7 @@ const CONFIGURABLE_DERIVED_METRICS: Record<string, ConfigurableDerivedMetric[]> 
       key: 'humidity',
       label: 'Humidity',
       unit: '%RH',
-      description: 'Observe the direct relative humidity reading from the SHT30 sensor.',
+      description: 'Observe the direct humidity reading as the primary customer-facing metric.',
       runtime_metric_key: 'humidity',
       use_case: 'climate_monitoring',
       recommended_profile: 'dual_climate',
@@ -382,17 +398,12 @@ const CONFIGURABLE_DERIVED_METRICS: Record<string, ConfigurableDerivedMetric[]> 
         {
           key: 'indoor_moisture_monitoring',
           label: 'Indoor Moisture Monitoring',
-          description: 'Track indoor moisture, dryness, or human comfort conditions.',
+          description: 'Track indoor moisture, dryness, or comfort conditions.',
         },
         {
           key: 'storage_humidity_protection',
           label: 'Storage Humidity Protection',
-          description: 'Protect stored goods, electronics, or equipment from excess humidity or dryness.',
-        },
-        {
-          key: 'museum_archive_humidity_monitoring',
-          label: 'Archive / Museum Humidity Control',
-          description: 'Maintain precise humidity bands for artifact, document, or specimen preservation.',
+          description: 'Protect stored goods from excess humidity or dryness.',
         },
       ],
     },
@@ -405,7 +416,7 @@ const CONFIGURABLE_DERIVED_METRICS: Record<string, ConfigurableDerivedMetric[]> 
       key: 'distance',
       label: 'Distance',
       unit: 'cm',
-      description: 'Observe the raw measured distance from the VL53L0X sensor for diagnostics or proximity monitoring.',
+      description: 'Observe the direct measured distance for diagnostics or proximity monitoring.',
       runtime_metric_key: 'distance',
       use_case: 'generic_monitoring',
       recommended_profile: 'single_trend',
@@ -413,23 +424,18 @@ const CONFIGURABLE_DERIVED_METRICS: Record<string, ConfigurableDerivedMetric[]> 
       purposes: [
         {
           key: 'distance_diagnostics',
-          label: 'Raw Distance Diagnostics',
-          description: 'Use the sensor for direct distance validation, installation testing, and debugging.',
+          label: 'Distance Diagnostics',
+          description: 'Use the sensor for direct distance validation and diagnostics.',
         },
         {
           key: 'clearance_monitoring',
-          label: 'Clearance or Gap Monitoring',
-          description: 'Monitor free clearance distance in doorways, machinery, or structural gaps.',
+          label: 'Clearance Monitoring',
+          description: 'Track free distance or proximity in a monitored space.',
         },
         {
           key: 'proximity_tracking',
-          label: 'Proximity / Presence Tracking',
-          description: 'Detect when objects or people come within a defined distance of the sensor.',
-        },
-        {
-          key: 'surface_height_tracking',
-          label: 'Surface Height Tracking',
-          description: 'Track height changes on conveyor belts, pallets, or stacked goods.',
+          label: 'Proximity Tracking',
+          description: 'Track near or far changes relative to the sensor position.',
         },
       ],
     },
@@ -437,7 +443,7 @@ const CONFIGURABLE_DERIVED_METRICS: Record<string, ConfigurableDerivedMetric[]> 
       key: 'fill_level',
       label: 'Fill Level Percentage',
       unit: '%',
-      description: 'Interpret raw distance as the current fill percentage of a bin, tank, or container.',
+      description: 'Interpret raw distance as the current fill level of a bin, tank, or container.',
       runtime_metric_key: 'fill_level',
       use_case: 'fill_level_monitoring',
       recommended_profile: 'level_monitoring',
@@ -445,23 +451,18 @@ const CONFIGURABLE_DERIVED_METRICS: Record<string, ConfigurableDerivedMetric[]> 
       purposes: [
         {
           key: 'smart_bin_fill_monitoring',
-          label: 'Smart Bin / Waste Bin Fill Monitoring',
-          description: 'Track waste bin fill level to plan pickup routes and prevent overflow.',
+          label: 'Smart Bin Fill Monitoring',
+          description: 'Track waste bin fill level for pickup planning and overflow prevention.',
         },
         {
-          key: 'water_tank_level_monitoring',
-          label: 'Water Tank Level Monitoring',
-          description: 'Track water tank level and get alerts before tanks run empty or overflow.',
+          key: 'tank_level_monitoring',
+          label: 'Tank Level Monitoring',
+          description: 'Track water, chemical, or liquid tank level over time.',
         },
         {
-          key: 'chemical_liquid_tank_monitoring',
-          label: 'Chemical / Liquid Tank Monitoring',
-          description: 'Monitor liquid levels in chemical or industrial storage tanks.',
-        },
-        {
-          key: 'grain_silo_storage_tracking',
-          label: 'Grain / Dry-Material Storage Tracking',
-          description: 'Track stored material level in silos, grain stores, or feed containers.',
+          key: 'storage_level_tracking',
+          label: 'Storage Level Tracking',
+          description: 'Track material level in a storage bay, silo, or container.',
         },
       ],
     },
@@ -469,31 +470,53 @@ const CONFIGURABLE_DERIVED_METRICS: Record<string, ConfigurableDerivedMetric[]> 
       key: 'occupancy_count',
       label: 'Occupancy Count',
       unit: 'people',
-      description: 'Estimate the live people count in a zone by interpreting distance-trigger events.',
+      description: 'Interpret the sensing setup as the number of people currently occupying a zone.',
       runtime_metric_key: 'occupancy_count',
       use_case: 'occupancy_monitoring',
       recommended_profile: 'counter_status',
       supported_profiles: ['counter_status', 'event_timeline', 'single_trend'],
       purposes: [
         {
-          key: 'room_occupancy_estimation',
-          label: 'Room / Hall Occupancy Estimation',
-          description: 'Estimate how many people are currently inside a room, hall, or waiting area.',
-        },
-        {
-          key: 'doorway_traffic_tracking',
-          label: 'Doorway Entry / Exit Counting',
-          description: 'Count people passing through a doorway, turnstile, or zone boundary.',
+          key: 'room_occupancy_monitoring',
+          label: 'Room Occupancy Monitoring',
+          description: 'Track how many people are inside a room or hall right now.',
         },
         {
           key: 'queue_density_tracking',
-          label: 'Queue or Service Zone Density',
-          description: 'Track how crowded a queue, counter, or service zone is in real time.',
+          label: 'Queue Density Tracking',
+          description: 'Track how crowded a queue or service zone becomes.',
         },
         {
-          key: 'lab_or_workspace_capacity',
-          label: 'Lab / Workspace Capacity Monitoring',
-          description: 'Ensure labs, workshops, or meeting rooms do not exceed safe capacity.',
+          key: 'crowd_zone_monitoring',
+          label: 'Crowd Zone Monitoring',
+          description: 'Track occupancy in public or shared activity zones.',
+        },
+      ],
+    },
+    {
+      key: 'attendance_count',
+      label: 'Attendance Count',
+      unit: 'people',
+      description: 'Interpret the sensing setup as attendance or presence count for a session.',
+      runtime_metric_key: 'attendance_count',
+      use_case: 'attendance_monitoring',
+      recommended_profile: 'counter_status',
+      supported_profiles: ['counter_status', 'event_timeline', 'single_trend'],
+      purposes: [
+        {
+          key: 'classroom_attendance_tracking',
+          label: 'Classroom Attendance Tracking',
+          description: 'Track how many students or participants are present in a class.',
+        },
+        {
+          key: 'event_attendance_monitoring',
+          label: 'Event Attendance Monitoring',
+          description: 'Track attendee presence for halls, meetings, or sessions.',
+        },
+        {
+          key: 'session_presence_tracking',
+          label: 'Session Presence Tracking',
+          description: 'Track presence count during scheduled or timed sessions.',
         },
       ],
     },
@@ -558,189 +581,41 @@ const CONFIGURABLE_DERIVED_METRICS: Record<string, ConfigurableDerivedMetric[]> 
     },
   ],
   gas: [],
-  bme280: [
-    {
-      key: 'temperature',
-      label: 'Temperature',
-      unit: 'C',
-      description: 'Observe the ambient temperature reading from the GY-BME280 environmental sensor.',
-      runtime_metric_key: 'temperature',
-      use_case: 'climate_monitoring',
-      recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'dual_climate'],
-      purposes: [
-        {
-          key: 'outdoor_ambient_temperature_monitoring',
-          label: 'Outdoor / Ambient Temperature Monitoring',
-          description: 'Track outdoor or field-level temperature as part of environmental sensing.',
-        },
-        {
-          key: 'room_temperature_monitoring',
-          label: 'Room / Indoor Temperature Monitoring',
-          description: 'Track indoor comfort or workspace temperature conditions.',
-        },
-        {
-          key: 'greenhouse_temperature_monitoring',
-          label: 'Greenhouse Temperature Monitoring',
-          description: 'Track crop-zone temperature for greenhouse control and review.',
-        },
-        {
-          key: 'altitude_compensation_monitoring',
-          label: 'Altitude Estimation Monitoring',
-          description: 'Use temperature alongside pressure to estimate altitude changes.',
-        },
-      ],
-    },
-    {
-      key: 'humidity',
-      label: 'Humidity',
-      unit: '%RH',
-      description: 'Observe the relative humidity reading from the GY-BME280 module (the BMP280 variant does not include humidity).',
-      runtime_metric_key: 'humidity',
-      use_case: 'climate_monitoring',
-      recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'dual_climate'],
-      purposes: [
-        {
-          key: 'outdoor_humidity_monitoring',
-          label: 'Outdoor / Ambient Humidity Monitoring',
-          description: 'Track outdoor relative humidity as part of environmental condition sensing.',
-        },
-        {
-          key: 'greenhouse_humidity_monitoring',
-          label: 'Greenhouse Humidity Monitoring',
-          description: 'Track humidity around crops and irrigation schedules.',
-        },
-        {
-          key: 'indoor_moisture_monitoring',
-          label: 'Indoor Moisture Monitoring',
-          description: 'Track indoor moisture or human comfort conditions.',
-        },
-      ],
-    },
-    {
-      key: 'pressure',
-      label: 'Pressure',
-      unit: 'hPa',
-      description: 'Observe the barometric pressure reading from the GY-BME280 sensor.',
-      runtime_metric_key: 'pressure',
-      use_case: 'generic_monitoring',
-      recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'gauge_status'],
-      purposes: [
-        {
-          key: 'weather_trend_monitoring',
-          label: 'Weather Trend Monitoring',
-          description: 'Track atmospheric pressure trends to anticipate weather changes.',
-        },
-        {
-          key: 'altitude_estimation',
-          label: 'Altitude Estimation',
-          description: 'Estimate relative altitude or floor-to-floor elevation changes.',
-        },
-        {
-          key: 'indoor_air_pressure_monitoring',
-          label: 'Indoor Air Pressure Monitoring',
-          description: 'Monitor indoor pressure conditions for HVAC or ventilation analysis.',
-        },
-      ],
-    },
-  ],
-  bmp280: [
-    {
-      key: 'temperature',
-      label: 'Temperature',
-      unit: 'C',
-      description: 'Observe the ambient temperature reading from the BMP280 sensor. Note: the BMP280 does not measure humidity — use a BME280 module if humidity is also needed.',
-      runtime_metric_key: 'temperature',
-      use_case: 'climate_monitoring',
-      recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend'],
-      purposes: [
-        {
-          key: 'outdoor_ambient_temperature_monitoring',
-          label: 'Outdoor / Ambient Temperature Monitoring',
-          description: 'Track outdoor or field-level temperature as part of environmental sensing.',
-        },
-        {
-          key: 'room_temperature_monitoring',
-          label: 'Room / Indoor Temperature Monitoring',
-          description: 'Track indoor comfort or workspace temperature conditions.',
-        },
-        {
-          key: 'altitude_compensation_monitoring',
-          label: 'Altitude Compensation Monitoring',
-          description: 'Use temperature alongside pressure readings for altitude estimation.',
-        },
-      ],
-    },
-    {
-      key: 'pressure',
-      label: 'Pressure',
-      unit: 'hPa',
-      description: 'Observe the barometric pressure reading from the BMP280 sensor. Note: the BMP280 does not measure humidity.',
-      runtime_metric_key: 'pressure',
-      use_case: 'generic_monitoring',
-      recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'gauge_status'],
-      purposes: [
-        {
-          key: 'weather_trend_monitoring',
-          label: 'Weather Trend Monitoring',
-          description: 'Track atmospheric pressure trends to anticipate weather changes.',
-        },
-        {
-          key: 'altitude_estimation',
-          label: 'Altitude Estimation',
-          description: 'Estimate relative altitude or floor-level changes using pressure.',
-        },
-        {
-          key: 'indoor_air_pressure_monitoring',
-          label: 'Indoor Air Pressure Monitoring',
-          description: 'Monitor indoor pressure for HVAC or ventilation system analysis.',
-        },
-      ],
-    },
-  ],
 };
 
 CONFIGURABLE_DERIVED_METRICS.temp_humidity = CONFIGURABLE_DERIVED_METRICS.temperature_humidity;
-CONFIGURABLE_DERIVED_METRICS.humidity = CONFIGURABLE_DERIVED_METRICS.temperature_humidity;
 CONFIGURABLE_DERIVED_METRICS.dht11 = CONFIGURABLE_DERIVED_METRICS.temperature_humidity;
 CONFIGURABLE_DERIVED_METRICS.dht22 = CONFIGURABLE_DERIVED_METRICS.temperature_humidity;
 CONFIGURABLE_DERIVED_METRICS.load_cell = CONFIGURABLE_DERIVED_METRICS.load;
 CONFIGURABLE_DERIVED_METRICS.gas = CONFIGURABLE_DERIVED_METRICS.gas_sensor;
 CONFIGURABLE_DERIVED_METRICS.vl53l0x = CONFIGURABLE_DERIVED_METRICS.ultrasonic;
-CONFIGURABLE_DERIVED_METRICS.distance = CONFIGURABLE_DERIVED_METRICS.ultrasonic;
 
 const SENSOR_KNOWLEDGE_PROFILES: Record<string, SensorKnowledgeProfile> = {
   temperature_humidity: {
     module_name: 'SHT30 Temperature and Humidity Sensor Module',
-    sensor_family: 'Digital climate sensor (Sensirion SHT3x series)',
+    sensor_family: 'Digital climate sensor',
     description:
-      'The SHT30 is the primary climate sensor in the Spectron hardware stack. It delivers high-accuracy temperature (±0.2 °C) and relative humidity (±2 %RH) readings over I²C. Both metrics are available immediately and the configuration page lets the customer choose which one to track and how to display it.',
+      'This is the discovered physical climate sensor in the current hardware stack. Layer 1 is automatic, but the customer should still see what the sensor can physically measure before choosing a Layer 2 metric.',
     measures: [
       {
         label: 'Temperature',
-        description: 'Ambient temperature at the installation point. Typical accuracy ±0.2 °C.',
+        description: 'Ambient or process temperature around the installation point.',
       },
       {
         label: 'Humidity',
-        description: 'Relative humidity in the surrounding air. Typical accuracy ±2 %RH.',
+        description: 'Relative humidity in the surrounding air.',
       },
     ],
     readable_ranges: SENSOR_HARDWARE_METRICS.temperature_humidity,
     common_use_cases: [
       'Greenhouse climate monitoring',
-      'Room comfort and HVAC monitoring',
+      'Room comfort monitoring',
       'Cold storage condition monitoring',
       'Moisture-sensitive storage protection',
-      'Server room / equipment enclosure monitoring',
     ],
     notes: [
-      'Based on the SHT30-class module used in the Spectron hardware stack.',
-      'Humidity response time is approximately 8 s (tau63) per the SHT3x-DIS datasheet.',
-      'Temperature accuracy is ±0.2 °C typical from 0 °C to 65 °C.',
+      'Based on the SHT30-class module shown in the project hardware list.',
+      'Humidity response time is approximately 8 s (tau63) in the SHT3x-DIS datasheet.',
     ],
   },
   temp_humidity: {} as SensorKnowledgeProfile,
@@ -748,9 +623,9 @@ const SENSOR_KNOWLEDGE_PROFILES: Record<string, SensorKnowledgeProfile> = {
   dht22: {} as SensorKnowledgeProfile,
   ultrasonic: {
     module_name: 'GY-VL53L0X Time-of-Flight Distance Sensor',
-    sensor_family: 'VL53L0X ToF distance sensor used as the physical source for level, presence, and traffic interpretations',
+    sensor_family: 'VL53L0X ToF distance sensor used as the physical source for level and people-count interpretations',
     description:
-      'The app may still refer to this slot as ultrasonic for compatibility, but the current hardware bill of materials points to a VL53L0X time-of-flight distance module. Layer 2 decides whether that distance becomes fill level, occupancy estimation, doorway traffic cues, or direct distance.',
+      'The app may still refer to this slot as ultrasonic for compatibility, but the current hardware bill of materials points to a VL53L0X time-of-flight distance module. Layer 2 decides whether that distance becomes fill level, occupancy, attendance, or direct distance.',
     measures: [
       {
         label: 'Distance',
@@ -760,8 +635,8 @@ const SENSOR_KNOWLEDGE_PROFILES: Record<string, SensorKnowledgeProfile> = {
     readable_ranges: SENSOR_HARDWARE_METRICS.ultrasonic,
     common_use_cases: [
       'Fill-level monitoring for bins and tanks',
-      'Room occupancy estimation',
-      'Doorway traffic monitoring',
+      'Room occupancy monitoring',
+      'Attendance counting for sessions',
       'Clearance and proximity diagnostics',
     ],
     notes: [
@@ -773,7 +648,7 @@ const SENSOR_KNOWLEDGE_PROFILES: Record<string, SensorKnowledgeProfile> = {
     module_name: 'GY-VL53L0X Time-of-Flight Distance Sensor',
     sensor_family: 'VL53L0X ToF distance sensor',
     description:
-      'This module provides the raw distance reading used directly or transformed into customer-facing level, proximity, and estimated occupancy metrics.',
+      'This module provides the raw distance reading used directly or transformed into customer-facing level and people-count metrics.',
     measures: [
       {
         label: 'Distance',
@@ -784,28 +659,28 @@ const SENSOR_KNOWLEDGE_PROFILES: Record<string, SensorKnowledgeProfile> = {
     common_use_cases: [
       'Distance diagnostics',
       'Level monitoring',
-      'Presence, occupancy, and doorway traffic sensing',
+      'Presence and occupancy sensing',
     ],
     notes: ['High-accuracy profile is typically below +/-3% at up to 1.2 m.'],
   },
   distance: {} as SensorKnowledgeProfile,
   bme280: {
     module_name: 'GY-BME280 Combined Environmental Sensor Module',
-    sensor_family: 'Temperature, humidity, and barometric pressure sensor (Bosch BME280)',
+    sensor_family: 'Temperature, humidity, and barometric pressure sensor',
     description:
-      'The GY-BME280 module measures three environmental quantities — temperature, relative humidity, and barometric pressure — from a single I²C-connected module. All three channels are available for selection in the configuration flow.',
+      'This discovered module measures atmospheric conditions. The current configuration flow mainly uses its temperature and pressure outputs, but the physical module itself can sense humidity as well.',
     measures: [
       {
         label: 'Temperature',
-        description: 'Ambient temperature (used directly and for pressure/humidity compensation).',
+        description: 'Ambient temperature used both directly and for pressure/humidity compensation.',
       },
       {
         label: 'Pressure',
-        description: 'Absolute barometric pressure (300–1100 hPa, ±0.25 % pressure sensitivity error).',
+        description: 'Absolute barometric pressure.',
       },
       {
         label: 'Humidity',
-        description: 'Relative humidity (0–100 %RH, ±3 %RH accuracy) — available on BME280 only.',
+        description: 'Relative humidity from the same environmental module.',
       },
     ],
     readable_ranges: [
@@ -822,52 +697,22 @@ const SENSOR_KNOWLEDGE_PROFILES: Record<string, SensorKnowledgeProfile> = {
     common_use_cases: [
       'Weather and ambient condition monitoring',
       'Indoor environmental trend tracking',
-      'Outdoor temperature and humidity sensing',
       'Pressure-based altitude and floor-change analysis',
     ],
-    notes: [
-      'Based on the GY-BME280 5 V module in the Spectron hardware list.',
-      'The BMP280 is a pressure-only variant with no humidity channel — the BME280 adds humidity.',
-    ],
+    notes: ['Based on the GY-BME280 5 V module shown in the project hardware list.'],
   },
   pressure: {
-    module_name: 'BME280 / BMP280 Pressure Channel',
+    module_name: 'BME280/BMP180 Pressure Channel',
     sensor_family: 'Barometric pressure sensing',
-    description: 'Barometric pressure reading from the discovered environmental module. Note: the BMP280 variant does not include a humidity sensor, while the BME280 does.',
+    description: 'This reading comes from the pressure side of the discovered environmental module.',
     measures: [
       {
         label: 'Pressure',
-        description: 'Absolute atmospheric pressure for weather, altitude, or ventilation analysis.',
+        description: 'Absolute atmospheric pressure for weather or elevation-related use cases.',
       },
     ],
     readable_ranges: SENSOR_HARDWARE_METRICS.pressure,
-    common_use_cases: ['Weather trend monitoring', 'Indoor navigation', 'Altitude change estimation', 'HVAC and ventilation analysis'],
-  },
-  bmp280: {
-    module_name: 'BMP280 Barometric Pressure and Temperature Sensor',
-    sensor_family: 'Temperature and barometric pressure sensor (Bosch BMP280)',
-    description:
-      'The BMP280 measures temperature and barometric pressure only. Unlike the BME280, it does NOT include a humidity sensor. If humidity readings are needed, use a BME280 or SHT30 module instead.',
-    measures: [
-      {
-        label: 'Temperature',
-        description: 'Ambient temperature (also used for pressure compensation).',
-      },
-      {
-        label: 'Pressure',
-        description: 'Absolute barometric pressure (300–1100 hPa). No humidity channel available.',
-      },
-    ],
-    readable_ranges: SENSOR_HARDWARE_METRICS.bmp280,
-    common_use_cases: [
-      'Outdoor weather trend monitoring',
-      'Pressure-based altitude estimation',
-      'Indoor air pressure monitoring for HVAC analysis',
-    ],
-    notes: [
-      'The BMP280 does NOT support humidity measurement. Use a BME280 if humidity is required.',
-      'Based on the BMP280 module specification; accuracy ±0.12 hPa (typical).',
-    ],
+    common_use_cases: ['Weather trend monitoring', 'Indoor navigation', 'Altitude change estimation'],
   },
   load: {
     module_name: 'Project load sensing channel',
@@ -908,7 +753,6 @@ const SENSOR_KNOWLEDGE_PROFILES: Record<string, SensorKnowledgeProfile> = {
 };
 
 SENSOR_KNOWLEDGE_PROFILES.temp_humidity = SENSOR_KNOWLEDGE_PROFILES.temperature_humidity;
-SENSOR_KNOWLEDGE_PROFILES.humidity = SENSOR_KNOWLEDGE_PROFILES.temperature_humidity;
 SENSOR_KNOWLEDGE_PROFILES.dht11 = SENSOR_KNOWLEDGE_PROFILES.temperature_humidity;
 SENSOR_KNOWLEDGE_PROFILES.dht22 = SENSOR_KNOWLEDGE_PROFILES.temperature_humidity;
 SENSOR_KNOWLEDGE_PROFILES.distance = SENSOR_KNOWLEDGE_PROFILES.vl53l0x;
@@ -920,8 +764,8 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
     {
       key: 'temperature',
       label: 'Temperature',
-      unit: '°C',
-      description: 'Direct ambient temperature reading from the SHT30 sensor. Accurate to ±0.2 °C.',
+      unit: 'C',
+      description: 'Direct ambient or process temperature reading.',
       runtime_metric_key: 'temperature',
       use_case: 'climate_monitoring',
       recommended_profile: 'dual_climate',
@@ -935,7 +779,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       key: 'humidity',
       label: 'Humidity',
       unit: '%RH',
-      description: 'Direct relative humidity reading from the SHT30 sensor. Accurate to ±2 %RH.',
+      description: 'Direct relative humidity reading.',
       runtime_metric_key: 'humidity',
       use_case: 'climate_monitoring',
       recommended_profile: 'dual_climate',
@@ -946,70 +790,10 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       formula: 'Direct sensor reading',
     },
     {
-      key: 'heat_index',
-      label: 'Heat Index',
-      unit: '°C',
-      description: 'Feels-like temperature combining both temperature and humidity into a single thermal-stress value.',
-      runtime_metric_key: 'heat_index',
-      use_case: 'climate_monitoring',
-      recommended_profile: 'dual_climate',
-      supported_profiles: ['dual_climate', 'gauge_status', 'single_trend'],
-      purposes: [
-        {
-          key: 'human_comfort_monitoring',
-          label: 'Human Comfort Monitoring',
-          description: 'Track perceived heat stress for staff, workers, residents, or visitors.',
-        },
-        {
-          key: 'greenhouse_heat_stress_monitoring',
-          label: 'Greenhouse Heat Stress Monitoring',
-          description: 'Track crop-zone combined stress where temperature and humidity interact.',
-        },
-        {
-          key: 'livestock_heat_stress',
-          label: 'Livestock Heat-Stress Monitoring',
-          description: 'Monitor combined thermal stress in poultry houses or cattle barns.',
-        },
-      ],
-      availability: 'supported_now',
-      source_metrics: ['temperature', 'humidity'],
-      formula: 'Derived from temperature and relative humidity',
-    },
-    {
-      key: 'dew_point',
-      label: 'Dew Point',
-      unit: '°C',
-      description: 'Condensation-risk temperature derived from temperature and humidity readings.',
-      runtime_metric_key: 'dew_point',
-      use_case: 'climate_monitoring',
-      recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'dual_climate'],
-      purposes: [
-        {
-          key: 'cold_room_condensation_prevention',
-          label: 'Cold Room Condensation Prevention',
-          description: 'Warn before moisture condenses on products, walls, or equipment surfaces.',
-        },
-        {
-          key: 'moisture_risk_monitoring',
-          label: 'Moisture-Risk Monitoring',
-          description: 'Track when air conditions are approaching the condensation point.',
-        },
-        {
-          key: 'electronics_storage_protection',
-          label: 'Electronics Storage Protection',
-          description: 'Prevent condensation damage in PCB stores or equipment enclosures.',
-        },
-      ],
-      availability: 'supported_now',
-      source_metrics: ['temperature', 'humidity'],
-      formula: 'Derived dew-point temperature from climate readings',
-    },
-    {
       key: 'temperature_spike',
       label: 'Temperature Spike',
-      unit: '°C',
-      description: 'Sudden upward or downward temperature change within a short observation window.',
+      unit: 'C',
+      description: 'Sudden upward or downward temperature change in a short window.',
       runtime_metric_key: 'temperature_spike',
       use_case: 'climate_monitoring',
       recommended_profile: 'event_timeline',
@@ -1017,18 +801,18 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       purposes: [
         {
           key: 'cold_chain_spike_detection',
-          label: 'Cold-Chain Excursion Detection',
-          description: 'Catch abrupt temperature excursions in refrigerated storage or transport.',
+          label: 'Cold-Chain Spike Detection',
+          description: 'Catch abrupt temperature excursions in protected storage or transport.',
         },
         {
           key: 'equipment_overheating_detection',
           label: 'Equipment Overheating Detection',
-          description: 'Spot sudden heat events near machinery, motors, or electrical panels.',
+          description: 'Spot sudden heat events around machinery or electrical equipment.',
         },
         {
           key: 'climate_instability_tracking',
           label: 'Climate Instability Tracking',
-          description: 'Track fast temperature swings rather than the steady baseline value.',
+          description: 'Track fast temperature swings rather than the steady baseline.',
         },
       ],
       availability: 'supported_now',
@@ -1039,7 +823,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       key: 'humidity_spike',
       label: 'Humidity Spike',
       unit: '%RH',
-      description: 'Sudden humidity change indicating an unexpected moisture event or system fault.',
+      description: 'Sudden humidity change that indicates a moisture event or anomaly.',
       runtime_metric_key: 'humidity_spike',
       use_case: 'climate_monitoring',
       recommended_profile: 'event_timeline',
@@ -1047,18 +831,13 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       purposes: [
         {
           key: 'greenhouse_misting_anomaly_detection',
-          label: 'Irrigation / Misting Anomaly Detection',
-          description: 'Catch unexpected moisture jumps from irrigation, misting, or leaks.',
+          label: 'Greenhouse Misting Anomaly Detection',
+          description: 'Catch unexpected moisture jumps from irrigation or misting issues.',
         },
         {
           key: 'unexpected_moisture_event_detection',
           label: 'Unexpected Moisture Event Detection',
-          description: 'Track abrupt humidity surges in sensitive spaces or storage areas.',
-        },
-        {
-          key: 'drying_process_monitoring',
-          label: 'Drying Process Monitoring',
-          description: 'Detect sudden humidity drops during drying, curing, or dehumidification.',
+          description: 'Track abrupt humidity changes in sensitive spaces or storage areas.',
         },
       ],
       availability: 'supported_now',
@@ -1066,9 +845,59 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       formula: 'Humidity delta over a short observation window',
     },
     {
+      key: 'heat_index',
+      label: 'Heat Index',
+      unit: 'C',
+      description: 'Combined thermal stress derived from temperature and humidity together.',
+      runtime_metric_key: 'heat_index',
+      use_case: 'climate_monitoring',
+      recommended_profile: 'dual_climate',
+      supported_profiles: ['dual_climate', 'gauge_status', 'single_trend'],
+      purposes: [
+        {
+          key: 'human_comfort_monitoring',
+          label: 'Human Comfort Monitoring',
+          description: 'Observe perceived heat stress for staff, residents, or visitors.',
+        },
+        {
+          key: 'greenhouse_heat_stress_monitoring',
+          label: 'Greenhouse Heat Stress Monitoring',
+          description: 'Track crop-zone stress where temperature and humidity interact.',
+        },
+      ],
+      availability: 'supported_now',
+      source_metrics: ['temperature', 'humidity'],
+      formula: 'Derived from temperature and relative humidity',
+    },
+    {
+      key: 'dew_point',
+      label: 'Dew Point',
+      unit: 'C',
+      description: 'Condensation-risk signal derived from temperature and humidity.',
+      runtime_metric_key: 'dew_point',
+      use_case: 'climate_monitoring',
+      recommended_profile: 'single_trend',
+      supported_profiles: ['single_trend', 'dual_climate'],
+      purposes: [
+        {
+          key: 'cold_room_condensation_prevention',
+          label: 'Cold Room Condensation Prevention',
+          description: 'Warn before moisture condenses on products, walls, or equipment.',
+        },
+        {
+          key: 'moisture_risk_monitoring',
+          label: 'Moisture-Risk Monitoring',
+          description: 'Track when air conditions are approaching a condensation point.',
+        },
+      ],
+      availability: 'supported_now',
+      source_metrics: ['temperature', 'humidity'],
+      formula: 'Derived dew-point temperature from climate readings',
+    },
+    {
       key: 'climate_condition',
       label: 'Climate Condition',
-      description: 'Summarized climate state label such as Dry, Comfortable, Humid, Hot, or Cold.',
+      description: 'Human-readable state such as dry, stable, humid, hot, or cold.',
       runtime_metric_key: 'climate_condition',
       use_case: 'climate_monitoring',
       recommended_profile: 'dual_climate',
@@ -1076,23 +905,18 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       purposes: [
         {
           key: 'simple_operator_dashboards',
-          label: 'Simple Operator Status Dashboard',
-          description: 'Summarize climate health without requiring operators to read raw numbers.',
+          label: 'Simple Operator Dashboards',
+          description: 'Summarize climate health without forcing operators to read raw numbers.',
         },
         {
           key: 'traffic_light_climate_status',
           label: 'Traffic-Light Climate Status',
-          description: 'Drive clear green, amber, and red condition indicators on a dashboard.',
-        },
-        {
-          key: 'crop_condition_summary',
-          label: 'Crop Condition Summary',
-          description: 'Give farmers or growers a simple good, caution, or critical crop climate label.',
+          description: 'Drive clear green, amber, and red condition states.',
         },
       ],
       availability: 'supported_now',
       source_metrics: ['temperature', 'humidity'],
-      formula: 'Rule-based climate classification from direct readings and configured thresholds',
+      formula: 'Rule-based climate classification from direct readings and thresholds',
     },
   ],
   ultrasonic: [
@@ -1100,7 +924,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       key: 'distance',
       label: 'Distance',
       unit: 'cm',
-      description: 'Raw measured distance from the VL53L0X time-of-flight sensor. Useful for diagnostics, proximity detection, and direct distance monitoring.',
+      description: 'Direct measured distance for diagnostics, clearance, or proximity tracking.',
       runtime_metric_key: 'distance',
       use_case: 'generic_monitoring',
       recommended_profile: 'single_trend',
@@ -1114,7 +938,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       key: 'fill_level',
       label: 'Fill Level',
       unit: '%',
-      description: 'Container or bin fill percentage derived from the measured distance. Requires the container depth to be configured.',
+      description: 'Container fill percentage interpreted from distance.',
       runtime_metric_key: 'fill_level',
       use_case: 'fill_level_monitoring',
       recommended_profile: 'level_monitoring',
@@ -1122,13 +946,13 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       purposes: CONFIGURABLE_DERIVED_METRICS.ultrasonic[1].purposes,
       availability: 'supported_now',
       source_metrics: ['distance'],
-      formula: 'Distance normalized between the empty and full calibration depth',
+      formula: 'Distance normalized between full and empty calibration points',
     },
     {
       key: 'occupancy_count',
       label: 'Occupancy Count',
       unit: 'people',
-      description: 'Live people count inside the monitored zone, inferred from distance-trigger crossing events.',
+      description: 'Current people count inferred from the sensing setup.',
       runtime_metric_key: 'occupancy_count',
       use_case: 'occupancy_monitoring',
       recommended_profile: 'counter_status',
@@ -1136,108 +960,77 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       purposes: CONFIGURABLE_DERIVED_METRICS.ultrasonic[2].purposes,
       availability: 'supported_now',
       source_metrics: ['distance'],
-      formula: 'Distance-trigger events converted into a live occupancy count',
+      formula: 'Distance-trigger events converted into an occupancy count',
     },
     {
       key: 'attendance_count',
       label: 'Attendance Count',
       unit: 'people',
-      description: 'Session presence count accumulated from distance-trigger events during a defined session window.',
+      description: 'Attendance or session presence count inferred from the sensing setup.',
       runtime_metric_key: 'attendance_count',
       use_case: 'attendance_monitoring',
       recommended_profile: 'counter_status',
       supported_profiles: ['counter_status', 'event_timeline', 'single_trend'],
-      purposes: [
-        {
-          key: 'classroom_attendance_tracking',
-          label: 'Classroom / Lecture Attendance',
-          description: 'Count students or participants entering a classroom, lecture hall, or lab.',
-        },
-        {
-          key: 'event_attendance_monitoring',
-          label: 'Event / Meeting Attendance',
-          description: 'Track attendee presence for halls, boardrooms, or scheduled sessions.',
-        },
-        {
-          key: 'library_visitor_counting',
-          label: 'Library / Study Room Visitor Counting',
-          description: 'Count visitors entering study spaces, reading rooms, or resource areas.',
-        },
-        {
-          key: 'workshop_session_tracking',
-          label: 'Workshop / Lab Session Tracking',
-          description: 'Track presence during timed lab or workshop sessions for usage review.',
-        },
-      ],
+      purposes: CONFIGURABLE_DERIVED_METRICS.ultrasonic[3].purposes,
       availability: 'supported_now',
       source_metrics: ['distance'],
-      formula: 'Distance-trigger entry events accumulated into session attendance counts',
+      formula: 'Distance-trigger events converted into session presence counts',
     },
     {
       key: 'fill_rate',
       label: 'Fill Rate',
       unit: '%/day',
-      description: 'Rate at which a container is filling or emptying over time.',
+      description: 'Rate at which the container is filling or emptying.',
       runtime_metric_key: 'fill_rate',
       use_case: 'fill_level_monitoring',
       recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'event_timeline'],
+      supported_profiles: ['single_trend', 'gauge_status', 'event_timeline'],
       purposes: [
         {
-          key: 'bin_collection_planning',
-          label: 'Bin Collection Planning',
-          description: 'Predict when a waste bin will be full so pickup can be scheduled efficiently.',
+          key: 'collection_planning',
+          label: 'Collection Planning',
+          description: 'Estimate how quickly a bin or tank is moving toward service.',
         },
         {
-          key: 'tank_consumption_forecasting',
-          label: 'Tank Consumption Forecasting',
-          description: 'Track how quickly water or liquid is being consumed or refilled.',
-        },
-        {
-          key: 'inventory_depletion_tracking',
-          label: 'Inventory Depletion Tracking',
-          description: 'Track how fast stored dry material is being consumed from a bin or silo.',
+          key: 'consumption_forecasting',
+          label: 'Consumption Forecasting',
+          description: 'Track how fast a stored material is being used or replenished.',
         },
       ],
       availability: 'supported_now',
       source_metrics: ['fill_level'],
-      formula: 'Fill-level change computed over time',
+      formula: 'Fill-level change over time',
     },
     {
       key: 'remaining_capacity_percent',
       label: 'Remaining Capacity',
       unit: '%',
-      description: 'Unused storage or container capacity derived from the current fill level reading.',
+      description: 'Unused capacity derived from the current fill level.',
       runtime_metric_key: 'remaining_capacity_percent',
       use_case: 'fill_level_monitoring',
       recommended_profile: 'gauge_status',
-      supported_profiles: ['gauge_status', 'level_monitoring'],
+      supported_profiles: ['gauge_status', 'level_monitoring', 'single_trend'],
       purposes: [
         {
           key: 'storage_planning',
           label: 'Storage Planning',
-          description: 'Show how much free capacity remains before a refill or service pickup is needed.',
+          description: 'Show how much free capacity remains before a refill or pickup is needed.',
         },
         {
-          key: 'tank_reserve_monitoring',
-          label: 'Tank Reserve Monitoring',
-          description: 'Monitor remaining water or liquid reserve before the tank runs low.',
-        },
-        {
-          key: 'bin_service_scheduling',
-          label: 'Bin / Container Service Scheduling',
-          description: 'Use remaining capacity to plan collection routes and avoid overflow.',
+          key: 'service_scheduling',
+          label: 'Service Scheduling',
+          description: 'Plan operations based on what capacity is still available.',
         },
       ],
       availability: 'supported_now',
       source_metrics: ['fill_level'],
-      formula: '100 minus current fill level percentage',
+      formula: '100 minus fill level percentage',
     },
     {
       key: 'occupancy_spike',
       label: 'Occupancy Spike',
       unit: 'people',
-      description: 'Sudden rapid increase in the people count inside the observed zone.',
+      description: 'Sudden increase in people count inside the observed zone.',
       runtime_metric_key: 'occupancy_spike',
       use_case: 'occupancy_monitoring',
       recommended_profile: 'event_timeline',
@@ -1246,52 +1039,42 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
         {
           key: 'crowd_surge_detection',
           label: 'Crowd Surge Detection',
-          description: 'Detect sudden rush events in public spaces, halls, or service areas.',
+          description: 'Highlight sudden rush events in public or shared spaces.',
         },
         {
           key: 'entrance_rush_monitoring',
           label: 'Entrance Rush Monitoring',
-          description: 'Track abrupt occupancy jumps at opening times or shift changes.',
-        },
-        {
-          key: 'evacuation_route_monitoring',
-          label: 'Evacuation Route Monitoring',
-          description: 'Detect unusual movement spikes that may signal an evacuation or incident.',
+          description: 'Track abrupt occupancy changes during entry periods.',
         },
       ],
       availability: 'supported_now',
       source_metrics: ['occupancy_count'],
-      formula: 'Occupancy count delta over a short observation window',
+      formula: 'Count delta over a short observation window',
     },
     {
       key: 'peak_occupancy',
       label: 'Peak Occupancy',
       unit: 'people',
-      description: 'Maximum occupancy observed within the current reporting window.',
+      description: 'Maximum occupancy observed within a reporting window.',
       runtime_metric_key: 'peak_occupancy',
       use_case: 'occupancy_monitoring',
       recommended_profile: 'counter_status',
       supported_profiles: ['counter_status', 'single_trend'],
       purposes: [
         {
-          key: 'space_utilization_reporting',
-          label: 'Space Utilization Reporting',
-          description: 'Report the highest occupancy level reached in a reporting period.',
+          key: 'utilization_reporting',
+          label: 'Utilization Reporting',
+          description: 'Report the highest space utilization reached in a period.',
         },
         {
-          key: 'staffing_and_resource_decisions',
-          label: 'Staffing and Resource Decisions',
-          description: 'Use peak crowd data to plan staff deployment and resource allocation.',
-        },
-        {
-          key: 'safety_capacity_compliance',
-          label: 'Safety Capacity Compliance',
-          description: 'Verify that peak occupancy never exceeds the safe building capacity limit.',
+          key: 'staffing_decisions',
+          label: 'Staffing Decisions',
+          description: 'Use crowd peaks to inform staffing or supervision levels.',
         },
       ],
       availability: 'supported_now',
       source_metrics: ['occupancy_count'],
-      formula: 'Maximum observed occupancy count within a time window',
+      formula: 'Maximum observed occupancy in a time window',
     },
   ],
   load: [
@@ -1347,7 +1130,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       runtime_metric_key: 'load_change_rate',
       use_case: 'load_monitoring',
       recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'event_timeline'],
+      supported_profiles: ['single_trend', 'gauge_status', 'event_timeline'],
       purposes: [
         {
           key: 'restock_behavior_monitoring',
@@ -1397,7 +1180,7 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       runtime_metric_key: 'depletion_rate',
       use_case: 'load_monitoring',
       recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'event_timeline'],
+      supported_profiles: ['single_trend', 'gauge_status', 'event_timeline'],
       purposes: [
         {
           key: 'stock_forecasting',
@@ -1529,183 +1312,13 @@ const OBSERVABLE_METRIC_CATALOG: Record<string, ObservableMetricDefinition[]> = 
       formula: 'Accumulated time above the configured danger threshold',
     },
   ],
-  bme280: [
-    {
-      key: 'temperature',
-      label: 'Temperature',
-      unit: '°C',
-      description: 'Direct ambient temperature reading from the GY-BME280 environmental module.',
-      runtime_metric_key: 'temperature',
-      use_case: 'climate_monitoring',
-      recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'dual_climate'],
-      purposes: CONFIGURABLE_DERIVED_METRICS.bme280[0].purposes,
-      availability: 'supported_now',
-      source_metrics: ['temperature'],
-      formula: 'Direct sensor reading',
-    },
-    {
-      key: 'humidity',
-      label: 'Humidity',
-      unit: '%RH',
-      description: 'Direct relative humidity reading from the GY-BME280 module (±3 %RH accuracy). Note: the BMP280 variant does not include a humidity sensor.',
-      runtime_metric_key: 'humidity',
-      use_case: 'climate_monitoring',
-      recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'dual_climate'],
-      purposes: CONFIGURABLE_DERIVED_METRICS.bme280[1].purposes,
-      availability: 'supported_now',
-      source_metrics: ['humidity'],
-      formula: 'Direct sensor reading',
-    },
-    {
-      key: 'pressure',
-      label: 'Pressure',
-      unit: 'hPa',
-      description: 'Direct barometric pressure reading from the GY-BME280 environmental module.',
-      runtime_metric_key: 'pressure',
-      use_case: 'generic_monitoring',
-      recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'gauge_status'],
-      purposes: CONFIGURABLE_DERIVED_METRICS.bme280[2].purposes,
-      availability: 'supported_now',
-      source_metrics: ['pressure'],
-      formula: 'Direct sensor reading',
-    },
-    {
-      key: 'temperature_spike',
-      label: 'Temperature Spike',
-      unit: '°C',
-      description: 'Sudden temperature change detected over a short observation window.',
-      runtime_metric_key: 'temperature_spike',
-      use_case: 'climate_monitoring',
-      recommended_profile: 'event_timeline',
-      supported_profiles: ['event_timeline', 'single_trend'],
-      purposes: [
-        {
-          key: 'outdoor_temperature_excursion',
-          label: 'Outdoor Temperature Excursion Detection',
-          description: 'Catch sudden outdoor temperature shifts from weather changes or equipment faults.',
-        },
-        {
-          key: 'equipment_overheating_detection',
-          label: 'Equipment Overheating Detection',
-          description: 'Spot sudden heat events near machinery or electrical equipment.',
-        },
-      ],
-      availability: 'supported_now',
-      source_metrics: ['temperature'],
-      formula: 'Temperature delta over a short observation window',
-    },
-    {
-      key: 'dew_point',
-      label: 'Dew Point',
-      unit: '°C',
-      description: 'Condensation-risk temperature derived from the BME280 temperature and humidity readings.',
-      runtime_metric_key: 'dew_point',
-      use_case: 'climate_monitoring',
-      recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'dual_climate'],
-      purposes: [
-        {
-          key: 'outdoor_condensation_risk',
-          label: 'Outdoor Condensation Risk Monitoring',
-          description: 'Track when outdoor conditions approach the condensation or frost point.',
-        },
-        {
-          key: 'condensation_prevention',
-          label: 'Indoor Condensation Prevention',
-          description: 'Avoid condensation on products, walls, or electronic equipment.',
-        },
-      ],
-      availability: 'supported_now',
-      source_metrics: ['temperature', 'humidity'],
-      formula: 'Derived dew-point temperature from BME280 temperature and humidity readings',
-    },
-  ],
-  bmp280: [
-    {
-      key: 'temperature',
-      label: 'Temperature',
-      unit: '°C',
-      description: 'Direct ambient temperature reading from the BMP280 sensor. Note: the BMP280 does not include a humidity sensor — use a BME280 module if humidity is also required.',
-      runtime_metric_key: 'temperature',
-      use_case: 'climate_monitoring',
-      recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend'],
-      purposes: CONFIGURABLE_DERIVED_METRICS.bmp280[0].purposes,
-      availability: 'supported_now',
-      source_metrics: ['temperature'],
-      formula: 'Direct sensor reading',
-    },
-    {
-      key: 'pressure',
-      label: 'Pressure',
-      unit: 'hPa',
-      description: 'Direct barometric pressure reading from the BMP280 sensor. Note: the BMP280 does not include a humidity sensor.',
-      runtime_metric_key: 'pressure',
-      use_case: 'generic_monitoring',
-      recommended_profile: 'single_trend',
-      supported_profiles: ['single_trend', 'gauge_status'],
-      purposes: CONFIGURABLE_DERIVED_METRICS.bmp280[1].purposes,
-      availability: 'supported_now',
-      source_metrics: ['pressure'],
-      formula: 'Direct sensor reading',
-    },
-    {
-      key: 'temperature_spike',
-      label: 'Temperature Spike',
-      unit: '°C',
-      description: 'Sudden temperature change detected over a short observation window by the BMP280.',
-      runtime_metric_key: 'temperature_spike',
-      use_case: 'climate_monitoring',
-      recommended_profile: 'event_timeline',
-      supported_profiles: ['event_timeline', 'single_trend'],
-      purposes: [
-        {
-          key: 'outdoor_temperature_excursion',
-          label: 'Outdoor Temperature Excursion Detection',
-          description: 'Catch sudden outdoor temperature shifts from weather changes.',
-        },
-        {
-          key: 'equipment_thermal_event',
-          label: 'Equipment Thermal Event Detection',
-          description: 'Spot sudden heat events near machinery or electrical equipment.',
-        },
-      ],
-      availability: 'supported_now',
-      source_metrics: ['temperature'],
-      formula: 'Temperature delta over a short observation window',
-    },
-  ],
 };
 
-// Temperature/Humidity sensor type aliases
 OBSERVABLE_METRIC_CATALOG.temp_humidity = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
-OBSERVABLE_METRIC_CATALOG.humidity = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
 OBSERVABLE_METRIC_CATALOG.dht11 = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
 OBSERVABLE_METRIC_CATALOG.dht22 = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
-OBSERVABLE_METRIC_CATALOG.temperature_sensor = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
-OBSERVABLE_METRIC_CATALOG.temperature = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
-OBSERVABLE_METRIC_CATALOG.humidity_sensor = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
-OBSERVABLE_METRIC_CATALOG.sht30 = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
-OBSERVABLE_METRIC_CATALOG.sht31 = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
-OBSERVABLE_METRIC_CATALOG.sht35 = OBSERVABLE_METRIC_CATALOG.temperature_humidity;
-
-// Load/Weight sensor type aliases
 OBSERVABLE_METRIC_CATALOG.load_cell = OBSERVABLE_METRIC_CATALOG.load;
-OBSERVABLE_METRIC_CATALOG.load_cell_sensor = OBSERVABLE_METRIC_CATALOG.load;
-OBSERVABLE_METRIC_CATALOG.weight_sensor = OBSERVABLE_METRIC_CATALOG.load;
-
-// Gas sensor type aliases
 OBSERVABLE_METRIC_CATALOG.gas = OBSERVABLE_METRIC_CATALOG.gas_sensor;
-OBSERVABLE_METRIC_CATALOG.gas_sensor_iot = OBSERVABLE_METRIC_CATALOG.gas_sensor;
-
-// Ultrasonic sensor type aliases
-OBSERVABLE_METRIC_CATALOG.ultrasonic_sensor = OBSERVABLE_METRIC_CATALOG.ultrasonic;
-OBSERVABLE_METRIC_CATALOG.distance_sensor = OBSERVABLE_METRIC_CATALOG.ultrasonic;
-OBSERVABLE_METRIC_CATALOG.vl53l0x = OBSERVABLE_METRIC_CATALOG.ultrasonic;
-OBSERVABLE_METRIC_CATALOG.distance = OBSERVABLE_METRIC_CATALOG.ultrasonic;
 
 const PRESENTATION_PROFILE_DEFINITIONS: Record<PresentationProfileKey, PresentationProfileDefinition> = {
   single_trend: {
@@ -1750,8 +1363,8 @@ const PRESENTATION_PROFILE_DEFINITIONS: Record<PresentationProfileKey, Presentat
     description: 'Count-first dashboard.',
     visualization_method: 'counter_bars',
     visualization_label: 'Live Count + Bar Trend',
-    visualization_summary: 'Best for occupancy and doorway traffic views where each reading is a count.',
-    best_for: ['occupancy', 'door traffic', 'live counts'],
+    visualization_summary: 'Best for occupancy and attendance where each reading is a count.',
+    best_for: ['occupancy', 'attendance', 'session counts'],
     primary_widget: 'counter',
     secondary_widgets: ['status', 'trend'],
     chart_style: 'bar',
@@ -2099,7 +1712,7 @@ const detailModeOptionsForProfile = (
 
 const isClimateSensorType = (sensorType: string) =>
   ['temperature_humidity', 'temp_humidity', 'dht11', 'dht22'].includes(
-    (sensorType || '').toLowerCase()
+    normalizeSensorType(sensorType)
   );
 
 const metricLabelOverrides: Record<string, string> = {
@@ -2133,12 +1746,12 @@ const metricLabelOverrides: Record<string, string> = {
 };
 
 const metricUnitOverrides: Record<string, string> = {
-  temperature: '°C',
+  temperature: 'C',
   humidity: '%RH',
-  temperature_spike: '°C',
+  temperature_spike: 'C',
   humidity_spike: '%RH',
-  heat_index: '°C',
-  dew_point: '°C',
+  heat_index: 'C',
+  dew_point: 'C',
   distance: 'cm',
   fill_level: '%',
   fill_rate: '%/day',
@@ -2172,6 +1785,8 @@ const recommendedAlertThresholds = (
       return { belowWarning: 18, belowCritical: 15, aboveWarning: 25, aboveCritical: 28 };
     case 'humidity':
       return { belowWarning: 30, belowCritical: 20, aboveWarning: 70, aboveCritical: 80 };
+    case 'pressure':
+      return { belowWarning: 980, belowCritical: 960, aboveWarning: 1030, aboveCritical: 1050 };
     case 'distance':
       return { aboveWarning: 100, aboveCritical: 150 };
     case 'fill_level':
@@ -2194,7 +1809,7 @@ const recommendedAlertThresholds = (
 };
 
 export const getSensorMetrics = (sensorType: string, useCase?: string): SensorMetric[] => {
-  const normalizedType = sensorType?.toLowerCase();
+  const normalizedType = normalizeSensorType(sensorType);
   const normalizedUseCase = useCase?.toLowerCase();
 
   if (normalizedType === 'ultrasonic') {
@@ -2214,12 +1829,12 @@ export const getSensorMetrics = (sensorType: string, useCase?: string): SensorMe
 };
 
 export const getSensorHardwareCapabilities = (sensorType: string): SensorHardwareMetric[] => {
-  const normalizedType = sensorType?.toLowerCase();
+  const normalizedType = normalizeSensorType(sensorType);
   return SENSOR_HARDWARE_METRICS[normalizedType] || [];
 };
 
 export const getDerivedMetrics = (sensorType: string, useCase?: string): SensorDerivedMetric[] => {
-  const normalizedType = sensorType?.toLowerCase();
+  const normalizedType = normalizeSensorType(sensorType);
   const normalizedUseCase = useCase?.toLowerCase();
 
   if (normalizedType === 'ultrasonic') {
@@ -2348,14 +1963,52 @@ export const getDerivedMetrics = (sensorType: string, useCase?: string): SensorD
 };
 
 export const getConfigurableDerivedMetrics = (sensorType: string): ConfigurableDerivedMetric[] => {
-  const normalizedType = sensorType?.toLowerCase();
+  const normalizedType = normalizeSensorType(sensorType);
   return CONFIGURABLE_DERIVED_METRICS[normalizedType] || [];
 };
 
+const directMetricUseCase = (metricKey: string): ConfigurableDerivedMetric['use_case'] => {
+  if (['temperature', 'humidity', 'pressure'].includes(metricKey)) {
+    return 'climate_monitoring';
+  }
+  if (['gas_level', 'aqi'].includes(metricKey)) {
+    return 'safety_monitoring';
+  }
+  if (metricKey === 'weight') {
+    return 'load_monitoring';
+  }
+  return 'generic_monitoring';
+};
+
+const buildDirectObservableMetric = (metric: SensorMetric): ObservableMetricDefinition => ({
+  key: metric.key,
+  label: metric.label,
+  unit: metric.unit,
+  description: `Monitor the sensor's direct ${metric.label.toLowerCase()} reading.`,
+  runtime_metric_key: metric.key,
+  use_case: directMetricUseCase(metric.key),
+  recommended_profile: 'single_trend',
+  supported_profiles: ['single_trend'],
+  purposes: [
+    {
+      key: `${metric.key}_monitoring`,
+      label: `${metric.label} Monitoring`,
+      description: `Track ${metric.label.toLowerCase()} changes and receive alerts when attention is needed.`,
+    },
+  ],
+  availability: 'supported_now',
+  source_metrics: [metric.key],
+  formula: 'Direct reading from the connected sensor channel',
+});
+
 export const getObservableMetricCatalog = (sensorType: string): ObservableMetricDefinition[] => {
-  const normalizedType = sensorType?.toLowerCase();
+  const normalizedType = normalizeSensorType(sensorType);
   if (!normalizedType) {
     return [];
+  }
+
+  if (normalizedType === 'vl53l0x') {
+    return getObservableMetricCatalog('ultrasonic');
   }
 
   const catalog = OBSERVABLE_METRIC_CATALOG[normalizedType];
@@ -2363,12 +2016,17 @@ export const getObservableMetricCatalog = (sensorType: string): ObservableMetric
     return catalog;
   }
 
-  return getConfigurableDerivedMetrics(sensorType).map((metric) => ({
-    ...metric,
-    availability: 'supported_now' as const,
-    source_metrics: [metric.runtime_metric_key],
-    formula: 'Directly supported by the current configuration flow',
-  }));
+  const configurableMetrics = getConfigurableDerivedMetrics(normalizedType);
+  if (configurableMetrics.length > 0) {
+    return configurableMetrics.map((metric) => ({
+      ...metric,
+      availability: 'supported_now' as const,
+      source_metrics: [metric.runtime_metric_key],
+      formula: 'Directly supported by the current configuration flow',
+    }));
+  }
+
+  return (SENSOR_METRIC_MAP[normalizedType] || []).map(buildDirectObservableMetric);
 };
 
 export const getObservableMetricDefinition = (
@@ -2389,7 +2047,7 @@ export const getDefaultObservableMetric = (
 };
 
 export const getSensorKnowledgeProfile = (sensorType: string): SensorKnowledgeProfile | undefined => {
-  const normalizedType = sensorType?.toLowerCase();
+  const normalizedType = normalizeSensorType(sensorType);
   if (!normalizedType) {
     return undefined;
   }
@@ -2454,32 +2112,8 @@ export const getUseCaseForDerivedMetric = (sensorType: string, metricKey?: strin
 export const getRecommendedProfileForDerivedMetric = (sensorType: string, metricKey?: string) =>
   getConfigurableDerivedMetric(sensorType, metricKey)?.recommended_profile;
 
-const suitableProfileAdditionsByMetric: Record<string, PresentationProfileKey[]> = {
-  fill_level: ['level_monitoring', 'gauge_status', 'single_trend'],
-  remaining_capacity_percent: ['gauge_status', 'level_monitoring', 'single_trend'],
-  fill_rate: ['single_trend', 'gauge_status', 'event_timeline'],
-  weight: ['gauge_status', 'single_trend'],
-  utilization_percent: ['gauge_status', 'single_trend'],
-  overload_risk: ['gauge_status', 'event_timeline', 'single_trend'],
-  load_change_rate: ['single_trend', 'gauge_status', 'event_timeline'],
-  depletion_rate: ['single_trend', 'gauge_status', 'event_timeline'],
-  gas_level: ['gauge_status', 'single_trend', 'event_timeline'],
-  risk_score: ['gauge_status', 'single_trend', 'event_timeline'],
-  unsafe_duration: ['single_trend', 'gauge_status', 'event_timeline'],
-  pressure: ['single_trend', 'gauge_status'],
-  aqi: ['gauge_status', 'single_trend', 'event_timeline'],
-};
-
-export const getSupportedProfilesForDerivedMetric = (
-  sensorType: string,
-  metricKey?: string
-): PresentationProfileKey[] => {
-  const metric = getConfigurableDerivedMetric(sensorType, metricKey);
-  const configuredProfiles = metric?.supported_profiles || ['single_trend'];
-  const normalizedMetric = normalizedMetricKey(metric?.runtime_metric_key || metricKey);
-  const suitableAdditions = suitableProfileAdditionsByMetric[normalizedMetric] || [];
-  return Array.from(new Set([...configuredProfiles, ...suitableAdditions]));
-};
+export const getSupportedProfilesForDerivedMetric = (sensorType: string, metricKey?: string) =>
+  getConfigurableDerivedMetric(sensorType, metricKey)?.supported_profiles || ['single_trend'];
 
 const metricDescriptor = (metricKey: string): SensorMetric => ({
   key: metricKey,
@@ -2554,47 +2188,6 @@ const alertTemplateValuesForMetric = (
           critical_label: 'Critical at or above',
         },
       ];
-    case 'temperature_spike':
-    case 'humidity_spike':
-    case 'gas_spike':
-      return [
-        {
-          key: `${metricKey}_spike_band`,
-          label: `${getMetricLabel(metricKey)} Alert`,
-          metric_key: metricKey,
-          condition: 'above',
-          unit,
-          description: `Escalate when ${getMetricLabel(metricKey).toLowerCase()} exceeds the expected short-term change.`,
-          warning_label: 'Rapid change at',
-          critical_label: 'Critical change at',
-        },
-      ];
-    case 'heat_index':
-      return [
-        {
-          key: `${metricKey}_heat_band`,
-          label: 'Heat Stress Alert',
-          metric_key: metricKey,
-          condition: 'above',
-          unit,
-          description: 'Warn when combined temperature and humidity create unsafe perceived heat.',
-          warning_label: 'Heat stress at',
-          critical_label: 'Dangerous heat at',
-        },
-      ];
-    case 'dew_point':
-      return [
-        {
-          key: `${metricKey}_condensation_band`,
-          label: 'Condensation Risk Alert',
-          metric_key: metricKey,
-          condition: 'above',
-          unit,
-          description: 'Warn when the dew point indicates an increased risk of condensation or moisture damage.',
-          warning_label: 'Condensation risk at',
-          critical_label: 'Critical moisture risk at',
-        },
-      ];
     case 'fill_level':
       return [
         {
@@ -2606,32 +2199,6 @@ const alertTemplateValuesForMetric = (
           description: 'Escalate when fill percentage approaches service or refill capacity.',
           warning_label: 'Service soon at',
           critical_label: 'Urgent service at',
-        },
-      ];
-    case 'remaining_capacity_percent':
-      return [
-        {
-          key: `${metricKey}_reserve_band`,
-          label: 'Low Remaining Capacity Alert',
-          metric_key: metricKey,
-          condition: 'below',
-          unit,
-          description: 'Escalate when the free capacity or remaining reserve falls below the required level.',
-          warning_label: 'Capacity running low at',
-          critical_label: 'Critical capacity at',
-        },
-      ];
-    case 'fill_rate':
-      return [
-        {
-          key: `${metricKey}_rate_band`,
-          label: profile === 'event_timeline' ? 'Rapid Fill Event' : 'High Fill Rate Alert',
-          metric_key: metricKey,
-          condition: 'above',
-          unit,
-          description: 'Warn when the container is filling faster than the expected daily rate.',
-          warning_label: 'Filling quickly at',
-          critical_label: 'Critical fill rate at',
         },
       ];
     case 'occupancy_count':
@@ -2647,32 +2214,6 @@ const alertTemplateValuesForMetric = (
           critical_label: 'Crowded at',
         },
       ];
-    case 'occupancy_spike':
-      return [
-        {
-          key: `${metricKey}_spike_band`,
-          label: 'Sudden Occupancy Increase',
-          metric_key: metricKey,
-          condition: 'above',
-          unit,
-          description: 'Escalate when the people count rises sharply within a short observation window.',
-          warning_label: 'Rapid increase at',
-          critical_label: 'Critical surge at',
-        },
-      ];
-    case 'peak_occupancy':
-      return [
-        {
-          key: `${metricKey}_peak_band`,
-          label: 'Peak Occupancy Alert',
-          metric_key: metricKey,
-          condition: 'above',
-          unit,
-          description: 'Warn when the highest observed occupancy approaches or exceeds the safe capacity.',
-          warning_label: 'High peak at',
-          critical_label: 'Unsafe peak at',
-        },
-      ];
     case 'attendance_count':
       return [
         {
@@ -2684,6 +2225,58 @@ const alertTemplateValuesForMetric = (
           description: 'Warn when attendance drops below the expected session target.',
           warning_label: 'Below target at or below',
           critical_label: 'Critical shortage at or below',
+        },
+      ];
+    case 'remaining_capacity_percent':
+      return [
+        {
+          key: `${metricKey}_capacity_band`,
+          label: 'Low Remaining Capacity Alert',
+          metric_key: metricKey,
+          condition: 'below',
+          unit,
+          description: 'Warn when the remaining free capacity falls below the service planning threshold.',
+          warning_label: 'Low capacity at or below',
+          critical_label: 'Critical capacity at or below',
+        },
+      ];
+    case 'fill_rate':
+      return [
+        {
+          key: `${metricKey}_limit_band`,
+          label: 'Rapid Fill Event',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Escalate when the container is filling faster than the expected operating rate.',
+          warning_label: 'Rapid fill at',
+          critical_label: 'Critical fill rate at',
+        },
+      ];
+    case 'occupancy_spike':
+      return [
+        {
+          key: `${metricKey}_limit_band`,
+          label: 'Sudden Occupancy Increase',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Escalate when occupancy rises sharply within the monitored area.',
+          warning_label: 'Increase at',
+          critical_label: 'Critical increase at',
+        },
+      ];
+    case 'peak_occupancy':
+      return [
+        {
+          key: `${metricKey}_capacity_band`,
+          label: 'Peak Occupancy Alert',
+          metric_key: metricKey,
+          condition: 'above',
+          unit,
+          description: 'Warn when observed occupancy reaches the configured peak capacity.',
+          warning_label: 'Peak occupancy at',
+          critical_label: 'Critical occupancy at',
         },
       ];
     case 'weight':
@@ -2700,45 +2293,6 @@ const alertTemplateValuesForMetric = (
               : 'Warn when the measured load approaches or exceeds the supported weight band.',
           warning_label: 'Heavy load at',
           critical_label: 'Overload at',
-        },
-      ];
-    case 'utilization_percent':
-      return [
-        {
-          key: `${metricKey}_capacity_band`,
-          label: 'Capacity Utilization Alert',
-          metric_key: metricKey,
-          condition: 'above',
-          unit,
-          description: 'Warn when the measured load uses too much of the configured operating capacity.',
-          warning_label: 'High utilization at',
-          critical_label: 'Capacity exceeded at',
-        },
-      ];
-    case 'load_change_rate':
-      return [
-        {
-          key: `${metricKey}_rate_band`,
-          label: 'Rapid Load Change Alert',
-          metric_key: metricKey,
-          condition: 'above',
-          unit,
-          description: 'Escalate when weight changes faster than the expected operating rate.',
-          warning_label: 'Rapid change at',
-          critical_label: 'Critical change at',
-        },
-      ];
-    case 'depletion_rate':
-      return [
-        {
-          key: `${metricKey}_rate_band`,
-          label: 'High Depletion Rate Alert',
-          metric_key: metricKey,
-          condition: 'above',
-          unit,
-          description: 'Warn when stored material or inventory is being consumed faster than expected.',
-          warning_label: 'Depleting quickly at',
-          critical_label: 'Critical depletion at',
         },
       ];
     case 'overload_risk':
@@ -2778,33 +2332,8 @@ const alertTemplateValuesForMetric = (
           critical_label: 'Critical at',
         },
       ];
-    case 'risk_score':
-      return [
-        {
-          key: `${metricKey}_risk_band`,
-          label: 'Safety Risk Score Alert',
-          metric_key: metricKey,
-          condition: 'above',
-          unit,
-          description: 'Escalate when the normalized safety risk score enters a warning or critical band.',
-          warning_label: 'Elevated risk at',
-          critical_label: 'Critical risk at',
-        },
-      ];
-    case 'unsafe_duration':
-      return [
-        {
-          key: `${metricKey}_duration_band`,
-          label: 'Extended Unsafe Exposure Alert',
-          metric_key: metricKey,
-          condition: 'above',
-          unit,
-          description: 'Warn when unsafe environmental conditions continue for too long.',
-          warning_label: 'Unsafe for',
-          critical_label: 'Critical duration at',
-        },
-      ];
     case 'distance':
+    default:
       return [
         {
           key: `${metricKey}_limit_band`,
@@ -2817,19 +2346,6 @@ const alertTemplateValuesForMetric = (
               ? 'Escalate when the measured distance crosses the event threshold.'
               : 'Warn when the measured distance exceeds the configured limit.',
           warning_label: 'Review at or above',
-          critical_label: 'Critical at or above',
-        },
-      ];
-    default:
-      return [
-        {
-          key: `${metricKey}_limit_band`,
-          label: `${getMetricLabel(metricKey)} Alert`,
-          metric_key: metricKey,
-          condition: 'above',
-          unit,
-          description: `Warn when ${getMetricLabel(metricKey).toLowerCase()} exceeds the configured operating limit.`,
-          warning_label: 'Warning at or above',
           critical_label: 'Critical at or above',
         },
       ];

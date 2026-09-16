@@ -13,6 +13,48 @@
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="app-loading" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#faf0ea;font-family:Segoe UI,Arial,sans-serif;color:#262411">
+      <div style="text-align:center">
+        <img src="%PUBLIC_URL%/assets/spectron-logo.svg" alt="SPECTRON" style="width:72px;height:72px;margin-bottom:14px" />
+        <div style="font-size:24px;font-weight:800">SPECTRON</div>
+        <div style="margin-top:6px;color:#6a624f">Opening AgriAssist…</div>
+      </div>
+    </div>
     <div id="root"></div>
+    <script>
+      (function () {
+        var root = document.getElementById('root');
+        var loading = document.getElementById('app-loading');
+        var observer;
+        var poll;
+        var readyTimer;
+        var hideLoading = function () {
+          if (root && root.childElementCount > 0 && loading) {
+            loading.remove();
+            loading = null;
+            observer.disconnect();
+            clearInterval(poll);
+          }
+          readyTimer = null;
+        };
+        var checkReady = function () {
+          if (root && root.childElementCount > 0 && loading) {
+            if (!readyTimer) {
+              readyTimer = setTimeout(hideLoading, 500);
+            }
+          } else if (readyTimer) {
+            clearTimeout(readyTimer);
+            readyTimer = null;
+          }
+        };
+        observer = new MutationObserver(checkReady);
+        observer.observe(root, { childList: true, subtree: true });
+        poll = setInterval(checkReady, 100);
+        setTimeout(function () {
+          clearInterval(poll);
+        }, 30000);
+        checkReady();
+      })();
+    </script>
   </body>
 </html>

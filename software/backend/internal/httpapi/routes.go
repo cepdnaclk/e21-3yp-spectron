@@ -8,11 +8,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"spectron-backend/internal/config"
+	"spectron-backend/internal/geocoding"
 	"spectron-backend/internal/iot"
+	"spectron-backend/internal/realtime"
 )
 
 // RegisterRoutes wires all HTTP routes for the API.
-func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, rawReadingsPublisher iot.RawReadingsPublisher, emailConfig config.EmailConfig) {
+func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, rawReadingsPublisher iot.RawReadingsPublisher, emailConfig config.EmailConfig, geocoder geocoding.Provider, realtimeUpdates *realtime.Hub) {
 	if len(allowedOrigins) == 0 {
 		allowedOrigins = []string{
 			"http://localhost:3000",
@@ -25,6 +27,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 			"capacitor://localhost",
 		}
 	}
+	setRealtimeHub(realtimeUpdates, allowedOrigins)
 
 	// CORS middleware
 	r.Use(cors.Handler(cors.Options{
@@ -50,6 +53,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 	r.Get("/favicon.ico", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
+	r.Get("/ws/updates", RealtimeUpdatesHandler(db))
 
 	// Initialize handlers
 	authHandler := NewAuthHandler(db, emailConfig)
@@ -59,6 +63,8 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 	dashboardHandler := NewDashboardHandler(db)
 	ingestHandler := NewIngestHandler(db, rawReadingsPublisher)
 	agriHandler := NewAgriHandler()
+	farmHandler := NewFarmHandler(db)
+	geocodingHandler := NewGeocodingHandler(geocoder)
 
 	// Public routes
 	r.Post("/auth/register", authHandler.Register)
@@ -96,6 +102,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Patch("/{controllerId}", controllerHandler.UpdateHardwareControllerAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Put("/{controllerId}", controllerHandler.UpdateHardwareControllerAPI)
 			r.Get("/{controllerId}/sensors", controllerHandler.ControllerSensorsAPI)
+			r.Get("/{controllerId}/field-links", controllerHandler.ControllerFieldLinksAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Delete("/{controllerId}/claim", controllerHandler.ReleaseControllerAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Delete("/{controllerId}/sensors/{sensorId}", controllerHandler.DeleteHardwareSensorAPI)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Patch("/{controllerId}/sensors/{sensorId}", controllerHandler.UpdateHardwareSensorAPI)
@@ -114,6 +121,56 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 			r.Get("/advisories", agriHandler.Advisories)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/config", agriHandler.BuildConfig)
 		})
+
+		r.Route("/api/geocoding", func(r chi.Router) {
+			r.Get("/search", geocodingHandler.Search)
+			r.Get("/reverse", geocodingHandler.Reverse)
+		})
+
+		r.Route("/api/farms", func(r chi.Router) {
+			r.Get("/", farmHandler.List)
+			r.Post("/", farmHandler.Create)
+			r.Route("/{farmId}", func(r chi.Router) {
+				r.Get("/", farmHandler.Get)
+				r.Get("/weather", farmHandler.GetWeather)
+				r.Put("/", farmHandler.Update)
+				r.Delete("/", farmHandler.Delete)
+				r.Get("/collaborators", farmHandler.ListCollaborators)
+				r.Post("/collaborators", farmHandler.AddCollaborator)
+				r.Delete("/collaborators/{userId}", farmHandler.RemoveCollaborator)
+				r.Get("/controllers", farmHandler.ListFarmControllers)
+				r.Post("/controllers", farmHandler.AttachFarmController)
+				r.Get("/sensor-bases", farmHandler.ListSensorBases)
+				r.Post("/sensor-bases", farmHandler.CreateSensorBase)
+				r.Get("/alerts", alertHandler.ListFarmAlerts)
+				r.Get("/advisor/recommendations", farmHandler.ListFarmAdvisorSummary)
+				r.Get("/monitoring/readings", farmHandler.ListFarmMonitoringReadings)
+				r.Post("/alerts/{alertId}/ack", alertHandler.AcknowledgeFarmAlert)
+				r.Get("/fields", farmHandler.ListFields)
+				r.Post("/fields", farmHandler.CreateField)
+			})
+		})
+		r.Post("/api/sensor-bases/{baseId}/assignment", farmHandler.AssignSensorBase)
+		r.Get("/api/sensor-bases/{baseId}/assignments", farmHandler.ListSensorBaseAssignments)
+		r.Get("/api/sensor-bases/{baseId}/modules", farmHandler.ListSensorModules)
+		r.Post("/api/sensor-bases/{baseId}/modules", farmHandler.CreateSensorModule)
+		r.Get("/api/crops", farmHandler.ListCrops)
+		r.Route("/api/fields/{fieldId}/crop-instances", func(r chi.Router) {
+			r.Get("/", farmHandler.ListCropInstances)
+			r.Post("/", farmHandler.CreateCropInstance)
+		})
+		r.Route("/api/fields/{fieldId}/advisor/recommendations", func(r chi.Router) {
+			r.Get("/", farmHandler.ListFieldAdvice)
+			r.Post("/", farmHandler.GenerateFieldAdvice)
+		})
+		r.Route("/api/fields/{fieldId}/problems", func(r chi.Router) {
+			r.Get("/", farmHandler.ListFieldProblems)
+			r.Post("/", farmHandler.CreateFieldProblem)
+			r.Get("/{problemId}", farmHandler.GetFieldProblem)
+			r.Post("/{problemId}/responses", farmHandler.AnswerFieldProblem)
+			r.Post("/{problemId}/resolve", farmHandler.ResolveFieldProblem)
+		})
+		r.Post("/api/crop-instances/{cropInstanceId}/stage-confirmation", farmHandler.ConfirmGrowthStage)
 
 		r.Route("/api/admin", func(r chi.Router) {
 			r.Use(RequireSystemAdmin(db))
@@ -136,6 +193,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 		})
 		r.Route("/sensors", func(r chi.Router) {
 			r.Get("/{id}", sensorHandler.Get)
+			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Delete("/{id}", controllerHandler.DeleteSensorAPI)
 			r.Get("/{id}/attendance", sensorHandler.GetAttendanceState)
 			r.With(RequireAccountRole(db, "OWNER", "ADMIN")).Post("/{id}/attendance/reset", sensorHandler.ResetAttendance)
 			r.Get("/{id}/learning-phase", sensorHandler.GetLearningPhaseStatus)

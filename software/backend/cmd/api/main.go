@@ -14,8 +14,10 @@ import (
 	"spectron-backend/internal/auth"
 	"spectron-backend/internal/config"
 	"spectron-backend/internal/db"
+	"spectron-backend/internal/geocoding"
 	"spectron-backend/internal/httpapi"
 	"spectron-backend/internal/iot"
+	"spectron-backend/internal/realtime"
 )
 
 func main() {
@@ -40,6 +42,10 @@ func main() {
 	}
 
 	auth.SetJWTSecret(cfg.JWTSecret)
+	realtimeHub := realtime.NewHub()
+	realtimeCtx, stopRealtime := context.WithCancel(context.Background())
+	defer stopRealtime()
+	go realtimeHub.Run(realtimeCtx)
 
 	rawReadingsPublisher, err := iot.NewKafkaPublisherWithConfig(cfg.Kafka)
 	if err != nil {
@@ -53,17 +59,25 @@ func main() {
 	}
 
 	r := chi.NewRouter()
-	httpapi.RegisterRoutes(r, pool, cfg.AllowedOrigins, rawReadingsPublisher, cfg.Email)
+	geocoder := geocoding.NewNominatimProvider(geocoding.Config{
+		BaseURL:   cfg.Geocoding.BaseURL,
+		APIKey:    cfg.Geocoding.APIKey,
+		UserAgent: cfg.Geocoding.UserAgent,
+		Timeout:   time.Duration(cfg.Geocoding.TimeoutMS) * time.Millisecond,
+	})
+	httpapi.RegisterRoutes(r, pool, cfg.AllowedOrigins, rawReadingsPublisher, cfg.Email, geocoder, realtimeHub)
 
 	monitorCtx, stopMonitor := context.WithCancel(context.Background())
 	defer stopMonitor()
 	go iot.NewAlertMonitor(pool).Run(monitorCtx)
 
 	srv := &http.Server{
-		Addr:         "0.0.0.0:" + cfg.HTTPPort, // Listen on all interfaces for mobile access
-		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		Addr:        "0.0.0.0:" + cfg.HTTPPort, // Listen on all interfaces for mobile access
+		Handler:     r,
+		ReadTimeout: 15 * time.Second,
+		// Hosted AI Advisor requests can take longer than normal API calls.
+		// The frontend keeps the farmer on a clear loading state while this runs.
+		WriteTimeout: 5 * time.Minute,
 		IdleTimeout:  60 * time.Second,
 	}
 

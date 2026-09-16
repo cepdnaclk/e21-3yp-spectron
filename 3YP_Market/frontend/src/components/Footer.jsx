@@ -1,7 +1,14 @@
 import { BriefcaseBusiness, Code2, RadioTower } from 'lucide-react'
 import { navigation } from '../data/siteData.js'
 
+const defaultCopy = {
+  footerCopy: 'Modular monitoring for Sri Lankan agriculture.',
+  footerNote: 'SPECTRON - Built for local growers.',
+}
+
 export default function Footer({ onNavigate, copy }) {
+  const footerCopy = copy ?? defaultCopy
+
   function handleNavigate(event, href) {
     if (!onNavigate) return
     event.preventDefault()
@@ -21,18 +28,18 @@ export default function Footer({ onNavigate, copy }) {
             />
             <div>
               <p className="font-bold uppercase text-slate-950">SPECTRON</p>
-              <p className="text-sm text-slate-600">{copy.footerCopy}</p>
+              <p className="text-sm text-slate-600">{footerCopy.footerCopy}</p>
             </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
             {navigation.map((item) => (
               <a
-              key={item.href}
-              href={item.href}
-              onClick={(event) => handleNavigate(event, item.href)}
-              className="rounded-md px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-950"
-            >
+                key={item.href}
+                href={item.href}
+                onClick={(event) => handleNavigate(event, item.href)}
+                className="rounded-md px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-950"
+              >
                 {item.label}
               </a>
             ))}
@@ -41,7 +48,7 @@ export default function Footer({ onNavigate, copy }) {
 
         <div className="mt-8 flex flex-col gap-5 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-slate-500">
-            {copy.footerNote}
+            {footerCopy.footerNote}
           </p>
           <div className="flex gap-2">
             <FooterIcon href="#" label="SPECTRON network">

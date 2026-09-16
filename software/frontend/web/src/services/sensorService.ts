@@ -6,7 +6,6 @@ export interface Sensor {
   controller_id: string;
   hw_id: string;
   physical_sensor_id?: string;
-  slot_key?: string;
   type: string;
   name?: string;
   purpose?: string;
@@ -41,11 +40,6 @@ export interface SensorReading {
   meta?: Record<string, unknown>;
 }
 
-export interface AttendanceState {
-  attendance_count: number;
-  session_started_at?: string;
-}
-
 export interface SensorConfig {
   friendly_name: string;
   use_case?: string;
@@ -63,7 +57,6 @@ export interface SensorConfig {
     warning_min?: number;
     warning_max?: number;
   }>;
-  recommendation_rules?: RecommendationRule[];
   report_interval_per_day: number;
   power_management: {
     battery_life_days: number;
@@ -75,16 +68,6 @@ export interface SensorConfig {
   presentation?: SensorPresentationLayer;
   settings?: SensorSettingsLayer;
   operational?: SensorOperationalLayer;
-}
-
-export interface RecommendationRule {
-  metric_type: string;
-  operator: 'GREATER_THAN' | 'LESS_THAN' | 'OUTSIDE_RANGE' | string;
-  threshold_min?: number;
-  threshold_max?: number;
-  sustained_minutes: number;
-  risk_level: 'LOW' | 'MODERATE' | 'CRITICAL' | string;
-  action_recommendation: string;
 }
 
 export interface SensorHardwareLayer {
@@ -101,7 +84,6 @@ export interface SensorInterpretationLayer {
   use_case?: string;
   primary_metric?: string;
   display_unit?: string;
-  /** Metric keys explicitly selected in the "What to Measure" step. Used by the monitoring dashboard to decide which metric cards to show. */
   observable_metrics?: string[];
   derived_metrics?: SensorDerivedMetric[];
   thresholds?: {
@@ -256,14 +238,4 @@ export const getSensorReadings = async (
     params,
   });
   return Array.isArray(response.data) ? response.data : [];
-};
-
-export const getAttendanceState = async (sensorId: string): Promise<AttendanceState> => {
-  const response = await api.get<AttendanceState>(API_ENDPOINTS.SENSORS.ATTENDANCE(sensorId));
-  return response.data;
-};
-
-export const resetAttendanceCount = async (sensorId: string): Promise<AttendanceState> => {
-  const response = await api.post<AttendanceState>(API_ENDPOINTS.SENSORS.RESET_ATTENDANCE(sensorId));
-  return response.data;
 };

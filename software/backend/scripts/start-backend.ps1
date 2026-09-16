@@ -77,7 +77,7 @@ if ($portInUse) {
     foreach ($processId in $processes) {
         $proc = Get-Process -Id $processId -ErrorAction SilentlyContinue
         if ($proc) {
-            if ($proc.ProcessName -eq "main" -or $proc.Path -like "*go-build*" -or $proc.Path -like "*spectron*") {
+            if ($proc.ProcessName -eq "main" -or $proc.ProcessName -eq "api" -or $proc.Path -like "*go-build*" -or $proc.Path -like "*spectron*" -or $proc.Path -like "*\bin\api.exe") {
                 Write-Host "Found existing backend process (PID: $processId) on port $selectedPort" -ForegroundColor Yellow
                 Write-Host "Stopping existing backend process..." -ForegroundColor Cyan
                 Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
@@ -121,6 +121,21 @@ Write-Host "Checking dependencies..." -ForegroundColor Cyan
 go mod download 2>&1 | Out-Null
 go mod tidy 2>&1 | Out-Null
 
+# Build the binary (avoids Windows Defender blocking go-build cache temp executables)
+$binDir = Join-Path $projectRoot "bin"
+if (-not (Test-Path $binDir)) {
+    New-Item -ItemType Directory -Path $binDir | Out-Null
+}
+$binaryPath = Join-Path $binDir "api.exe"
+
+Write-Host "Building backend binary..." -ForegroundColor Cyan
+go build -o $binaryPath .\cmd\api\ 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: Build failed" -ForegroundColor Red
+    exit 1
+}
+Write-Host "Build OK." -ForegroundColor Green
+
 # Start the server
 Write-Host ""
 Write-Host "Starting backend server on port $env:HTTP_PORT..." -ForegroundColor Green
@@ -128,4 +143,4 @@ Write-Host "Health check: http://localhost:$env:HTTP_PORT/healthz" -ForegroundCo
 Write-Host "Press Ctrl+C to stop the server" -ForegroundColor Yellow
 Write-Host ""
 
-go run cmd\api\main.go
+& $binaryPath

@@ -1,0 +1,60 @@
+{
+  "crop": "Potato",
+  "source": "Sri Lanka Department of Agriculture, HORDI potato crop guide",
+  "source_url": "https://doa.gov.lk/hordi-crop-potato/",
+  "publisher": "Sri Lanka Department of Agriculture",
+  "reviewed_at": "2026-07-20",
+  "language": "en",
+  "entries": [
+    {
+      "category": "crop_profile",
+      "topic": "Soil and temperature",
+      "content": "Potato prefers well-drained soil rich in organic matter with pH about 5.5 to 6.6; tuber initiation benefits from soil temperature below 24 C.",
+      "location_scope": "Sri Lanka",
+      "requires_local_calibration": true
+    },
+    {
+      "category": "irrigation",
+      "topic": "Critical water stages",
+      "growth_stage": "Tuber initiation and bulking",
+      "content": "Tuber initiation and tuber bulking are particularly sensitive to inadequate water; use root-zone observations and calibrated moisture data to avoid both drying and waterlogging.",
+      "actions": ["Check moisture in the active root zone", "Inspect drainage before adding water"]
+    },
+    {
+      "category": "pest",
+      "topic": "Potato tuber moth",
+      "growth_stage": "Tuber bulking",
+      "content": "Potato tuber moth larvae may mine leaves or shoots and later tunnel into exposed tubers; tunnel entrances can contain dark waste material.",
+      "symptoms": ["leaf mines", "shoot boring", "tuber tunnels", "dark material at tunnel entrance"],
+      "actions": ["Inspect exposed tubers", "Maintain earthing-up", "Remove leftover tubers and crop residues"]
+    },
+    {
+      "category": "pest",
+      "topic": "Cutworm",
+      "growth_stage": "Emergence",
+      "content": "Cutworm damage can include round holes on young leaves and plants cut near the soil surface, often with new damage appearing overnight.",
+      "symptoms": ["plant cut at base", "young leaf holes", "overnight damage"],
+      "actions": ["Inspect near damaged plants and soil surface", "Remove weeds and crop debris"]
+    },
+    {
+      "category": "pest",
+      "topic": "Aphids",
+      "content": "Aphids commonly gather on tender shoots and lower leaf surfaces; heavy populations can curl young leaves, leave sticky honeydew, and transmit virus diseases.",
+      "symptoms": ["aphids under leaves", "curled young leaves", "sticky honeydew", "sooty growth"],
+      "actions": ["Inspect lower leaf surfaces", "Use visual monitoring or yellow traps", "Avoid unnecessary broad-spectrum pesticide use"]
+    },
+    {
+      "category": "disease",
+      "topic": "Bacterial wilt",
+      "content": "For bacterial-wilt risk, use clean seed tubers, improve field drainage, and avoid moving contaminated soil or equipment between fields.",
+      "actions": ["Check drainage", "Separate suspect planting material", "Clean soil from equipment before moving fields"],
+      "urgent_when": ["rapid wilting in a cluster", "known history of bacterial wilt"]
+    },
+    {
+      "category": "disease",
+      "topic": "Virus disease",
+      "content": "Regularly inspect potato crops for virus-like symptoms, manage insect vectors through integrated practices, and remove clearly affected plants using local extension guidance.",
+      "actions": ["Inspect the field regularly", "Check for aphids and whiteflies", "Ask an agricultural officer before concluding a virus diagnosis"]
+    }
+  ]
+}

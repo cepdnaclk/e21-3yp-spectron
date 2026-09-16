@@ -56,3 +56,26 @@ describe('metric presentation profile suitability', () => {
     }
   );
 });
+
+describe('sensor alert defaults', () => {
+  it('builds low and high crop alerts for temperature, humidity, and pressure', () => {
+    expect(buildPresentationAlertSettings('temperature', 'temperature', 'single_trend')).toMatchObject([
+      { label: 'Temperature Too Low', condition: 'below', warning_threshold: 18, critical_threshold: 15 },
+      { label: 'Temperature Too High', condition: 'above', warning_threshold: 25, critical_threshold: 28 },
+    ]);
+    expect(buildPresentationAlertSettings('humidity', 'humidity', 'single_trend')).toMatchObject([
+      { label: 'Humidity Too Low', condition: 'below', warning_threshold: 30, critical_threshold: 20 },
+      { label: 'Humidity Too High', condition: 'above', warning_threshold: 70, critical_threshold: 80 },
+    ]);
+    expect(buildPresentationAlertSettings('pressure', 'pressure', 'single_trend')).toMatchObject([
+      { label: 'Pressure Too Low', condition: 'below', warning_threshold: 980, critical_threshold: 950 },
+      { label: 'Pressure Too High', condition: 'above', warning_threshold: 1030, critical_threshold: 1060 },
+    ]);
+  });
+
+  it('builds gate security alerts for distance sensors', () => {
+    expect(buildPresentationAlertSettings('distance', 'distance', 'event_timeline')).toMatchObject([
+      { label: 'Gate Detection Event', condition: 'below', warning_threshold: 120, critical_threshold: 80 },
+    ]);
+  });
+});

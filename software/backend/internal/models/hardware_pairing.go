@@ -126,21 +126,29 @@ type AdminOverviewResponse struct {
 	OfflineDevices      int `json:"offlineDevices"`
 	ConfiguredSensors   int `json:"configuredSensors"`
 	UnconfiguredSensors int `json:"unconfiguredSensors"`
+	FarmControllers     int `json:"farmControllers"`
+	LegacyOnlyDevices   int `json:"legacyOnlyDevices"`
+	SensorBases         int `json:"sensorBases"`
 }
 
 type AdminDeviceResponse struct {
-	ID                string `json:"id"`
-	ControllerID      string `json:"controllerId"`
-	Name              string `json:"name"`
-	Location          string `json:"location,omitempty"`
-	Status            string `json:"status"`
-	ClaimStatus       string `json:"claimStatus"`
-	OperationalStatus string `json:"operationalStatus"`
-	OwnerEmail        string `json:"ownerEmail,omitempty"`
-	SensorCount       int    `json:"sensorCount"`
-	ConfiguredSensors int    `json:"configuredSensors"`
-	LastSeen          string `json:"lastSeen,omitempty"`
-	UpdatedAt         string `json:"updatedAt,omitempty"`
+	ID                string  `json:"id"`
+	ControllerID      string  `json:"controllerId"`
+	Name              string  `json:"name"`
+	Location          string  `json:"location,omitempty"`
+	Status            string  `json:"status"`
+	ClaimStatus       string  `json:"claimStatus"`
+	OperationalStatus string  `json:"operationalStatus"`
+	OwnerEmail        string  `json:"ownerEmail,omitempty"`
+	SensorCount       int     `json:"sensorCount"`
+	ConfiguredSensors int     `json:"configuredSensors"`
+	LastSeen          string  `json:"lastSeen,omitempty"`
+	UpdatedAt         string  `json:"updatedAt,omitempty"`
+	FarmID            *string `json:"farmId,omitempty"`
+	FarmName          string  `json:"farmName,omitempty"`
+	GatewayID         *string `json:"gatewayId,omitempty"`
+	SensorBaseCount   int     `json:"sensorBaseCount"`
+	ArchitectureState string  `json:"architectureState"`
 }
 
 type AdminDevicesResponse struct {

@@ -1,0 +1,24 @@
+{
+  "name": "spectron-agriassist-desktop",
+  "version": "1.0.0",
+  "description": "SPECTRON AgriAssist desktop application",
+  "author": "SPECTRON",
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "com.spectron.app",
+    "productName": "SPECTRON AgriAssist",
+    "electronVersion": "43.7.0",
+    "directories": { "output": "../desktop-dist" },
+    "files": ["build/**/*", "electron/**/*", "package.json"],
+    "npmRebuild": false,
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "include": "electron/installer.nsh"
+    },
+    "win": {
+      "target": ["portable"],
+      "icon": "electron/assets/spectron.ico"
+    }
+  }
+}

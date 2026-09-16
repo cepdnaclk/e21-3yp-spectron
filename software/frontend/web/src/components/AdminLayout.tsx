@@ -16,7 +16,7 @@ import {
 } from '@mui/material';
 import {
   Dashboard,
-  DevicesOther,
+  DeviceHub,
   HealthAndSafety,
   History,
   Logout,
@@ -27,7 +27,7 @@ import SpectronLogo from './SpectronLogo';
 
 const adminRoutes = [
   { label: 'Dashboard', mobileLabel: 'Home', path: '/admin', icon: <Dashboard /> },
-  { label: 'Devices', mobileLabel: 'Devices', path: '/admin/devices', icon: <DevicesOther /> },
+  { label: 'Hardware', mobileLabel: 'Hardware', path: '/admin/devices', icon: <DeviceHub /> },
   { label: 'Users', mobileLabel: 'Users', path: '/admin/users', icon: <People /> },
   { label: 'System Health', mobileLabel: 'Health', path: '/admin/system', icon: <HealthAndSafety /> },
   { label: 'Audit', mobileLabel: 'Audit', path: '/admin/audit', icon: <History /> },
@@ -101,7 +101,7 @@ const AdminLayout: React.FC = () => {
           userSelect: 'none',
           WebkitUserSelect: 'none',
           background:
-            'radial-gradient(circle at 5% 0%, rgba(235, 79, 18, 0.1), transparent 30rem), linear-gradient(135deg, #f7f2ea 0%, #fffdf8 52%, #eef4e5 100%)',
+            'radial-gradient(circle at 5% 0%, rgba(235, 79, 18, 0.1), transparent 30rem), radial-gradient(circle at 98% 12%, rgba(51,122,133,0.09), transparent 28rem), linear-gradient(135deg, #f7f2ea 0%, #fffdf8 52%, #eef4e5 100%)',
         },
       }}
     >
@@ -118,16 +118,17 @@ const AdminLayout: React.FC = () => {
           <Box
             sx={{
               height: '100%',
-              bgcolor: 'transparent',
-              borderRight: '1px solid rgba(60, 57, 17, 0.12)',
-              borderRadius: 0,
+              bgcolor: 'rgba(255,253,248,0.8)',
+              border: '1px solid rgba(60, 57, 17, 0.1)',
+              borderRadius: 4,
               p: 2,
-              boxShadow: 'none',
+              boxShadow: '0 18px 44px rgba(60,57,17,0.08)',
+              backdropFilter: 'blur(16px)',
               display: 'flex',
               flexDirection: 'column',
             }}
           >
-            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 4 }}>
+            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2.5 }}>
               <SpectronLogo size={42} />
               <Box>
                 <Typography variant="h6" sx={{ lineHeight: 1 }}>
@@ -138,6 +139,20 @@ const AdminLayout: React.FC = () => {
                 </Typography>
               </Box>
             </Stack>
+            <Box
+              sx={{
+                mb: 2.5,
+                px: 1.25,
+                py: 1,
+                borderRadius: 2,
+                bgcolor: 'rgba(235,79,18,0.08)',
+                color: 'secondary.dark',
+                fontWeight: 800,
+                fontSize: 13,
+              }}
+            >
+              Internal portal
+            </Box>
 
             <Stack spacing={1}>
               {adminRoutes.map((item, index) => (
@@ -151,13 +166,16 @@ const AdminLayout: React.FC = () => {
                     gap: 1.5,
                     px: 1.5,
                     py: 1.25,
-                    borderRadius: 999,
+                    borderRadius: 2.5,
                     color: value === index ? '#fffdf8' : 'text.secondary',
                     bgcolor: value === index ? 'primary.dark' : 'transparent',
+                    boxShadow: value === index ? '0 10px 22px rgba(60,57,17,0.18)' : 'none',
+                    transition: 'background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
                     textDecoration: 'none',
                     '&:hover': {
                       bgcolor: value === index ? 'primary.dark' : 'rgba(108, 137, 48, 0.1)',
                       textDecoration: 'none',
+                      transform: 'translateX(2px)',
                     },
                     '& .MuiSvgIcon-root': {
                       color: value === index ? 'secondary.light' : 'primary.main',
@@ -179,9 +197,10 @@ const AdminLayout: React.FC = () => {
               sx={{
                 mt: 'auto',
                 p: 1.5,
-                borderRadius: 0,
-                bgcolor: 'transparent',
-                borderTop: '1px solid rgba(60, 57, 17, 0.1)',
+                borderRadius: 3,
+                bgcolor: 'rgba(255,253,248,0.72)',
+                border: '1px solid rgba(60,57,17,0.1)',
+                boxShadow: '0 10px 24px rgba(60,57,17,0.05)',
               }}
             >
               <Typography variant="caption" color="text.secondary">

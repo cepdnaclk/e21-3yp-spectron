@@ -8,11 +8,29 @@ export interface Controller {
   name?: string;
   purpose?: string;
   location?: string;
-  status: 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' | 'ERROR';
-  claim_status?: 'CLAIMED' | 'UNCLAIMED';
-  operational_status?: 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' | 'ERROR';
+  status: 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG';
+  claim_status?: string;
+  operational_status?: string;
   last_seen?: string;
   created_at: string;
+}
+
+export interface ControllerFieldLink {
+  field_id?: string | null;
+  field_name?: string | null;
+  farm_id?: string;
+  farm_name?: string;
+  sensor_base_id?: string;
+  sensor_base_label?: string;
+  base_id?: string;
+  label?: string | null;
+  serial_number?: string | null;
+  monitoring_zone?: string | null;
+  status?: string | null;
+}
+
+export interface PairControllerRequest {
+  qr_token: string;
 }
 
 export interface UpdateControllerRequest {
@@ -40,7 +58,22 @@ export const getController = async (id: string): Promise<Controller> => {
   return response.data;
 };
 
+export const pairController = async (data: PairControllerRequest): Promise<Controller> => {
+  const response = await api.post<Controller>(API_ENDPOINTS.CONTROLLERS.PAIR, data);
+  return response.data;
+};
+
 export const updateController = async (id: string, data: UpdateControllerRequest): Promise<Controller> => {
   const response = await api.patch<Controller>(API_ENDPOINTS.CONTROLLERS.UPDATE(id), data);
   return response.data;
+};
+
+export const getControllerFieldLinks = async (id: string): Promise<ControllerFieldLink[]> => {
+  const response = await api.get<{ links?: ControllerFieldLink[] } | ControllerFieldLink[]>(
+    `/api/controllers/${encodeURIComponent(id)}/field-links`
+  );
+  if (Array.isArray(response.data)) {
+    return response.data;
+  }
+  return response.data.links || [];
 };

@@ -6,16 +6,16 @@ interface SpectronLogoProps {
   size?: number;
 }
 
-const SpectronLogo: React.FC<SpectronLogoProps> = ({ alt = 'Spectron', size = 40 }) => (
+const SpectronLogo: React.FC<SpectronLogoProps> = ({ alt = 'SPECTRON', size = 40 }) => (
   <Box
     component="img"
-    src="/assets/spectron-logo.svg"
+    src={`${process.env.PUBLIC_URL || '.'}/assets/spectron-logo.svg`}
     alt={alt}
     sx={{
-      display: 'block',
-      flex: '0 0 auto',
       width: size,
       height: size,
+      display: 'block',
+      flexShrink: 0,
       objectFit: 'contain',
     }}
   />

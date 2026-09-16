@@ -129,6 +129,11 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 		systemSensorID = &resolvedSystemSensorID
 	}
 
+	farmCtx, err := p.loadFarmReadingContext(ctx, tx, controllerID, sensorHWID)
+	if err != nil {
+		return fmt.Errorf("load farm context for sensor %s: %w", sensorHWID, err)
+	}
+
 	config, hasConfig, err := loadActiveSensorConfig(ctx, tx, persistedSensorID, systemSensorID, controllerID, sensorHWID, persistedSensorType)
 	if err != nil {
 		return fmt.Errorf("load config for sensor %s: %w", sensorHWID, err)
@@ -147,6 +152,7 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 		"timestamp_raw":       event.TimestampRaw,
 		"source":              event.Source,
 	}
+	addFarmContextToMeta(readingMeta, farmCtx)
 	if convertedDistance {
 		readingMeta["raw_value"] = sensor.Value
 		readingMeta["raw_unit"] = "mm"
@@ -186,13 +192,14 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 	}
 
 	_, err = tx.Exec(ctx, `
-		INSERT INTO sensor_readings (time, sensor_id, system_sensor_id, value, meta)
-		VALUES ($1, $2, $3, $4, $5::jsonb)
+		INSERT INTO sensor_readings (time, sensor_id, system_sensor_id, sensor_channel_id, value, meta)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb)
 		ON CONFLICT (time, sensor_id) DO UPDATE
 		SET system_sensor_id = COALESCE(EXCLUDED.system_sensor_id, sensor_readings.system_sensor_id),
+		    sensor_channel_id = COALESCE(EXCLUDED.sensor_channel_id, sensor_readings.sensor_channel_id),
 		    value = EXCLUDED.value,
 		    meta = EXCLUDED.meta
-	`, event.ReadingTime, persistedSensorID, systemSensorID, normalizedValue, meta)
+	`, event.ReadingTime, persistedSensorID, systemSensorID, farmCtx.SensorChannelID, normalizedValue, meta)
 	if err != nil {
 		return fmt.Errorf("insert sensor reading %s: %w", sensorHWID, err)
 	}
@@ -203,6 +210,10 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 		SensorID:       persistedSensorID,
 		SystemID:       systemID,
 		SystemSensorID: systemSensorID,
+		FarmID:         farmCtx.FarmID,
+		FieldID:        farmCtx.FieldID,
+		GatewayID:      farmCtx.GatewayID,
+		SensorBaseID:   farmCtx.SensorBaseID,
 		SensorHWID:     sensorHWID,
 		SensorName:     persistedSensorName,
 		SensorType:     persistedSensorType,
@@ -213,6 +224,222 @@ func (p *RawReadingsProcessor) upsertSensorReading(ctx context.Context, tx pgx.T
 	}
 
 	return nil
+}
+
+func (p *RawReadingsProcessor) loadFarmReadingContext(ctx context.Context, tx pgx.Tx, controllerID uuid.UUID, sensorHWID string) (farmReadingContext, error) {
+	var result farmReadingContext
+
+	var farmID uuid.UUID
+	var gatewayID uuid.UUID
+	err := tx.QueryRow(ctx, `
+		SELECT farm_id, id
+		FROM gateways
+		WHERE legacy_controller_id = $1
+	`, controllerID).Scan(&farmID, &gatewayID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return result, nil
+		}
+		return result, err
+	}
+
+	result.FarmID = &farmID
+	result.GatewayID = &gatewayID
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE gateways
+		SET status = 'online',
+		    last_seen = NOW(),
+		    updated_at = NOW()
+		WHERE id = $1
+	`, gatewayID); err != nil {
+		return result, err
+	}
+
+	baseID, fieldID, ok, err := resolveReadingSensorBase(ctx, tx, gatewayID, sensorHWID)
+	if err != nil {
+		return result, err
+	}
+	if !ok {
+		return result, nil
+	}
+
+	result.SensorBaseID = &baseID
+	result.FieldID = fieldID
+	channelID, channelKey, err := resolveReadingSensorChannel(ctx, tx, baseID, sensorHWID)
+	if err != nil {
+		return result, err
+	}
+	result.SensorChannelID = channelID
+	result.SensorChannelKey = channelKey
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE sensor_bases
+		SET status = 'live',
+		    last_seen = NOW(),
+		    updated_at = NOW()
+		WHERE id = $1
+	`, baseID); err != nil {
+		return result, err
+	}
+
+	return result, nil
+}
+
+func resolveReadingSensorBase(ctx context.Context, tx pgx.Tx, gatewayID uuid.UUID, sensorHWID string) (uuid.UUID, *uuid.UUID, bool, error) {
+	normalizedHWID := strings.ToLower(strings.TrimSpace(sensorHWID))
+	if normalizedHWID != "" {
+		var baseID uuid.UUID
+		var fieldID *uuid.UUID
+		err := tx.QueryRow(ctx, `
+			SELECT sb.id, sba.field_id
+			FROM sensor_bases sb
+			LEFT JOIN sensor_base_assignments sba
+			  ON sba.base_id = sb.id
+			 AND sba.unassigned_at IS NULL
+			WHERE sb.gateway_id = $1
+			  AND (
+			       lower(sb.serial_number) = $2
+			       OR $2 LIKE lower(sb.serial_number) || ':%'
+			       OR $2 LIKE lower(sb.serial_number) || '/%'
+			       OR $2 LIKE lower(sb.serial_number) || '-%'
+			  )
+			ORDER BY sb.updated_at DESC
+			LIMIT 1
+		`, gatewayID, normalizedHWID).Scan(&baseID, &fieldID)
+		if err == nil {
+			return baseID, fieldID, true, nil
+		}
+		if err != pgx.ErrNoRows {
+			return uuid.Nil, nil, false, err
+		}
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT sb.id, sba.field_id
+		FROM sensor_bases sb
+		LEFT JOIN sensor_base_assignments sba
+		  ON sba.base_id = sb.id
+		 AND sba.unassigned_at IS NULL
+		WHERE sb.gateway_id = $1
+		  AND sb.status <> 'retired'
+		ORDER BY sb.updated_at DESC
+		LIMIT 2
+	`, gatewayID)
+	if err != nil {
+		return uuid.Nil, nil, false, err
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		id      uuid.UUID
+		fieldID *uuid.UUID
+	}
+
+	candidates := make([]candidate, 0, 2)
+	for rows.Next() {
+		var baseID uuid.UUID
+		var fieldID *uuid.UUID
+		if err := rows.Scan(&baseID, &fieldID); err != nil {
+			return uuid.Nil, nil, false, err
+		}
+		candidates = append(candidates, candidate{id: baseID, fieldID: fieldID})
+	}
+	if err := rows.Err(); err != nil {
+		return uuid.Nil, nil, false, err
+	}
+	if len(candidates) != 1 {
+		return uuid.Nil, nil, false, nil
+	}
+
+	return candidates[0].id, candidates[0].fieldID, true, nil
+}
+
+func resolveReadingSensorChannel(ctx context.Context, tx pgx.Tx, baseID uuid.UUID, sensorHWID string) (*uuid.UUID, string, error) {
+	candidateKeys := channelKeyCandidates(sensorHWID)
+	if len(candidateKeys) == 0 {
+		return nil, "", nil
+	}
+
+	var channelID uuid.UUID
+	var channelKey string
+	err := tx.QueryRow(ctx, `
+		SELECT sc.id, sc.channel_key
+		FROM sensor_modules sm
+		JOIN sensor_channels sc
+		  ON sc.module_id = sm.id
+		WHERE sm.base_id = $1
+		  AND (
+		       lower(sc.channel_key) = ANY($2::text[])
+		       OR lower(sc.measurement_type) = ANY($2::text[])
+		  )
+		ORDER BY
+		    CASE
+		        WHEN lower(sc.channel_key) = $3 THEN 0
+		        WHEN lower(sc.measurement_type) = $3 THEN 1
+		        ELSE 2
+		    END,
+		    sm.slot_number,
+		    sc.channel_key
+		LIMIT 1
+	`, baseID, candidateKeys, candidateKeys[0]).Scan(&channelID, &channelKey)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, "", nil
+		}
+		return nil, "", err
+	}
+
+	return &channelID, channelKey, nil
+}
+
+func channelKeyCandidates(sensorHWID string) []string {
+	normalized := strings.ToLower(strings.TrimSpace(sensorHWID))
+	if normalized == "" {
+		return nil
+	}
+
+	keys := make([]string, 0, 3)
+	addKey := func(value string) {
+		value = strings.Trim(strings.ToLower(strings.TrimSpace(value)), " _-/\\:")
+		if value == "" {
+			return
+		}
+		for _, existing := range keys {
+			if existing == value {
+				return
+			}
+		}
+		keys = append(keys, value)
+	}
+
+	if idx := strings.LastIndexAny(normalized, ":/\\"); idx >= 0 && idx+1 < len(normalized) {
+		addKey(normalized[idx+1:])
+	}
+	addKey(normalized)
+
+	return keys
+}
+
+func addFarmContextToMeta(meta map[string]any, ctx farmReadingContext) {
+	if ctx.FarmID != nil {
+		meta["farm_id"] = ctx.FarmID.String()
+	}
+	if ctx.FieldID != nil {
+		meta["field_id"] = ctx.FieldID.String()
+	}
+	if ctx.GatewayID != nil {
+		meta["gateway_id"] = ctx.GatewayID.String()
+	}
+	if ctx.SensorBaseID != nil {
+		meta["sensor_base_id"] = ctx.SensorBaseID.String()
+	}
+	if ctx.SensorChannelID != nil {
+		meta["sensor_channel_id"] = ctx.SensorChannelID.String()
+	}
+	if ctx.SensorChannelKey != "" {
+		meta["sensor_channel_key"] = ctx.SensorChannelKey
+	}
 }
 
 func normalizeReadingValue(sensorType string, value float64) (float64, bool) {
@@ -394,11 +621,24 @@ type thresholdAlertInput struct {
 	SensorID       uuid.UUID
 	SystemID       *uuid.UUID
 	SystemSensorID *uuid.UUID
+	FarmID         *uuid.UUID
+	FieldID        *uuid.UUID
+	GatewayID      *uuid.UUID
+	SensorBaseID   *uuid.UUID
 	SensorHWID     string
 	SensorName     string
 	SensorType     string
 	Value          float64
 	ReadingAt      time.Time
+}
+
+type farmReadingContext struct {
+	FarmID           *uuid.UUID
+	FieldID          *uuid.UUID
+	GatewayID        *uuid.UUID
+	SensorBaseID     *uuid.UUID
+	SensorChannelID  *uuid.UUID
+	SensorChannelKey string
 }
 
 type thresholdAlertEvaluation struct {
@@ -419,33 +659,274 @@ func (p *RawReadingsProcessor) evaluateThresholdAlertWithConfig(ctx context.Cont
 
 	evaluation := evaluateThresholdBreach(input.SensorType, input.Value, config)
 	if !evaluation.Triggered {
+		recovered, err := hasStableThresholdRecovery(ctx, tx, input, config)
+		if err != nil {
+			return err
+		}
+		if recovered {
+			return resolveOpenThresholdAlerts(ctx, tx, input)
+		}
+		return nil
+	}
+
+	// Critical limits represent an unsafe reading and must reach the farmer
+	// immediately. Sustained windows suppress noisy warnings, but must not delay
+	// a critical event.
+	sustainedFor := effectiveAlertSustainedDuration(config, evaluation)
+	persisted, err := hasPersistentThresholdBreach(ctx, tx, input, config, evaluation, sustainedFor)
+	if err != nil {
+		return err
+	}
+	if !persisted {
 		return nil
 	}
 
 	message := thresholdAlertMessage(input, evaluation)
-	if recommendationMessage, ok := p.recommendationAlertMessage(ctx, tx, input); ok {
-		message = recommendationMessage
+	if recommendationMessage, ok := p.recommendationAlertMessage(ctx, tx, input, evaluation); ok {
+		message = appendRecommendedAction(message, recommendationMessage)
 	}
-	return upsertOpenAlert(ctx, tx, input.AccountID, input.ControllerID, input.SensorID, input.SystemID, input.SystemSensorID, "THRESHOLD_BREACH", evaluation.Severity, message)
+	return upsertOpenAlert(
+		ctx,
+		tx,
+		input.AccountID,
+		input.ControllerID,
+		input.SensorID,
+		input.SystemID,
+		input.SystemSensorID,
+		input.FarmID,
+		input.FieldID,
+		input.GatewayID,
+		input.SensorBaseID,
+		"THRESHOLD_BREACH",
+		evaluation.Severity,
+		message,
+	)
 }
 
-func (p *RawReadingsProcessor) recommendationAlertMessage(ctx context.Context, tx pgx.Tx, input thresholdAlertInput) (string, bool) {
+func requiredSustainedDuration(config models.SensorConfig, evaluation thresholdAlertEvaluation) time.Duration {
+	operator := "OUTSIDE_RANGE"
+	if evaluation.Condition == "above" {
+		operator = "GREATER_THAN"
+	} else if evaluation.Condition == "below" {
+		operator = "LESS_THAN"
+	}
+	for _, rule := range config.RecommendationRules {
+		if normalizeMetricKey(rule.MetricType) != normalizeMetricKey(evaluation.Metric) {
+			continue
+		}
+		ruleOperator := strings.ToUpper(strings.TrimSpace(rule.Operator))
+		if ruleOperator != operator && ruleOperator != "OUTSIDE_RANGE" {
+			continue
+		}
+		if rule.SustainedMinutes > 0 {
+			return time.Duration(clampInt(rule.SustainedMinutes, 1, 24*60)) * time.Minute
+		}
+	}
+
+	hardware := config.HardwareConfig
+	if len(hardware) == 0 && config.Hardware != nil {
+		hardware = config.Hardware.Config
+	}
+	if minutes, ok := numericValueFromMap(hardware, "sustainedWindowMinutes"); ok && minutes > 0 {
+		return time.Duration(clampInt(int(math.Round(minutes)), 1, 24*60)) * time.Minute
+	}
+	return 0
+}
+
+func effectiveAlertSustainedDuration(config models.SensorConfig, evaluation thresholdAlertEvaluation) time.Duration {
+	if evaluation.Severity == "CRITICAL" {
+		return 0
+	}
+	return requiredSustainedDuration(config, evaluation)
+}
+
+func hasPersistentThresholdBreach(
+	ctx context.Context,
+	tx pgx.Tx,
+	input thresholdAlertInput,
+	config models.SensorConfig,
+	expected thresholdAlertEvaluation,
+	required time.Duration,
+) (bool, error) {
+	if required <= 0 {
+		evaluation := evaluateThresholdBreach(input.SensorType, input.Value, config)
+		return evaluation.Triggered && evaluation.Condition == expected.Condition, nil
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT time,value
+		FROM sensor_readings
+		WHERE sensor_id=$1
+		  AND time <= $2
+		  AND time >= $2 - ($3::double precision * INTERVAL '1 second') - INTERVAL '24 hours'
+		ORDER BY time DESC
+		LIMIT 500
+	`, input.SensorID, input.ReadingAt, required.Seconds())
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	var newest, oldest time.Time
+	count := 0
+	for rows.Next() {
+		var at time.Time
+		var value float64
+		if err := rows.Scan(&at, &value); err != nil {
+			return false, err
+		}
+		evaluation := evaluateThresholdBreach(input.SensorType, value, config)
+		if !evaluation.Triggered || evaluation.Condition != expected.Condition {
+			break
+		}
+		if count == 0 {
+			newest = at
+		}
+		oldest = at
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return count >= 2 && newest.Sub(oldest) >= required, nil
+}
+
+func hasStableThresholdRecovery(
+	ctx context.Context,
+	tx pgx.Tx,
+	input thresholdAlertInput,
+	config models.SensorConfig,
+) (bool, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT value
+		FROM sensor_readings
+		WHERE sensor_id=$1 AND time <= $2
+		ORDER BY time DESC
+		LIMIT 3
+	`, input.SensorID, input.ReadingAt)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		var value float64
+		if err := rows.Scan(&value); err != nil {
+			return false, err
+		}
+		if evaluateThresholdBreach(input.SensorType, value, config).Triggered {
+			return false, nil
+		}
+		count++
+	}
+	return count >= 3, rows.Err()
+}
+
+func resolveOpenThresholdAlerts(ctx context.Context, tx pgx.Tx, input thresholdAlertInput) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE alerts
+		SET state='resolved',
+		    status='resolved',
+		    last_triggered_at=$4
+		WHERE account_id=$1
+		  AND sensor_id=$2
+		  AND type='THRESHOLD_BREACH'
+		  AND COALESCE(status,'open')='open'
+		  AND controller_id=$3
+	`, input.AccountID, input.SensorID, input.ControllerID, input.ReadingAt)
+	return err
+}
+
+func normalizeMetricKey(metric string) string {
+	switch strings.ToLower(strings.TrimSpace(metric)) {
+	case "temp":
+		return "temperature"
+	case "relative_humidity":
+		return "humidity"
+	default:
+		return strings.ToLower(strings.TrimSpace(metric))
+	}
+}
+
+func clampInt(value, minimum, maximum int) int {
+	if value < minimum {
+		return minimum
+	}
+	if value > maximum {
+		return maximum
+	}
+	return value
+}
+
+func (p *RawReadingsProcessor) recommendationAlertMessage(
+	ctx context.Context,
+	tx pgx.Tx,
+	input thresholdAlertInput,
+	evaluation thresholdAlertEvaluation,
+) (string, bool) {
 	var action string
+	operator := "OUTSIDE_RANGE"
+	if evaluation.Condition == "above" {
+		operator = "GREATER_THAN"
+	} else if evaluation.Condition == "below" {
+		operator = "LESS_THAN"
+	}
 	err := tx.QueryRow(ctx, `
 		SELECT action_recommendation
 		FROM recommendation_rules
 		WHERE account_id = $1
 		  AND active = true
-		ORDER BY created_at DESC
+		  AND (
+		       sensor_id = $2
+		       OR (sensor_id IS NULL AND controller_id = $3)
+		  )
+		  AND lower(metric_type) = lower($4)
+		  AND operator IN ($5, 'OUTSIDE_RANGE')
+		ORDER BY
+		  (sensor_id IS NOT NULL) DESC,
+		  (operator = $5) DESC,
+		  CASE risk_level WHEN 'CRITICAL' THEN 0 WHEN 'MODERATE' THEN 1 ELSE 2 END,
+		  created_at DESC
 		LIMIT 1
-	`, input.AccountID).Scan(&action)
+	`, input.AccountID, input.SensorID, input.ControllerID, evaluation.Metric, operator).Scan(&action)
 	if err != nil {
 		return "", false
 	}
 	if strings.TrimSpace(action) == "" {
 		return "", false
 	}
-	return fmt.Sprintf("Agricultural action required: %s", action), true
+	return safeAutomaticAlertAction(action), true
+}
+
+func safeAutomaticAlertAction(action string) string {
+	action = strings.TrimSpace(action)
+	lower := strings.ToLower(action)
+	for _, unsafe := range []string{
+		"spray ",
+		"apply pesticide",
+		"apply fungicide",
+		"apply insecticide",
+		"apply herbicide",
+		"apply fertilizer",
+		" g/l",
+		" g/lit",
+		" ml/l",
+	} {
+		if strings.Contains(lower, unsafe) {
+			return "Check representative plants and confirm visible symptoms. Do not apply a crop treatment from a sensor warning alone; confirm the correct treatment with a local agricultural officer."
+		}
+	}
+	return action
+}
+
+func appendRecommendedAction(message string, action string) string {
+	message = strings.TrimSpace(message)
+	action = strings.TrimSpace(action)
+	if action == "" || strings.Contains(strings.ToLower(message), strings.ToLower(action)) {
+		return message
+	}
+	return message + " Recommended action: " + action
 }
 
 type distanceAttendanceConfig struct {
@@ -1018,7 +1499,7 @@ func roundForAlert(value float64) float64 {
 	return math.Round(value*100) / 100
 }
 
-func upsertOpenAlert(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, controllerID uuid.UUID, sensorID uuid.UUID, systemID *uuid.UUID, systemSensorID *uuid.UUID, alertType string, severity string, message string) error {
+func upsertOpenAlert(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, controllerID uuid.UUID, sensorID uuid.UUID, systemID *uuid.UUID, systemSensorID *uuid.UUID, farmID *uuid.UUID, fieldID *uuid.UUID, gatewayID *uuid.UUID, sensorBaseID *uuid.UUID, alertType string, severity string, message string) error {
 	var existingID uuid.UUID
 	err := tx.QueryRow(ctx, `
 		SELECT id
@@ -1029,6 +1510,8 @@ func upsertOpenAlert(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, contro
 		  AND type = $4
 		  AND severity = $5
 		  AND acknowledged_at IS NULL
+		  AND COALESCE(status, 'open') = 'open'
+		  AND COALESCE(state, 'active') <> 'resolved'
 		ORDER BY created_at DESC
 		LIMIT 1
 	`, accountID, controllerID, sensorID, alertType, severity).Scan(&existingID)
@@ -1042,15 +1525,53 @@ func upsertOpenAlert(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, contro
 			SET message = $1,
 			    system_id = $2,
 			    system_sensor_id = $3,
+			    farm_id = $4,
+			    field_id = $5,
+			    gateway_id = $6,
+			    sensor_base_id = $7,
 			    created_at = NOW()
-			WHERE id = $4
-		`, message, systemID, systemSensorID, existingID)
-		return err
+			WHERE id = $8
+		`, message, systemID, systemSensorID, farmID, fieldID, gatewayID, sensorBaseID, existingID)
+		if err != nil {
+			return err
+		}
+		return fanOutFarmAlertRecipients(ctx, tx, existingID, farmID)
 	}
 
+	alertID := uuid.New()
 	_, err = tx.Exec(ctx, `
-		INSERT INTO alerts (id, account_id, controller_id, sensor_id, system_id, system_sensor_id, type, severity, message, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-	`, uuid.New(), accountID, controllerID, sensorID, systemID, systemSensorID, alertType, severity, message)
+		INSERT INTO alerts (
+			id,
+			account_id,
+			controller_id,
+			sensor_id,
+			system_id,
+			system_sensor_id,
+			farm_id,
+			field_id,
+			gateway_id,
+			sensor_base_id,
+			type,
+			severity,
+			message,
+			created_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+	`, alertID, accountID, controllerID, sensorID, systemID, systemSensorID, farmID, fieldID, gatewayID, sensorBaseID, alertType, severity, message)
+	if err != nil {
+		return err
+	}
+	return fanOutFarmAlertRecipients(ctx, tx, alertID, farmID)
+}
+
+func fanOutFarmAlertRecipients(ctx context.Context, tx pgx.Tx, alertID uuid.UUID, farmID *uuid.UUID) error {
+	if farmID == nil {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO alert_recipients (alert_id,user_id)
+		SELECT $1,fa.user_id FROM farm_access fa
+		WHERE fa.farm_id=$2 AND fa.revoked_at IS NULL
+		ON CONFLICT (alert_id,user_id) DO NOTHING`, alertID, *farmID)
 	return err
 }

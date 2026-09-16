@@ -190,18 +190,12 @@ export interface CreateViewerRequest {
   phone?: string;
 }
 
-type AccountUsersResponse = { users?: AccountUser[] } | AccountUser[];
-
 export const getAccountUsers = async (): Promise<AccountUser[]> => {
-  const response = await api.get<AccountUsersResponse>(API_ENDPOINTS.USERS.LIST);
-  return Array.isArray(response.data) ? response.data : response.data.users || [];
+  const response = await api.get<{ users?: AccountUser[] }>(API_ENDPOINTS.USERS.LIST);
+  return response.data.users || [];
 };
 
 export const createViewer = async (data: CreateViewerRequest): Promise<User> => {
   const response = await api.post<User>(API_ENDPOINTS.USERS.CREATE_VIEWER, data);
   return normalizeUser(response.data);
-};
-
-export const deleteViewer = async (viewerId: string): Promise<void> => {
-  await api.delete(API_ENDPOINTS.USERS.DELETE_VIEWER(viewerId));
 };

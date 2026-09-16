@@ -754,6 +754,45 @@ func supportedRawMetricsForSensor(sensorType string) []models.SensorHardwareMetr
 	}
 }
 
+// validateRequestedSensorRanges rejects impossible customer ranges before the
+// normalizer applies defaults. This keeps saved limits inside the physical
+// measurement capability advertised for the sensor.
+func validateRequestedSensorRanges(sensorType string, config models.SensorConfig) error {
+	ranges := config.MetricThresholds
+	if config.Interpretation != nil && len(config.Interpretation.MetricThresholds) > 0 {
+		ranges = config.Interpretation.MetricThresholds
+	}
+	capabilities := supportedRawMetricsForSensor(sensorType)
+	for _, metric := range capabilities {
+		threshold, ok := ranges[metric.Key]
+		if !ok && strings.EqualFold(config.PrimaryMetric, metric.Key) {
+			threshold = config.Thresholds
+			ok = true
+		}
+		if !ok {
+			continue
+		}
+		if threshold.Min != nil && threshold.Max != nil && *threshold.Min >= *threshold.Max {
+			return fmt.Errorf("%s good range minimum must be lower than maximum", metric.Label)
+		}
+		for label, value := range map[string]*float64{
+			"minimum": threshold.Min, "maximum": threshold.Max,
+			"warning minimum": threshold.WarningMin, "warning maximum": threshold.WarningMax,
+		} {
+			if value == nil {
+				continue
+			}
+			if metric.MinimumValue != nil && *value < *metric.MinimumValue {
+				return fmt.Errorf("%s %s cannot be below %g %s", metric.Label, label, *metric.MinimumValue, metric.Unit)
+			}
+			if metric.MaximumValue != nil && *value > *metric.MaximumValue {
+				return fmt.Errorf("%s %s cannot be above %g %s", metric.Label, label, *metric.MaximumValue, metric.Unit)
+			}
+		}
+	}
+	return nil
+}
+
 func derivedMetricsForUseCase(sensorType string, useCase string) []models.SensorDerivedMetric {
 	normalizedType := normalizeSuggestionValue(sensorType)
 	normalizedUseCase := normalizeSuggestionValue(useCase)

@@ -131,6 +131,19 @@ func (h *ControllerHandler) AdminOverviewAPI(w http.ResponseWriter, r *http.Requ
 		JOIN controllers c ON c.id = cs.controller_id
 	`).Scan(&response.ConfiguredSensors, &response.UnconfiguredSensors)
 
+	_ = h.db.QueryRow(r.Context(), `
+		SELECT
+			(SELECT COUNT(*)::int FROM gateways),
+			(
+				SELECT COUNT(*)::int
+				FROM controllers c
+				WHERE NOT EXISTS (
+					SELECT 1 FROM gateways g WHERE g.legacy_controller_id = c.id
+				)
+			),
+			(SELECT COUNT(*)::int FROM sensor_bases)
+	`).Scan(&response.FarmControllers, &response.LegacyOnlyDevices, &response.SensorBases)
+
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -268,6 +281,7 @@ func (h *ControllerHandler) AdminCreateDeviceAPI(w http.ResponseWriter, r *http.
 		return
 	}
 
+	broadcastAdminChange("admin.device.changed")
 	devices, err := h.loadAdminDevices(r.Context())
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
@@ -1044,6 +1058,77 @@ func (h *ControllerHandler) DeleteHardwareSensorAPI(w http.ResponseWriter, r *ht
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// DeleteSensorAPI supports the frontend's controller-independent delete call.
+// Legacy sensors carry their owning controller_id, so resolve it first and
+// delegate to the same authorization and cleanup logic used by the controller
+// scoped endpoint.
+func (h *ControllerHandler) DeleteSensorAPI(w http.ResponseWriter, r *http.Request) {
+	accountID := GetAccountID(r).(uuid.UUID)
+	sensorID := strings.TrimSpace(chi.URLParam(r, "id"))
+	var controllerID uuid.UUID
+	err := h.db.QueryRow(r.Context(), `
+		SELECT c.id
+		FROM sensors s
+		JOIN controllers c ON c.id = s.controller_id
+		WHERE s.id = $1 AND c.account_id = $2
+	`, sensorID, accountID).Scan(&controllerID)
+	if err == pgx.ErrNoRows {
+		http.Error(w, "sensor not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to find sensor controller", http.StatusInternalServerError)
+		return
+	}
+	ctx := chi.RouteContext(r.Context())
+	ctx.URLParams.Add("controllerId", controllerID.String())
+	ctx.URLParams.Add("sensorId", sensorID)
+	h.DeleteHardwareSensorAPI(w, r)
+}
+
+func (h *ControllerHandler) ControllerFieldLinksAPI(w http.ResponseWriter, r *http.Request) {
+	accountID := GetAccountID(r).(uuid.UUID)
+	controllerParam := strings.TrimSpace(chi.URLParam(r, "controllerId"))
+	controller, err := h.lookupAccountHardwareController(r.Context(), accountID, controllerParam)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	rows, err := h.db.Query(r.Context(), `
+		SELECT sb.id, sb.serial_number, COALESCE(sb.label,''), sb.status, sb.last_seen,
+		       f.id, COALESCE(f.name,''), sba.monitoring_zone
+		FROM gateways g
+		JOIN sensor_bases sb ON sb.gateway_id=g.id
+		LEFT JOIN sensor_base_assignments sba ON sba.base_id=sb.id AND sba.unassigned_at IS NULL
+		LEFT JOIN fields f ON f.id=sba.field_id
+		WHERE g.legacy_controller_id=$1
+		ORDER BY COALESCE(f.name,''), sb.serial_number`, controller.id)
+	if err != nil {
+		http.Error(w, "failed to load controller field links", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	items := make([]map[string]any, 0)
+	for rows.Next() {
+		var baseID uuid.UUID
+		var serial, label, status string
+		var lastSeen *time.Time
+		var fieldID *uuid.UUID
+		var fieldName string
+		var zone *string
+		if err := rows.Scan(&baseID, &serial, &label, &status, &lastSeen, &fieldID, &fieldName, &zone); err != nil {
+			http.Error(w, "failed to read controller field links", http.StatusInternalServerError)
+			return
+		}
+		item := map[string]any{"base_id": baseID, "serial_number": serial, "label": label, "status": status, "last_seen": lastSeen, "field_name": fieldName, "monitoring_zone": zone}
+		if fieldID != nil {
+			item["field_id"] = *fieldID
+		}
+		items = append(items, item)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sensor_bases": items})
+}
+
 func (h *ControllerHandler) ReleaseControllerAPI(w http.ResponseWriter, r *http.Request) {
 	accountID := GetAccountID(r).(uuid.UUID)
 	userID := GetUserID(r).(uuid.UUID)
@@ -1416,13 +1501,15 @@ func (h *ControllerHandler) AISuggestHardwareSensorConfigAPI(w http.ResponseWrit
 	mergedContext := mergeSensorContext(req.Context, metadata.StoredContext)
 	req.Context = mergedContext
 	req = enrichAISuggestRequest(req)
+	sensorHelper := SensorHandler{db: h.db}
+	if sensor.legacyID != nil {
+		req = sensorHelper.enrichAISuggestWithFarmData(r.Context(), *sensor.legacyID, req)
+	}
 	historyDays := 14
 	if req.Context != nil && req.Context.HistoricalWindowDays != nil && *req.Context.HistoricalWindowDays > 0 {
 		historyDays = *req.Context.HistoricalWindowDays
 	}
 	historySummary := h.loadHardwareSensorHistorySummary(r.Context(), sensor.id, sensor.legacyID, historyDays)
-
-	sensorHelper := SensorHandler{db: h.db}
 
 	var suggestedConfig models.SensorConfig
 	explanation := "Configuration suggested based on your purpose, context, and sensor type."
@@ -2917,12 +3004,19 @@ func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.Admi
 			COALESCE(u.email, ''),
 			COUNT(cs.id)::int,
 			COUNT(cs.id) FILTER (WHERE cs.configured = true)::int,
+			g.id,
+			f.id,
+			COALESCE(f.name, ''),
+			COUNT(DISTINCT sb.id)::int,
 			c.last_seen,
 			c.updated_at
 		FROM controllers c
 		LEFT JOIN users u ON u.id = c.owner_user_id
 		LEFT JOIN controller_sensors cs ON cs.controller_id = c.id
-		GROUP BY c.id, c.controller_uid, c.hw_id, c.name, c.location, c.operational_status, c.claim_status, u.email, c.last_seen, c.updated_at
+		LEFT JOIN gateways g ON g.legacy_controller_id = c.id
+		LEFT JOIN farms f ON f.id = g.farm_id
+		LEFT JOIN sensor_bases sb ON sb.gateway_id = g.id
+		GROUP BY c.id, c.controller_uid, c.hw_id, c.name, c.location, c.operational_status, c.claim_status, u.email, g.id, f.id, f.name, c.last_seen, c.updated_at
 		ORDER BY c.updated_at DESC, c.created_at DESC
 	`)
 	if err != nil {
@@ -2934,6 +3028,8 @@ func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.Admi
 	for rows.Next() {
 		var device models.AdminDeviceResponse
 		var id uuid.UUID
+		var gatewayID *uuid.UUID
+		var farmID *uuid.UUID
 		var lastSeen *time.Time
 		var updatedAt *time.Time
 		if err := rows.Scan(
@@ -2947,12 +3043,29 @@ func (h *ControllerHandler) loadAdminDevices(ctx context.Context) ([]models.Admi
 			&device.OwnerEmail,
 			&device.SensorCount,
 			&device.ConfiguredSensors,
+			&gatewayID,
+			&farmID,
+			&device.FarmName,
+			&device.SensorBaseCount,
 			&lastSeen,
 			&updatedAt,
 		); err != nil {
 			return nil, err
 		}
 		device.ID = id.String()
+		device.ArchitectureState = "unclaimed_inventory"
+		if device.ClaimStatus == "CLAIMED" {
+			device.ArchitectureState = "legacy_claimed"
+		}
+		if gatewayID != nil {
+			gatewayIDValue := gatewayID.String()
+			device.GatewayID = &gatewayIDValue
+			device.ArchitectureState = "farm_attached"
+		}
+		if farmID != nil {
+			farmIDValue := farmID.String()
+			device.FarmID = &farmIDValue
+		}
 		if lastSeen != nil {
 			device.LastSeen = lastSeen.Format(time.RFC3339)
 		}

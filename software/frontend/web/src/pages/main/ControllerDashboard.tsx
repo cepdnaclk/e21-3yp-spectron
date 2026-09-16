@@ -14,18 +14,27 @@ import {
   IconButton,
   Snackbar,
   TextField,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
 } from '@mui/material';
-import { ArrowBack, Check, Close, DeleteOutline, Edit, Settings, DeviceThermostat, Place, Memory, Tune, Wifi, WifiOff, Grass } from '@mui/icons-material';
-import { Controller } from '../../services/controllerService';
+import { ArrowBack, Check, Close, Edit, Settings, DeviceThermostat, Place, Memory, Tune, Wifi, WifiOff, Grass } from '@mui/icons-material';
+import { Controller, ControllerFieldLink, getControllerFieldLinks } from '../../services/controllerService';
 import { Sensor } from '../../services/sensorService';
 import {
   HardwarePairingSensor,
-  deleteHardwareSensor,
   getHardwareController,
+  getMyHardwareControllers,
   getHardwareSensors,
   renameHardwareController,
   renameHardwareSensor,
   releaseHardwareController,
+  resolveHardwareControllerRouteId,
 } from '../../services/hardwarePairingService';
 import { formatHardwareMetricRange, getSensorHardwareCapabilities, SensorHardwareMetric } from '../../utils/sensorConfig';
 import {
@@ -36,7 +45,9 @@ import {
 } from '../../utils/physicalSensor';
 import { ControllerDashboardSkeleton } from '../../components/LoadingSkeletons';
 import AutoDismissAlert from '../../components/AutoDismissAlert';
+import { PageShell } from '../../components/ui/PageSurface';
 import { useAuth } from '../../contexts/AuthContext';
+import { assignSensorBase, Field, getFarmControllers, getFarmFields, getFarms } from '../../services/farmService';
 
 type DashboardNavigationState = {
   controllerId?: string;
@@ -77,6 +88,16 @@ const writeRemovedSensorIds = (controllerId: string, sensorIds: string[]) => {
   localStorage.setItem(getRemovedSensorStorageKey(controllerId), JSON.stringify(sensorIds));
 };
 
+const isLegacyPlaceholderSensorId = (sensor: Sensor) => {
+  const sensorId = (sensor.hw_id || sensor.id || '').trim().toLowerCase();
+  return /(?:^|-)sensor-(temp|load|ultra)-01(?:-(temperature|humidity|pressure|distance))?$/.test(sensorId);
+};
+
+const isRealPairedHardwareSensorId = (sensor: Sensor) => {
+  const sensorId = (sensor.hw_id || sensor.id || '').trim();
+  return /^CTRL-[A-Z0-9-]+-sensor-\d+(?:-(temperature|humidity|pressure|distance))?$/i.test(sensorId);
+};
+
 const ControllerDashboard: React.FC = () => {
   const { id, controllerId } = useParams<{ id?: string; controllerId?: string }>();
   const navigate = useNavigate();
@@ -84,6 +105,7 @@ const ControllerDashboard: React.FC = () => {
   const { user } = useAuth();
   const [controller, setController] = useState<Controller | null>(null);
   const [reportedSensors, setReportedSensors] = useState<Sensor[]>([]);
+  const [fieldLinks, setFieldLinks] = useState<ControllerFieldLink[]>([]);
   const [removedSensorIds, setRemovedSensorIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [removing, setRemoving] = useState(false);
@@ -91,31 +113,39 @@ const ControllerDashboard: React.FC = () => {
   const [editingControllerName, setEditingControllerName] = useState(false);
   const [controllerNameDraft, setControllerNameDraft] = useState('');
   const [renamingSensorId, setRenamingSensorId] = useState<string | null>(null);
-  const [removingSensorId, setRemovingSensorId] = useState<string | null>(null);
   const [editingSensorId, setEditingSensorId] = useState<string | null>(null);
   const [sensorNameDraft, setSensorNameDraft] = useState('');
+  const [fieldsForAssignment, setFieldsForAssignment] = useState<Field[]>([]);
+  const [assigningBaseId, setAssigningBaseId] = useState<string | null>(null);
+  const [selectedFieldId, setSelectedFieldId] = useState('');
+  const [assigningBase, setAssigningBase] = useState(false);
   const navigationState = (location.state || null) as DashboardNavigationState | null;
   const [saveNotice, setSaveNotice] = useState<DashboardNavigationState | null>(navigationState);
   const [toastOpen, setToastOpen] = useState(Boolean(navigationState?.configurationSaved || navigationState?.paired));
   const [toastSeverity, setToastSeverity] = useState<'success' | 'error'>('success');
   const activeControllerId = controllerId || id || navigationState?.controllerId || '';
-  const releasableControllerId =
-    (controller?.hw_id && /^CTRL-/i.test(controller.hw_id) ? controller.hw_id : '') ||
-    navigationState?.controllerId ||
-    activeControllerId;
+  const releasableControllerId = (controller?.hw_id || activeControllerId || '').trim();
   const isHardwareContext = Boolean(activeControllerId && /^CTRL-/i.test(activeControllerId));
   const canManageControllers = user?.accounts?.some((account) => account.role === 'OWNER' || account.role === 'ADMIN');
   const removedSensorSet = useMemo(() => new Set(removedSensorIds), [removedSensorIds]);
+  const filteredReportedSensors = useMemo(() => {
+    const hasRealPairedHardware = reportedSensors.some(isRealPairedHardwareSensorId);
+    if (!hasRealPairedHardware) {
+      return reportedSensors;
+    }
+
+    return reportedSensors.filter((sensor) => !isLegacyPlaceholderSensorId(sensor));
+  }, [reportedSensors]);
   const sensors = useMemo(
-    () => reportedSensors.filter((sensor) => !removedSensorSet.has(getSensorIdentity(sensor))),
-    [removedSensorSet, reportedSensors]
+    () => filteredReportedSensors.filter((sensor) => !removedSensorSet.has(getSensorIdentity(sensor))),
+    [filteredReportedSensors, removedSensorSet]
   );
   const pendingSensors = useMemo(
     () =>
-      reportedSensors.filter(
+      filteredReportedSensors.filter(
         (sensor) => removedSensorSet.has(getSensorIdentity(sensor)) && sensor.status === 'OK'
       ),
-    [removedSensorSet, reportedSensors]
+    [filteredReportedSensors, removedSensorSet]
   );
 
   const groupedSensors = useMemo(() => {
@@ -191,7 +221,13 @@ const ControllerDashboard: React.FC = () => {
         purpose,
       };
     });
-  }, [sensors, removedSensorIds]);
+  }, [sensors]);
+
+  const sensorStatusSummary = useMemo(() => {
+    const errorCount = groupedSensors.filter((group) => group.status === 'ERROR').length;
+    const connectedCount = groupedSensors.filter((group) => group.status === 'OK').length;
+    return { errorCount, connectedCount };
+  }, [groupedSensors]);
 
   useEffect(() => {
     if (controller && !editingControllerName) {
@@ -205,7 +241,7 @@ const ControllerDashboard: React.FC = () => {
       return;
     }
 
-    navigate('/controllers');
+    navigate('/farms');
   };
 
   const loadData = useCallback(async () => {
@@ -216,18 +252,116 @@ const ControllerDashboard: React.FC = () => {
 
     try {
       setLoading(true);
-      const [controllerData, sensorsData] = await Promise.all([
-        getHardwareController(activeControllerId),
-        getHardwareSensors(activeControllerId),
+      let resolvedControllerId = activeControllerId;
+      let controllerData: Controller;
+      let usingOfflineFallback = false;
+
+      try {
+        controllerData = await getHardwareController(resolvedControllerId);
+      } catch (error) {
+        const fallbackControllerId = await resolveHardwareControllerRouteId(activeControllerId);
+        if (fallbackControllerId && fallbackControllerId !== resolvedControllerId) {
+          resolvedControllerId = fallbackControllerId;
+          controllerData = await getHardwareController(resolvedControllerId);
+          navigate(`/controllers/${encodeURIComponent(resolvedControllerId)}`, {
+            replace: true,
+            state: location.state,
+          });
+        } else {
+          const [ownedControllers, farms] = await Promise.all([
+            getMyHardwareControllers().catch(() => []),
+            getFarms().catch(() => []),
+          ]);
+
+          const ownedMatch = ownedControllers.find(
+            (item) =>
+              item.id === activeControllerId ||
+              item.hw_id.trim().toUpperCase() === activeControllerId.trim().toUpperCase()
+          );
+
+          if (ownedMatch) {
+            controllerData = {
+              ...ownedMatch,
+              status: 'OFFLINE',
+              operational_status: 'OFFLINE',
+            };
+            resolvedControllerId = ownedMatch.hw_id || ownedMatch.id;
+            usingOfflineFallback = true;
+          } else {
+            let farmMatch: { serial_number: string; legacy_controller_id?: string | null; last_seen?: string | null } | null = null;
+            for (const farm of farms) {
+              const farmControllers = await getFarmControllers(farm.id).catch(() => []);
+              const match = farmControllers.find(
+                (item) =>
+                  item.id === activeControllerId ||
+                  item.serial_number.trim().toUpperCase() === activeControllerId.trim().toUpperCase() ||
+                  (item.legacy_controller_id || '').trim().toUpperCase() === activeControllerId.trim().toUpperCase()
+              );
+              if (match) {
+                farmMatch = match;
+                break;
+              }
+            }
+
+            if (!farmMatch) {
+              throw error;
+            }
+
+            const fallbackHwId = (farmMatch.legacy_controller_id || farmMatch.serial_number || activeControllerId).trim();
+            controllerData = {
+              id: fallbackHwId,
+              account_id: '',
+              hw_id: fallbackHwId,
+              name: farmMatch.serial_number || fallbackHwId,
+              status: 'OFFLINE',
+              operational_status: 'OFFLINE',
+              claim_status: 'CLAIMED',
+              last_seen: farmMatch.last_seen || undefined,
+              created_at: '',
+            };
+            resolvedControllerId = fallbackHwId;
+            usingOfflineFallback = true;
+          }
+        }
+      }
+
+      const controllerLookupId =
+        (controllerData.hw_id && /^CTRL-/i.test(controllerData.hw_id)
+          ? controllerData.hw_id
+          : '') || resolvedControllerId;
+      const [sensorsData, fieldLinkData] = await Promise.all([
+        usingOfflineFallback
+          ? Promise.resolve([])
+          : getHardwareSensors(controllerLookupId, { liveOnly: true }).catch(() => []),
+        getControllerFieldLinks(controllerLookupId).catch(() => []),
       ]);
       setController(controllerData);
       setReportedSensors(Array.isArray(sensorsData) ? sensorsData : []);
+      setFieldLinks(fieldLinkData);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
       setLoading(false);
     }
-  }, [activeControllerId]);
+  }, [activeControllerId, location.state, navigate]);
+
+  const loadAssignableFields = useCallback(async (controllerHwId: string) => {
+    const farms = await getFarms();
+    for (const farm of farms) {
+      const controllers = await getFarmControllers(farm.id).catch(() => []);
+      const isMatch = controllers.some(
+        (item) =>
+          item.serial_number.trim().toUpperCase() === controllerHwId.trim().toUpperCase() ||
+          (item.legacy_controller_id || '').trim().toUpperCase() === controllerHwId.trim().toUpperCase()
+      );
+      if (isMatch) {
+        const fields = await getFarmFields(farm.id).catch(() => []);
+        setFieldsForAssignment(fields);
+        return;
+      }
+    }
+    setFieldsForAssignment([]);
+  }, []);
 
   useEffect(() => {
     if (activeControllerId) {
@@ -270,37 +404,6 @@ const ControllerDashboard: React.FC = () => {
         return 'error';
       default:
         return 'default';
-    }
-  };
-
-  const getObservationChip = (sensor: Sensor) => {
-    switch (sensor.observation?.status) {
-      case 'ready_for_review':
-        return { label: 'Ready for Review', color: 'success' as const };
-      case 'awaiting_data':
-        return { label: 'Awaiting Data', color: 'warning' as const };
-      case 'observing':
-        return { label: 'Observing', color: 'info' as const };
-      default:
-        return null;
-    }
-  };
-
-  const getReadinessChip = (sensor: Sensor) => {
-    if (sensor.config_active) {
-      return { label: 'Configured', color: 'primary' as const };
-    }
-    return null;
-  };
-
-  const getConnectionChip = (sensor: Sensor) => {
-    switch (sensor.status) {
-      case 'OK':
-        return { label: 'Connected', color: 'success' as const };
-      case 'ERROR':
-        return { label: 'Error', color: 'error' as const };
-      default:
-        return { label: 'Not connected', color: 'default' as const };
     }
   };
 
@@ -349,37 +452,10 @@ const ControllerDashboard: React.FC = () => {
     }
   };
 
-  const removeSensorGroupFromWorkspace = async (group: any) => {
-    setRemovingSensorId(group.primarySensor.id);
-    try {
-      await Promise.all(
-        group.sensors.map((s: any) => deleteHardwareSensor(activeControllerId, s.id))
-      );
-      
-      const nextRemovedSensorIds = [...removedSensorIds];
-      group.sensors.forEach((s: any) => {
-        const sensorKey = getSensorIdentity(s);
-        if (!nextRemovedSensorIds.includes(sensorKey)) {
-          nextRemovedSensorIds.push(sensorKey);
-        }
-      });
-      setRemovedSensorIds(nextRemovedSensorIds);
-      writeRemovedSensorIds(activeControllerId, nextRemovedSensorIds);
-      
-      const deletedIds = new Set(group.sensors.map((s: any) => s.id));
-      setReportedSensors((current) => current.filter((item) => !deletedIds.has(item.id)));
-      showToast(`${group.name} removed from the controller.`, 'success');
-    } catch (err: any) {
-      const responseData = err?.response?.data;
-      showToast(
-        err?.message ||
-          (typeof responseData === 'string' ? responseData : responseData?.message) ||
-          'Failed to remove sensor group from the database.',
-        'error'
-      );
-    } finally {
-      setRemovingSensorId(null);
-    }
+  const showToast = (message: string, severity: 'success' | 'error') => {
+    setSaveNotice({ observationMessage: message });
+    setToastSeverity(severity);
+    setToastOpen(true);
   };
 
   const handleRemoveController = async () => {
@@ -390,29 +466,21 @@ const ControllerDashboard: React.FC = () => {
     setRemoving(true);
     try {
       await releaseHardwareController(releasableControllerId);
-      navigate('/controllers', {
+      navigate('/hardware', {
         replace: true,
         state: { message: 'Controller removed from your account.' },
       });
     } catch (err: any) {
       const responseData = err?.response?.data;
-      setSaveNotice({
-        observationMessage:
-          typeof responseData === 'string'
-            ? responseData
-            : responseData?.message || 'Failed to remove controller.',
-      });
-      setToastSeverity('error');
-      setToastOpen(true);
+      showToast(
+        err?.message ||
+          (typeof responseData === 'string' ? responseData : responseData?.message) ||
+          'Failed to remove controller.',
+        'error'
+      );
     } finally {
       setRemoving(false);
     }
-  };
-
-  const showToast = (message: string, severity: 'success' | 'error') => {
-    setSaveNotice({ observationMessage: message });
-    setToastSeverity(severity);
-    setToastOpen(true);
   };
 
   const startControllerRename = () => {
@@ -445,60 +513,37 @@ const ControllerDashboard: React.FC = () => {
     }
   };
 
-  const startSensorRename = (sensor: Sensor) => {
-    setEditingSensorId(sensor.id);
-    setSensorNameDraft(sensor.name || `${sensor.type} Sensor`);
-  };
-
   const cancelSensorRename = () => {
     setEditingSensorId(null);
     setSensorNameDraft('');
   };
 
-  const saveSensorName = async (sensor: Sensor) => {
-    const nextName = sensorNameDraft.trim();
-    if (!activeControllerId || !nextName || renamingSensorId) {
-      return;
-    }
-
-    setRenamingSensorId(sensor.id);
-    try {
-      const updatedSensor = await renameHardwareSensor(activeControllerId, sensor.id, nextName);
-      setReportedSensors((current) =>
-        current.map((item) =>
-          item.id === sensor.id ? { ...item, ...updatedSensor, name: updatedSensor.name || nextName } : item
-        )
-      );
-      cancelSensorRename();
-      showToast('Sensor name updated.', 'success');
-    } catch (err: any) {
-      const responseData = err?.response?.data;
-      showToast(err?.message || (typeof responseData === 'string' ? responseData : responseData?.message) || 'Failed to update sensor name.', 'error');
-    } finally {
-      setRenamingSensorId(null);
-    }
+  const openAssignFieldDialog = async (baseId: string) => {
+    const controllerHwId = controller?.hw_id || activeControllerId;
+    await loadAssignableFields(controllerHwId);
+    setAssigningBaseId(baseId);
+    setSelectedFieldId('');
   };
 
-  const removeSensorFromWorkspace = async (sensor: Sensor) => {
-    const sensorKey = getSensorIdentity(sensor);
-    setRemovingSensorId(sensor.id);
+  const submitAssignField = async () => {
+    if (!assigningBaseId || !selectedFieldId) {
+      return;
+    }
+    setAssigningBase(true);
     try {
-      await deleteHardwareSensor(activeControllerId, sensor.id);
-      const nextRemovedSensorIds = Array.from(new Set([...removedSensorIds, sensorKey]));
-      setRemovedSensorIds(nextRemovedSensorIds);
-      writeRemovedSensorIds(activeControllerId, nextRemovedSensorIds);
-      setReportedSensors((current) => current.filter((item) => item.id !== sensor.id));
-      showToast(`${sensor.name || sensor.type} removed from the controller.`, 'success');
+      await assignSensorBase(assigningBaseId, { field_id: selectedFieldId });
+      setAssigningBaseId(null);
+      setSelectedFieldId('');
+      await loadData();
+      showToast('Sensor Base assigned to the field.', 'success');
     } catch (err: any) {
       const responseData = err?.response?.data;
       showToast(
-        err?.message ||
-          (typeof responseData === 'string' ? responseData : responseData?.message) ||
-          'Failed to remove sensor from the database.',
+        err?.message || (typeof responseData === 'string' ? responseData : responseData?.message) || 'Failed to assign Sensor Base to the field.',
         'error'
       );
     } finally {
-      setRemovingSensorId(null);
+      setAssigningBase(false);
     }
   };
 
@@ -523,7 +568,8 @@ const ControllerDashboard: React.FC = () => {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ pt: { xs: 1, md: 11 }, pb: { xs: 2, md: 3 } }}>
+    <Container maxWidth="xl" sx={{ py: { xs: 2, md: 3 } }}>
+      <PageShell>
       <Box
         sx={{
           position: { xs: 'sticky', md: 'fixed' },
@@ -576,10 +622,12 @@ const ControllerDashboard: React.FC = () => {
       <Card
         sx={{
           mb: 3,
-          bgcolor: '#3c3911',
-          color: '#fffdf8',
-          border: '1px solid rgba(255, 253, 248, 0.08)',
-          boxShadow: 'none',
+          bgcolor: 'rgba(255, 253, 248, 0.9)',
+          color: 'text.primary',
+          border: '1px solid rgba(60, 57, 17, 0.1)',
+          borderRadius: 4,
+          backdropFilter: 'blur(14px)',
+          boxShadow: '0 16px 40px rgba(60, 57, 17, 0.08)',
         }}
       >
         <CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}>
@@ -611,13 +659,14 @@ const ControllerDashboard: React.FC = () => {
                     autoFocus
                     variant="filled"
                     label="Controller name"
+                    placeholder="eg: Main field controller"
                     fullWidth
                     sx={{
                       minWidth: 0,
-                      bgcolor: 'rgba(255, 253, 248, 0.12)',
+                      bgcolor: 'rgba(108, 137, 48, 0.08)',
                       borderRadius: 1,
                       '& .MuiInputBase-input, & .MuiInputLabel-root': {
-                        color: '#fffdf8',
+                        color: 'text.primary',
                       },
                     }}
                   />
@@ -625,7 +674,7 @@ const ControllerDashboard: React.FC = () => {
                     aria-label="Save controller name"
                     type="submit"
                     disabled={renamingController || !controllerNameDraft.trim()}
-                    sx={{ color: '#fffdf8' }}
+                    sx={{ color: 'primary.main' }}
                   >
                     <Check />
                   </IconButton>
@@ -633,7 +682,7 @@ const ControllerDashboard: React.FC = () => {
                     aria-label="Cancel controller name edit"
                     onClick={cancelControllerRename}
                     disabled={renamingController}
-                    sx={{ color: '#fffdf8' }}
+                    sx={{ color: 'text.secondary' }}
                   >
                     <Close />
                   </IconButton>
@@ -645,7 +694,7 @@ const ControllerDashboard: React.FC = () => {
                     <IconButton
                       aria-label="Edit controller name"
                       onClick={startControllerRename}
-                      sx={{ color: '#fffdf8' }}
+                      sx={{ color: 'primary.main' }}
                     >
                       <Edit />
                     </IconButton>
@@ -657,78 +706,62 @@ const ControllerDashboard: React.FC = () => {
               <Chip
                 label={controller.claim_status || 'CLAIMED'}
                 color="primary"
-                sx={{ color: '#fffdf8' }}
               />
               <Chip
                 icon={controller.status === 'ONLINE' ? <Wifi /> : <WifiOff />}
                 label={controller.operational_status || controller.status}
                 color={getStatusColor(controller.operational_status || controller.status) as any}
-                sx={{ bgcolor: controller.status === 'ONLINE' ? '#6c8930' : undefined, color: '#fffdf8' }}
+                sx={{ bgcolor: controller.status === 'ONLINE' ? '#6c8930' : undefined }}
               />
             </Stack>
           </Box>
           {controller.purpose && (
-            <Typography variant="body1" sx={{ color: 'rgba(255, 253, 248, 0.76)', display: { xs: 'none', sm: 'block' } }} gutterBottom>
+            <Typography variant="body1" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }} gutterBottom>
               {controller.purpose}
             </Typography>
           )}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mt: 2 }}>
             {controller.location && (
-              <Chip icon={<Place />} label={controller.location} sx={{ bgcolor: 'rgba(255, 253, 248, 0.12)', color: '#fffdf8' }} />
+              <Chip icon={<Place />} label={controller.location} sx={{ bgcolor: 'rgba(108, 137, 48, 0.08)' }} />
             )}
-            <Chip icon={<Memory />} label={controller.hw_id} sx={{ bgcolor: 'rgba(255, 253, 248, 0.12)', color: '#fffdf8', display: { xs: 'none', sm: 'inline-flex' } }} />
+            <Chip icon={<Memory />} label={controller.hw_id} sx={{ bgcolor: 'rgba(108, 137, 48, 0.08)', display: { xs: 'none', sm: 'inline-flex' } }} />
           </Stack>
           {canManageControllers && (
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mt: 2 }}>
               {isHardwareContext && (
                 <Button
                   variant="contained"
+                  size="small"
                   startIcon={<Grass />}
-                  onClick={() => navigate(`/hardware/${activeControllerId}/agri-config`)}
+                  onClick={() => navigate('/farms')}
                   sx={{
+                    minHeight: 40,
+                    px: 2.25,
                     bgcolor: '#6c8930',
                     color: '#fffdf8',
                     '&:hover': { bgcolor: '#5b7428' },
                   }}
                 >
-                  AgriAssist
+                  Farm Setup
                 </Button>
               )}
-              {isHardwareContext && (
+              {(controller.operational_status || controller.status) === 'OFFLINE' && (
                 <Button
                   variant="outlined"
-                  color="inherit"
-                  startIcon={<Grass />}
-                  onClick={() => navigate(`/hardware/${activeControllerId}/agri-dashboard`)}
+                  color="primary"
+                  onClick={handleRemoveController}
+                  disabled={removing}
                   sx={{
-                    color: '#fffdf8',
-                    borderColor: 'rgba(255, 253, 248, 0.36)',
+                    borderColor: 'rgba(60, 57, 17, 0.18)',
                     '&:hover': {
-                      borderColor: '#fffdf8',
-                      bgcolor: 'rgba(255, 253, 248, 0.08)',
+                      borderColor: 'rgba(60, 57, 17, 0.28)',
+                      bgcolor: 'rgba(108, 137, 48, 0.04)',
                     },
                   }}
                 >
-                  Agri Dashboard
+                  {removing ? 'Removing...' : 'Remove controller'}
                 </Button>
               )}
-              <Button
-                variant="outlined"
-                color="inherit"
-                startIcon={<DeleteOutline />}
-                onClick={handleRemoveController}
-                disabled={removing}
-                sx={{
-                  color: '#fffdf8',
-                  borderColor: 'rgba(255, 253, 248, 0.36)',
-                  '&:hover': {
-                    borderColor: '#fffdf8',
-                    bgcolor: 'rgba(255, 253, 248, 0.08)',
-                  },
-                }}
-              >
-                {removing ? 'Removing...' : 'Remove from my account'}
-              </Button>
             </Stack>
           )}
         </CardContent>
@@ -739,6 +772,55 @@ const ControllerDashboard: React.FC = () => {
           <Typography variant="h5">Sensors ({groupedSensors.length})</Typography>
         </Box>
       </Box>
+
+      <Grid container spacing={1.5} sx={{ mt: 0.5, mb: 1 }}>
+        <Grid item xs={12} sm={4}>
+          <Card variant="outlined"><CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Typography variant="caption" color="text.secondary">Controller status</Typography>
+            <Typography fontWeight={800}>{controller.operational_status || controller.status}</Typography>
+          </CardContent></Card>
+        </Grid>
+        <Grid item xs={12} sm={4}>
+          <Card variant="outlined"><CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Typography variant="caption" color="text.secondary">Sensor status</Typography>
+            <Typography fontWeight={800}>{sensorStatusSummary.connectedCount} good · {sensorStatusSummary.errorCount} needs attention</Typography>
+          </CardContent></Card>
+        </Grid>
+        <Grid item xs={12} sm={4}>
+          <Card variant="outlined"><CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Typography variant="caption" color="text.secondary">Last controller signal</Typography>
+            <Typography fontWeight={800}>{controller.last_seen ? new Date(controller.last_seen).toLocaleString() : 'Waiting for signal'}</Typography>
+          </CardContent></Card>
+        </Grid>
+      </Grid>
+
+      {fieldLinks.length > 0 && (
+        <Card variant="outlined" sx={{ mb: 1.5 }}>
+          <CardContent>
+            <Typography variant="h6">Sensor Bases and Fields</Typography>
+            <Stack spacing={1.25} sx={{ mt: 1.5 }}>
+              {fieldLinks.map((link) => (
+                <Stack key={link.base_id} direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1} sx={{ p: 1.25, border: 1, borderColor: 'divider', borderRadius: 2 }}>
+                  <Box>
+                    <Typography fontWeight={800}>{link.label || link.serial_number}</Typography>
+                    <Typography variant="body2" color="text.secondary">{link.field_name || link.monitoring_zone || 'Waiting for field setup'}</Typography>
+                  </Box>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                    <Chip size="small" label={link.status === 'live' ? 'Good' : link.status === 'waiting_setup' ? 'Waiting setup' : link.status === 'offline' ? 'Offline' : 'Needs attention'} color={link.status === 'live' ? 'success' : link.status === 'offline' ? 'default' : 'warning'} />
+                    <Button
+                      size="small"
+                      variant={link.field_id ? 'outlined' : 'contained'}
+                      onClick={() => link.base_id && openAssignFieldDialog(link.base_id)}
+                    >
+                      {link.field_id ? 'Change field' : 'Assign to field'}
+                    </Button>
+                  </Stack>
+                </Stack>
+              ))}
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
 
       {pendingSensors.length > 0 && (
         <Alert severity="info" sx={{ mt: 2 }}>
@@ -830,8 +912,8 @@ const ControllerDashboard: React.FC = () => {
             const observationChip = getObservationChipForGroup(group);
             const readinessChip = group.config_active ? { label: 'Configured', color: 'primary' as const } : null;
             const connectionChip = group.status === 'OK'
-              ? { label: 'Connected', color: 'success' as const }
-              : { label: 'Error', color: 'error' as const };
+              ? { label: 'Active', color: 'success' as const }
+              : { label: 'Offline', color: 'default' as const };
 
             const isConfigured = Boolean(group.config_active);
             const isConnected = group.status === 'OK';
@@ -929,6 +1011,7 @@ const ControllerDashboard: React.FC = () => {
                               onChange={(event) => setSensorNameDraft(event.target.value)}
                               autoFocus
                               label="Sensor name"
+                              placeholder="eg: Canopy temperature"
                               fullWidth
                               sx={{ minWidth: 0, bgcolor: '#fffdf8' }}
                             />
@@ -1066,35 +1149,20 @@ const ControllerDashboard: React.FC = () => {
                                 state: {
                                   controllerId: activeControllerId,
                                   sensorId: group.primarySensor.id,
-                                  sensorType: group.primarySensor.type,
-                                  sensorName: group.name,
-                                  configured: Boolean(group.config_active),
-                                  returnTo: isHardwareContext
-                                    ? `/hardware/${activeControllerId}/sensors`
-                                    : `/controllers/${activeControllerId}`,
-                                },
-                              }
-                            )
+                                  sensorType: group.type,
+                                    sensorName: group.name,
+                                    configured: Boolean(group.config_active),
+                                    returnTo: isHardwareContext
+                                      ? `/hardware/${activeControllerId}/sensors`
+                                      : '/farms',
+                                  },
+                                }
+                              )
                           }
                           sx={group.config_active ? { flexGrow: 1, borderColor: 'rgba(60, 57, 17, 0.2)' } : { flexGrow: 1 }}
                         >
                           {group.config_active ? 'Advanced' : 'Manual'}
                         </Button>
-                        {canManageControllers && (
-                          <IconButton
-                            color="error"
-                            disabled={removingSensorId === group.primarySensor.id}
-                            onClick={() => removeSensorGroupFromWorkspace(group)}
-                            sx={{ 
-                              border: '1px solid rgba(218, 54, 8, 0.2)', 
-                              borderRadius: 2,
-                              '&:hover': { bgcolor: 'rgba(218, 54, 8, 0.04)' }
-                            }}
-                            title="Remove Sensor"
-                          >
-                            <DeleteOutline />
-                          </IconButton>
-                        )}
                     </Stack>
                   </CardContent>
                 </Card>
@@ -1103,6 +1171,45 @@ const ControllerDashboard: React.FC = () => {
           })
         )}
       </Grid>
+      <Dialog open={Boolean(assigningBaseId)} onClose={() => !assigningBase && setAssigningBaseId(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Assign Sensor Base to Field</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {fieldsForAssignment.length === 0 ? (
+              <Alert severity="info">Create a field in this farm first, then assign this Sensor Base.</Alert>
+            ) : (
+              <FormControl fullWidth>
+                <InputLabel id="assign-field-label">Field</InputLabel>
+                <Select
+                  labelId="assign-field-label"
+                  label="Field"
+                  value={selectedFieldId}
+                  onChange={(event) => setSelectedFieldId(event.target.value)}
+                >
+                  {fieldsForAssignment.map((field) => (
+                    <MenuItem key={field.id} value={field.id}>
+                      {field.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAssigningBaseId(null)} disabled={assigningBase}>Cancel</Button>
+          {fieldsForAssignment.length === 0 ? (
+            <Button variant="contained" onClick={() => navigate('/farms')} disabled={assigningBase}>
+              Go to Farms
+            </Button>
+          ) : (
+            <Button variant="contained" onClick={submitAssignField} disabled={assigningBase || !selectedFieldId}>
+              {assigningBase ? 'Saving...' : 'Assign field'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+      </PageShell>
     </Container>
   );
 };

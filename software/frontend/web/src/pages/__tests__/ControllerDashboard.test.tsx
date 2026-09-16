@@ -1,13 +1,17 @@
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ControllerDashboard from '../main/ControllerDashboard';
 import {
-  deleteHardwareSensor,
   getHardwareController,
   getHardwareSensors,
   releaseHardwareController,
+  resolveHardwareControllerRouteId,
+  getMyHardwareControllers,
+  renameHardwareController,
+  renameHardwareSensor,
 } from '../../services/hardwarePairingService';
+import { getControllerFieldLinks } from '../../services/controllerService';
+import { getFarms, getFarmControllers, getFarmFields, assignSensorBase } from '../../services/farmService';
 
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -20,17 +24,25 @@ vi.mock('../../contexts/AuthContext', () => ({
 }));
 
 vi.mock('../../services/hardwarePairingService', () => ({
-  deleteHardwareSensor: vi.fn(),
   getHardwareController: vi.fn(),
+  getMyHardwareControllers: vi.fn(),
   getHardwareSensors: vi.fn(),
+  renameHardwareController: vi.fn(),
+  renameHardwareSensor: vi.fn(),
   releaseHardwareController: vi.fn(),
+  resolveHardwareControllerRouteId: vi.fn(),
 }));
 
-const ControllersDestination = () => {
-  const location = useLocation();
-  const state = location.state as { message?: string } | null;
-  return <div>{state?.message}</div>;
-};
+vi.mock('../../services/controllerService', () => ({
+  getControllerFieldLinks: vi.fn(),
+}));
+
+vi.mock('../../services/farmService', () => ({
+  getFarms: vi.fn(),
+  getFarmControllers: vi.fn(),
+  getFarmFields: vi.fn(),
+  assignSensorBase: vi.fn(),
+}));
 
 describe('Paired hardware sensors dashboard', () => {
   beforeEach(() => {
@@ -40,17 +52,17 @@ describe('Paired hardware sensors dashboard', () => {
       hw_id: 'CTRL-100',
       name: 'Greenhouse System',
       status: 'ONLINE',
-      claim_status: 'CLAIMED',
       operational_status: 'ONLINE',
+      claim_status: 'CLAIMED',
       purpose: 'Greenhouse monitoring',
       location: 'Greenhouse A',
       created_at: '2026-04-28',
-    });
+    } as any);
     vi.mocked(getHardwareSensors).mockResolvedValue([
       {
         id: 'load-1',
         controller_id: 'CTRL-100',
-        hw_id: 'LOAD-1',
+        hw_id: 'CTRL-100-sensor-1',
         type: 'load',
         name: 'Load Sensor',
         status: 'OK',
@@ -59,7 +71,7 @@ describe('Paired hardware sensors dashboard', () => {
       {
         id: 'temp-1',
         controller_id: 'CTRL-100',
-        hw_id: 'TEMP-1',
+        hw_id: 'CTRL-100-sensor-2-temperature',
         type: 'temperature_humidity',
         name: 'Temperature & Humidity Sensor',
         status: 'OK',
@@ -68,73 +80,41 @@ describe('Paired hardware sensors dashboard', () => {
       {
         id: 'ultra-1',
         controller_id: 'CTRL-100',
-        hw_id: 'ULTRA-1',
+        hw_id: 'CTRL-100-sensor-3',
         type: 'ultrasonic',
         name: 'Ultrasonic Sensor',
         status: 'OK',
         config_active: false,
       },
-    ]);
-    vi.mocked(deleteHardwareSensor).mockResolvedValue(undefined);
+    ] as any);
+    vi.mocked(getControllerFieldLinks).mockResolvedValue([]);
+    vi.mocked(getMyHardwareControllers).mockResolvedValue([] as any);
+    vi.mocked(resolveHardwareControllerRouteId).mockResolvedValue('CTRL-100');
+    vi.mocked(renameHardwareController).mockResolvedValue({ name: 'Greenhouse System' } as any);
+    vi.mocked(renameHardwareSensor).mockResolvedValue({} as any);
     vi.mocked(releaseHardwareController).mockResolvedValue(undefined);
+    vi.mocked(getFarms).mockResolvedValue([] as any);
+    vi.mocked(getFarmControllers).mockResolvedValue([] as any);
+    vi.mocked(getFarmFields).mockResolvedValue([] as any);
+    vi.mocked(assignSensorBase).mockResolvedValue(undefined as any);
   });
 
-  it('renders discovered sensor cards and configuration actions', async () => {
+  it('renders the current sensor cards and actions', async () => {
     render(
       <MemoryRouter initialEntries={['/hardware/CTRL-100/sensors']}>
         <Routes>
           <Route path="/hardware/:controllerId/sensors" element={<ControllerDashboard />} />
-          <Route path="/controllers" element={<ControllersDestination />} />
         </Routes>
       </MemoryRouter>
     );
 
     expect(await screen.findByRole('heading', { name: /greenhouse system/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /sensors \(3\)/i })).toBeInTheDocument();
-    expect(screen.getByText(/^claimed$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^online$/i)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /project load sensing channel/i })).toBeInTheDocument();
-    expect(screen.getByText(/temperature & humidity sensor/i)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /gy-vl53l0x time-of-flight distance sensor/i })).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /^manual$/i })).toHaveLength(2);
-    expect(screen.getByRole('button', { name: /^advanced$/i })).toBeInTheDocument();
-  });
-
-  it('releases the controller and reports success on the controller list', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <MemoryRouter initialEntries={['/hardware/CTRL-100/sensors']}>
-        <Routes>
-          <Route path="/hardware/:controllerId/sensors" element={<ControllerDashboard />} />
-          <Route path="/controllers" element={<ControllersDestination />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await user.click(await screen.findByRole('button', { name: /remove from my account/i }));
-
-    expect(releaseHardwareController).toHaveBeenCalledWith('CTRL-100');
-    expect(await screen.findByText(/controller removed from your account/i)).toBeInTheDocument();
-  });
-
-  it('removes a connected sensor through the hardware API', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <MemoryRouter initialEntries={['/hardware/CTRL-100/sensors']}>
-        <Routes>
-          <Route path="/hardware/:controllerId/sensors" element={<ControllerDashboard />} />
-          <Route path="/controllers" element={<ControllersDestination />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText(/sensors \(3\)/i)).toBeInTheDocument();
-
-    await user.click(screen.getAllByRole('button', { name: /^remove sensor$/i })[0]);
-
-    expect(deleteHardwareSensor).toHaveBeenCalledWith('CTRL-100', 'load-1');
-    expect(await screen.findByText(/sensors \(2\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/^sensors \(3\)$/i)).toBeInTheDocument();
+    expect(screen.getByText(/controller status/i)).toBeInTheDocument();
+    expect(screen.getByText(/sensor status/i)).toBeInTheDocument();
+    expect(screen.getByText(/last controller signal/i)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /manual|advanced/i })).toHaveLength(3);
+    expect(screen.getAllByText(/active/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/configured/i)).toBeInTheDocument();
   });
 });

@@ -1,2 +1,4 @@
 .gocache/
 .gotmp/
+.env
+.env.local

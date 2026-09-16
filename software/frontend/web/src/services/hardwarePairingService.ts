@@ -39,8 +39,6 @@ export interface HardwarePairingResponse {
   systemName?: string;
   routeId?: string;
   status: string;
-  claimStatus?: 'CLAIMED' | 'UNCLAIMED';
-  operationalStatus?: 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' | 'ERROR';
   sensors: HardwarePairingSensor[];
 }
 
@@ -62,8 +60,6 @@ interface UserHardwareController {
   systemName?: string;
   name: string;
   status: string;
-  claimStatus?: 'CLAIMED' | 'UNCLAIMED';
-  operationalStatus?: 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' | 'ERROR';
   sensors: HardwarePairingSensor[];
 }
 
@@ -113,8 +109,7 @@ const isMockMode = () => {
 const readStore = (): StoredHardwareState => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return isMockMode() ? normalizeMockStoredState(parsed) : parsed;
+    return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
   }
@@ -171,15 +166,46 @@ export const findHardwareControllerIdForSensor = async (sensorId: string): Promi
   return null;
 };
 
-const normalizeControllerStatus = (
-  status: string | undefined
-): 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' | 'ERROR' => {
+export const resolveHardwareControllerRouteId = async (controllerId: string): Promise<string | null> => {
+  const normalizedControllerId = extractControllerId(controllerId) || controllerId.trim();
+  if (!normalizedControllerId) {
+    return null;
+  }
+
+  if (isMockMode()) {
+    const stored = getStoredHardware(normalizedControllerId);
+    if (stored?.routeId) {
+      return stored.routeId;
+    }
+    return normalizedControllerId.toUpperCase();
+  }
+
+  try {
+    const controllers = await getMyHardwareControllers();
+    const match = controllers.find((controller) => {
+      const candidates = [controller.id, controller.hw_id, normalizedControllerId]
+        .filter(Boolean)
+        .map((value) => value.trim().toUpperCase());
+      return candidates.includes(normalizedControllerId.trim().toUpperCase());
+    });
+
+    if (match) {
+      return match.hw_id || match.id;
+    }
+  } catch {
+    // Fall back to the provided identifier when the controller list cannot be resolved.
+  }
+
+  return normalizedControllerId;
+};
+
+const normalizeControllerStatus = (status: string | undefined): 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' => {
   const normalized = (status || '').toUpperCase().trim();
   switch (normalized) {
     case 'ONLINE':
+    case 'PAIRED':
+    case 'LIVE':
       return 'ONLINE';
-    case 'ERROR':
-      return 'ERROR';
     case 'PENDING_CONFIG':
       return 'PENDING_CONFIG';
     default:
@@ -210,42 +236,17 @@ const renameRouteUnavailableError = () => {
 
 export const toAppSensor = (controllerId: string, sensor: HardwarePairingSensor): Sensor => {
   const appConfig = sensor.config?.appConfig as SensorConfigPayload | undefined;
-  const sensorUid = sensor.sensorUid || sensor.id;
 
   return {
     id: sensor.id,
     controller_id: controllerId,
-    hw_id: sensorUid,
-    physical_sensor_id: getPhysicalHardwareSensorId(sensorUid, sensor.type),
-    slot_key: sensor.slotKey,
+    hw_id: sensor.sensorUid || sensor.id,
     type: sensor.type,
     name: sensor.name,
     status: normalizeStatus(sensor.status),
     config_active: sensor.configured,
     active_config: appConfig,
   };
-};
-
-const getPhysicalHardwareSensorId = (sensorUid: string, sensorType: string) => {
-  const normalizedType = (sensorType || '').trim().toLowerCase();
-  if (
-    ['temperature', 'humidity', 'pressure', 'distance', 'fill_level', 'weight', 'gas_level', 'aqi'].includes(
-      normalizedType
-    )
-  ) {
-    const generatedMetricSuffix = new RegExp(`^(.*-sensor-\\d+)-${normalizedType}$`, 'i');
-    const match = sensorUid.match(generatedMetricSuffix);
-    if (match) {
-      return match[1];
-    }
-  }
-  if (normalizedType === 'humidity' && /-humidity$/i.test(sensorUid)) {
-    return sensorUid.replace(/-humidity$/i, '');
-  }
-  if (normalizedType === 'pressure' && /-pressure$/i.test(sensorUid)) {
-    return sensorUid.replace(/-pressure$/i, '');
-  }
-  return sensorUid;
 };
 
 const toHardwareThreshold = (rawValue: unknown): number | undefined => {
@@ -436,10 +437,7 @@ const normalizePairingResponse = (data: any, fallbackControllerId: string): Hard
     systemId: data?.systemId || data?.system_id,
     systemName: data?.systemName || data?.system_name,
     routeId: data?.id || controllerId,
-    status: data?.operationalStatus || data?.operational_status || data?.status || 'OFFLINE',
-    claimStatus: data?.claimStatus || data?.claim_status || 'CLAIMED',
-    operationalStatus:
-      data?.operationalStatus || data?.operational_status || data?.status || 'OFFLINE',
+    status: data?.status || 'paired',
     sensors,
   };
 };
@@ -550,136 +548,87 @@ const mockPairingResponse = (controllerId: string): HardwarePairingResponse => (
       },
     },
     {
-      id: `${controllerId.toLowerCase()}-sensor-bme280-01`,
-      sensorUid: `${controllerId.toLowerCase()}-sensor-bme280-01`,
-      name: 'Weather & Pressure Sensor',
-      type: 'bme280',
+      id: `${controllerId.toLowerCase()}-sensor-load-01`,
+      sensorUid: `${controllerId.toLowerCase()}-sensor-load-01`,
+      name: 'Stock Bay Load Sensor',
+      type: 'load',
       status: 'live',
       configured: true,
       config: {
-        temperatureMin: 22,
-        temperatureMax: 34,
-        temperatureWarningMin: 20,
-        temperatureWarningMax: 36,
-        pressureMin: 98,
-        pressureMax: 104,
-        pressureWarningMin: 97,
-        pressureWarningMax: 105,
-        unit: 'kPa',
-        reportsPerDay: 24,
-        estimatedBatteryLifeDays: 96,
+        weightMax: 250,
+        weightWarningMax: 300,
+        maximumWeight: 500,
+        minimumWeight: 0,
+        overloadAlert: 300,
+        unit: 'kg',
+        reportsPerDay: 12,
+        estimatedBatteryLifeDays: 145,
         readingFlowType: 'CONSTANT_PER_DAY',
         appConfig: buildMockAppConfig(
-          'bme280',
-          'Weather & Pressure Sensor',
+          'load',
+          'Stock Bay Load Sensor',
           {
-            temperatureMin: 22,
-            temperatureMax: 34,
-            temperatureWarningMin: 20,
-            temperatureWarningMax: 36,
-            pressureMin: 98,
-            pressureMax: 104,
-            pressureWarningMin: 97,
-            pressureWarningMax: 105,
-            unit: 'kPa',
-            reportsPerDay: 24,
-            estimatedBatteryLifeDays: 96,
+            weightMax: 250,
+            weightWarningMax: 300,
+            maximumWeight: 500,
+            minimumWeight: 0,
+            overloadAlert: 300,
+            unit: 'kg',
+            reportsPerDay: 12,
+            estimatedBatteryLifeDays: 145,
             readingFlowType: 'CONSTANT_PER_DAY',
           },
           {
-            use_case: 'generic_monitoring',
-            presentation_profile: 'single_trend',
-            primary_metric: 'pressure',
-            thresholds: { min: 98, max: 104, warning_min: 97, warning_max: 105 },
+            use_case: 'load_monitoring',
+            presentation_profile: 'gauge_status',
+            primary_metric: 'weight',
+            thresholds: { max: 250, warning_max: 300 },
             metric_thresholds: {
-              pressure: { min: 98, max: 104, warning_min: 97, warning_max: 105 },
-              temperature: { min: 22, max: 34, warning_min: 20, warning_max: 36 },
+              weight: { max: 250, warning_max: 300 },
             },
-            report_interval_per_day: 24,
+            report_interval_per_day: 12,
           }
         ),
       },
     },
     {
-      id: `${controllerId.toLowerCase()}-sensor-tof-01`,
-      sensorUid: `${controllerId.toLowerCase()}-sensor-tof-01`,
-      name: 'Tank Level ToF Sensor',
-      type: 'vl53l0x',
+      id: `${controllerId.toLowerCase()}-sensor-ultra-01`,
+      sensorUid: `${controllerId.toLowerCase()}-sensor-ultra-01`,
+      name: 'Hall Occupancy Sensor',
+      type: 'ultrasonic',
       status: 'live',
       configured: true,
       config: {
-        maxDistance: 200,
+        maxDistance: 400,
         unit: 'cm',
-        reportsPerDay: 24,
-        estimatedBatteryLifeDays: 146,
-        readingFlowType: 'CONSTANT_PER_DAY',
+        reportsPerDay: 8,
+        estimatedBatteryLifeDays: 210,
+        readingFlowType: 'TRIGGER',
         appConfig: buildMockAppConfig(
-          'vl53l0x',
-          'Tank Level ToF Sensor',
+          'ultrasonic',
+          'Hall Occupancy Sensor',
           {
-            maxDistance: 200,
+            maxDistance: 400,
             unit: 'cm',
-            reportsPerDay: 24,
-            estimatedBatteryLifeDays: 146,
-            readingFlowType: 'CONSTANT_PER_DAY',
+            reportsPerDay: 8,
+            estimatedBatteryLifeDays: 210,
+            readingFlowType: 'TRIGGER',
           },
           {
-            use_case: 'fill_level_monitoring',
-            presentation_profile: 'level_monitoring',
-            primary_metric: 'fill_level',
-            thresholds: { max: 90, warning_max: 80 },
+            use_case: 'occupancy_monitoring',
+            presentation_profile: 'counter_status',
+            primary_metric: 'occupancy_count',
+            thresholds: { max: 25, warning_max: 35 },
             metric_thresholds: {
-              fill_level: { max: 90, warning_max: 80 },
+              occupancy_count: { max: 25, warning_max: 35 },
             },
-            report_interval_per_day: 24,
+            report_interval_per_day: 8,
           }
         ),
       },
     },
   ],
 });
-
-function normalizeMockStoredController(controller: StoredHardwareController): StoredHardwareController {
-  if (controller.systemId !== 'mock-yard-system') {
-    return controller;
-  }
-
-  const sensors = Array.isArray(controller.sensors) ? controller.sensors : [];
-  const usesLegacyMockSensors = sensors.some(
-    (sensor) =>
-      sensor.type === 'load' ||
-      sensor.type === 'ultrasonic' ||
-      sensor.id.endsWith('sensor-load-01') ||
-      sensor.id.endsWith('sensor-ultra-01')
-  );
-
-  if (!usesLegacyMockSensors) {
-    return controller;
-  }
-
-  const refreshed = mockPairingResponse(controller.controllerId);
-  return {
-    ...controller,
-    routeId: controller.routeId || refreshed.routeId,
-    status: controller.status || refreshed.status,
-    systemId: controller.systemId || refreshed.systemId,
-    systemName: controller.systemName || refreshed.systemName,
-    sensors: refreshed.sensors,
-  };
-}
-
-function normalizeMockStoredState(state: StoredHardwareState): StoredHardwareState {
-  let changed = false;
-  const normalizedEntries = Object.entries(state).map(([controllerId, controller]) => {
-    const normalized = normalizeMockStoredController(controller);
-    if (normalized !== controller) {
-      changed = true;
-    }
-    return [controllerId, normalized] as const;
-  });
-
-  return changed ? Object.fromEntries(normalizedEntries) : state;
-}
 
 export const extractControllerId = (value: string): string => {
   const raw = (value || '').trim();
@@ -784,8 +733,6 @@ export const getMyHardwareControllers = async (): Promise<Controller[]> => {
       hw_id: stored.controllerId,
       name: 'Paired Controller',
       status: normalizeControllerStatus(stored.status),
-      claim_status: stored.claimStatus || 'CLAIMED',
-      operational_status: normalizeControllerStatus(stored.operationalStatus || stored.status),
       created_at: stored.updatedAt,
     }));
   }
@@ -797,8 +744,6 @@ export const getMyHardwareControllers = async (): Promise<Controller[]> => {
       systemName?: string;
       name?: string;
       status?: string;
-      claimStatus?: 'CLAIMED' | 'UNCLAIMED';
-      operationalStatus?: 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' | 'ERROR';
     }>;
   }>('/api/controllers/my');
 
@@ -811,9 +756,7 @@ export const getMyHardwareControllers = async (): Promise<Controller[]> => {
     account_id: '',
     hw_id: controller.controllerId,
     name: controller.systemName || controller.name,
-    status: normalizeControllerStatus(controller.operationalStatus || controller.status),
-    claim_status: controller.claimStatus || 'CLAIMED',
-    operational_status: normalizeControllerStatus(controller.operationalStatus || controller.status),
+    status: normalizeControllerStatus(controller.status),
     created_at: '',
   }));
 };
@@ -860,8 +803,6 @@ export const getHardwareController = async (controllerId: string): Promise<Contr
       hw_id: stored.controllerId,
       name: 'Paired Controller',
       status: normalizeControllerStatus(stored.status),
-      claim_status: stored.claimStatus || 'CLAIMED',
-      operational_status: normalizeControllerStatus(stored.operationalStatus || stored.status),
       created_at: stored.updatedAt,
     };
   }
@@ -873,8 +814,6 @@ export const getHardwareController = async (controllerId: string): Promise<Contr
       systemName?: string;
       name?: string;
       status?: string;
-      claimStatus?: 'CLAIMED' | 'UNCLAIMED';
-      operationalStatus?: 'ONLINE' | 'OFFLINE' | 'PENDING_CONFIG' | 'ERROR';
     }> }>('/api/controllers/my');
     const controller = (response.data.controllers || []).find((item) =>
       item.controllerId.toUpperCase() === controllerId.toUpperCase()
@@ -886,9 +825,7 @@ export const getHardwareController = async (controllerId: string): Promise<Contr
         account_id: '',
         hw_id: controller.controllerId,
         name: controller.systemName || controller.name,
-        status: normalizeControllerStatus(controller.operationalStatus || controller.status),
-        claim_status: controller.claimStatus || 'CLAIMED',
-        operational_status: normalizeControllerStatus(controller.operationalStatus || controller.status),
+        status: normalizeControllerStatus(controller.status),
         created_at: '',
       };
     }
@@ -991,6 +928,32 @@ export const getHardwareSensor = async (sensorId: string, controllerId?: string)
   }
 
   return getSensor(sensorId);
+};
+
+export const deleteHardwareSensor = async (sensorId: string, controllerId?: string): Promise<void> => {
+  if (controllerId && isMockMode()) {
+    const state = readStore();
+    const current = state[controllerId];
+    if (!current) {
+      return;
+    }
+    current.sensors = (current.sensors || []).filter(
+      (item) => item.id !== sensorId && item.sensorUid !== sensorId
+    );
+    current.updatedAt = new Date().toISOString();
+    state[controllerId] = current;
+    writeStore(state);
+    return;
+  }
+
+  if (controllerId && /^CTRL-/i.test(controllerId)) {
+    await api.delete(
+      `/api/controllers/${encodeURIComponent(controllerId)}/sensors/${encodeURIComponent(sensorId)}`
+    );
+    return;
+  }
+
+  await api.delete(`/api/sensors/${encodeURIComponent(sensorId)}`);
 };
 
 export const renameHardwareController = async (
@@ -1115,38 +1078,6 @@ export const renameHardwareSensor = async (
   }
 
   return updateSensor(sensorId, { name: trimmedName });
-};
-
-export const deleteHardwareSensor = async (
-  controllerId: string,
-  sensorId: string
-): Promise<void> => {
-  if (isMockMode()) {
-    const state = readStore();
-    const current = state[controllerId];
-    if (!current) {
-      return;
-    }
-
-    state[controllerId] = {
-      ...current,
-      sensors: (Array.isArray(current.sensors) ? current.sensors : []).filter(
-        (sensor) => sensor.id !== sensorId && sensor.sensorUid !== sensorId
-      ),
-      updatedAt: new Date().toISOString(),
-    };
-    writeStore(state);
-    return;
-  }
-
-  if (/^CTRL-/i.test(controllerId)) {
-    await api.delete(
-      `/api/controllers/${encodeURIComponent(controllerId)}/sensors/${encodeURIComponent(sensorId)}`
-    );
-    return;
-  }
-
-  await api.delete(`/sensors/${encodeURIComponent(sensorId)}`);
 };
 
 export const saveHardwareSensorConfiguration = async (

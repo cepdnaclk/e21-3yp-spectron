@@ -57,6 +57,22 @@ func TestEvaluateThresholdBreachWarnMax(t *testing.T) {
 	}
 }
 
+func TestCriticalThresholdDoesNotWaitForSustainedWindow(t *testing.T) {
+	config := models.SensorConfig{RecommendationRules: []models.RecommendationRule{
+		{MetricType: "temperature", Operator: "GREATER_THAN", SustainedMinutes: 10},
+	}}
+	evaluation := thresholdAlertEvaluation{Severity: "CRITICAL", Metric: "temperature", Condition: "above"}
+
+	if got := effectiveAlertSustainedDuration(config, evaluation); got != 0 {
+		t.Fatalf("critical alert should be immediate, got delay %s", got)
+	}
+
+	evaluation.Severity = "WARN"
+	if got := effectiveAlertSustainedDuration(config, evaluation); got != 10*time.Minute {
+		t.Fatalf("warning alert should retain sustained delay, got %s", got)
+	}
+}
+
 func TestEvaluateThresholdBreachNormal(t *testing.T) {
 	config := models.SensorConfig{
 		PrimaryMetric: "temperature",

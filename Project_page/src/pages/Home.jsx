@@ -1,5 +1,6 @@
 ﻿import { useState } from "react";
 import ArchitectureDiagram from "../components/ArchitectureDiagram.jsx";
+import AchievementsSection from "../components/AchievementsSection.jsx";
 import BrandLogo from "../components/BrandLogo.jsx";
 import BudgetSection from "../components/BudgetSection.jsx";
 import ExplanationPanel from "../components/ExplanationPanel.jsx";
@@ -130,6 +131,8 @@ function Home({ copy }) {
         <TestingSection copy={copy.testing} />
 
         <BudgetSection copy={copy.budget} />
+
+        <AchievementsSection />
 
         <TeamSection copy={copy.team} members={teamMembers} />
       </main>

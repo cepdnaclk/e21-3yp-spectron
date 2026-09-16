@@ -22,6 +22,7 @@ import (
 	"spectron-backend/internal/auth"
 	"spectron-backend/internal/config"
 	internaldb "spectron-backend/internal/db"
+	"spectron-backend/internal/geocoding"
 	"spectron-backend/internal/iot"
 )
 
@@ -49,6 +50,14 @@ type testSystem struct {
 type testSensor struct {
 	id  uuid.UUID
 	uid string
+}
+
+type testFarm struct {
+	id uuid.UUID
+}
+
+type testField struct {
+	id uuid.UUID
 }
 
 func newIntegrationApp(t *testing.T) *integrationApp {
@@ -93,9 +102,32 @@ func newIntegrationApp(t *testing.T) *integrationApp {
 	})
 
 	r := chi.NewRouter()
-	RegisterRoutes(r, pool, []string{"http://localhost:3000"}, iot.NewDisabledPublisher("integration test"), config.EmailConfig{})
+	RegisterRoutes(r, pool, []string{"http://localhost:3000"}, iot.NewDisabledPublisher("integration test"), config.EmailConfig{}, testGeocoder{}, nil)
 
 	return &integrationApp{pool: pool, rr: r}
+}
+
+type testGeocoder struct{}
+
+func (testGeocoder) Search(_ context.Context, query string, limit int) ([]geocoding.Location, error) {
+	if limit <= 0 {
+		limit = 1
+	}
+	return []geocoding.Location{
+		{
+			Label:     "Galgamuwa, Kurunegala",
+			Latitude:  7.9956,
+			Longitude: 80.2674,
+		},
+	}, nil
+}
+
+func (testGeocoder) Reverse(_ context.Context, latitude float64, longitude float64) (geocoding.Location, error) {
+	return geocoding.Location{
+		Label:     "Galgamuwa, Kurunegala",
+		Latitude:  latitude,
+		Longitude: longitude,
+	}, nil
 }
 
 func testDatabaseURL(t *testing.T) string {
@@ -168,6 +200,75 @@ func (app *integrationApp) createTestUser(t *testing.T, role string) testUser {
 	}
 
 	return testUser{id: userID, accountID: accountID, email: email, token: token}
+}
+
+func (app *integrationApp) createAdminUser(t *testing.T) testUser {
+	t.Helper()
+
+	ctx := context.Background()
+	accountID := uuid.New()
+	userID := uuid.New()
+	email := fmt.Sprintf("admin-%s@spectron.test", uuid.NewString())
+
+	if _, err := app.pool.Exec(ctx, `
+		INSERT INTO accounts (id, name)
+		VALUES ($1, $2)
+	`, accountID, "Admin Account"); err != nil {
+		t.Fatalf("insert admin account: %v", err)
+	}
+
+	hash, err := auth.HashPassword("test-password")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if _, err := app.pool.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, name, account_type, status, is_email_verified)
+		VALUES ($1, $2, $3, 'Admin User', 'ADMIN', 'ACTIVE', true)
+	`, userID, email, hash); err != nil {
+		t.Fatalf("insert admin user: %v", err)
+	}
+
+	token, err := auth.GenerateToken(userID, accountID, email)
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+
+	return testUser{id: userID, accountID: accountID, email: email, token: token}
+}
+
+func (app *integrationApp) createFarm(t *testing.T, owner testUser, name string) testFarm {
+	t.Helper()
+
+	ctx := context.Background()
+	farmID := uuid.New()
+	if _, err := app.pool.Exec(ctx, `
+		INSERT INTO farms (id, name, created_by_user_id, created_at, updated_at)
+		VALUES ($1, $2, $3, NOW(), NOW())
+	`, farmID, name, owner.id); err != nil {
+		t.Fatalf("insert farm: %v", err)
+	}
+	if _, err := app.pool.Exec(ctx, `
+		INSERT INTO farm_access (farm_id, user_id, role, added_at)
+		VALUES ($1, $2, 'owner', NOW())
+	`, farmID, owner.id); err != nil {
+		t.Fatalf("insert farm access: %v", err)
+	}
+
+	return testFarm{id: farmID}
+}
+
+func (app *integrationApp) createField(t *testing.T, farm testFarm, name string) testField {
+	t.Helper()
+
+	fieldID := uuid.New()
+	if _, err := app.pool.Exec(context.Background(), `
+		INSERT INTO fields (id, farm_id, name, created_at, updated_at)
+		VALUES ($1, $2, $3, NOW(), NOW())
+	`, fieldID, farm.id, name); err != nil {
+		t.Fatalf("insert field: %v", err)
+	}
+
+	return testField{id: fieldID}
 }
 
 func (app *integrationApp) createController(t *testing.T, accountID uuid.UUID, ownerUserID *uuid.UUID, uid string, status string) testController {

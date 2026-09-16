@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { ChevronDown, Menu, X } from 'lucide-react'
 import { navigation } from '../data/siteData.js'
 
-const languages = [
+const languageOptions = [
   { code: 'en', label: 'EN' },
   { code: 'si', label: 'සිං' },
   { code: 'ta', label: 'தமிழ்' },
@@ -81,7 +81,7 @@ export default function Navbar({ activePath = '/', onNavigate, language = 'en', 
               aria-haspopup="menu"
               aria-expanded={languageOpen}
             >
-              <span>{languages.find((item) => item.code === language)?.label || 'EN'}</span>
+              <span>{languageOptions.find((item) => item.code === language)?.label || 'EN'}</span>
               <ChevronDown className={`h-4 w-4 transition-transform ${languageOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
             </button>
             <AnimatePresence>
@@ -94,7 +94,7 @@ export default function Navbar({ activePath = '/', onNavigate, language = 'en', 
                   transition={{ duration: 0.16 }}
                   role="menu"
                 >
-                  {languages.map((item) => (
+                  {languageOptions.map((item) => (
                     <button
                       key={item.code}
                       type="button"
@@ -164,7 +164,7 @@ export default function Navbar({ activePath = '/', onNavigate, language = 'en', 
                     aria-haspopup="menu"
                     aria-expanded={languageOpen}
                   >
-                    <span>{languages.find((item) => item.code === language)?.label || 'EN'}</span>
+                    <span>{languageOptions.find((item) => item.code === language)?.label || 'EN'}</span>
                     <ChevronDown className={`h-4 w-4 transition-transform ${languageOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
                   </button>
                   <AnimatePresence>
@@ -177,7 +177,7 @@ export default function Navbar({ activePath = '/', onNavigate, language = 'en', 
                         transition={{ duration: 0.16 }}
                         role="menu"
                       >
-                        {languages.map((item) => (
+                        {languageOptions.map((item) => (
                           <button
                             key={item.code}
                             type="button"

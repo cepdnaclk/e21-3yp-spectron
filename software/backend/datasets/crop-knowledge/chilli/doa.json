@@ -1,0 +1,45 @@
+{
+  "crop": "Chilli",
+  "source": "Sri Lanka Department of Agriculture, FCRDI chilli crop guidance",
+  "source_url": "https://doa.gov.lk/field-crops-chilli-si/",
+  "publisher": "Sri Lanka Department of Agriculture",
+  "reviewed_at": "2026-07-20",
+  "language": "si",
+  "entries": [
+    {
+      "category": "crop_profile",
+      "topic": "Climate",
+      "content": "Sri Lankan chilli guidance identifies about 21 C to 27 C as a suitable temperature range and notes rain-fed production in areas receiving roughly 600 to 1000 mm annual rainfall.",
+      "location_scope": "Sri Lanka",
+      "requires_local_calibration": true
+    },
+    {
+      "category": "observation",
+      "topic": "Wilting triage",
+      "content": "When chilli plants wilt, first record whether one plant or a patch is affected, whether wilting is temporary or permanent, and whether the soil is dry, saturated, or poorly drained before suggesting a cause.",
+      "confirmation_questions": ["Is the soil dry or waterlogged near the roots?", "Are single plants or a spreading patch affected?"],
+      "evidence_type": "safe_diagnostic_workflow"
+    },
+    {
+      "category": "disease",
+      "topic": "Anthracnose-like fruit symptoms",
+      "growth_stage": "Fruiting",
+      "content": "Sunken circular lesions on chilli fruit, sometimes developing darker concentric structures, require prompt inspection and expert confirmation because several fruit rots can appear similar.",
+      "symptoms": ["sunken fruit lesions", "circular fruit spots", "concentric dark structures"],
+      "actions": ["Separate affected fruit", "Photograph fresh symptoms", "Seek local confirmation before treatment"]
+    },
+    {
+      "category": "field_management",
+      "topic": "Disease prevention",
+      "content": "Use clean planting material, remove diseased residues, maintain drainage and recommended spacing, and avoid moving contaminated soil between chilli fields.",
+      "actions": ["Inspect drainage", "Remove diseased residues safely", "Clean tools before using them in another field"]
+    },
+    {
+      "category": "pest",
+      "topic": "Sap-sucking pests",
+      "content": "For curled or distorted chilli leaves, inspect the tender shoots and leaf undersides for aphids, thrips, whiteflies, honeydew, or feeding scars before attributing the symptom to disease.",
+      "symptoms": ["leaf curl", "distorted young leaves", "honeydew", "feeding scars"],
+      "confirmation_questions": ["Are insects present beneath young leaves?", "Is sticky honeydew present?"]
+    }
+  ]
+}

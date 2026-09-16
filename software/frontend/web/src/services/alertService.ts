@@ -6,7 +6,7 @@ export interface Alert {
   account_id: string;
   controller_id?: string;
   sensor_id?: string;
-  type: 'THRESHOLD_BREACH' | 'SENSOR_OFFLINE' | 'CONTROLLER_OFFLINE' | 'LEARNING_PHASE_RECOMMENDATION';
+  type: 'THRESHOLD_BREACH' | 'SENSOR_OFFLINE' | 'CONTROLLER_OFFLINE';
   severity: 'INFO' | 'WARN' | 'CRITICAL';
   message: string;
   created_at: string;
@@ -30,8 +30,4 @@ export const getAlerts = async (filters?: AlertFilters): Promise<Alert[]> => {
 
 export const acknowledgeAlert = async (alertId: string): Promise<void> => {
   await api.post(API_ENDPOINTS.ALERTS.ACK(alertId));
-};
-
-export const applyAlertRecommendation = async (alertId: string): Promise<void> => {
-  await api.post(API_ENDPOINTS.ALERTS.APPLY_RECOMMENDATION(alertId));
 };

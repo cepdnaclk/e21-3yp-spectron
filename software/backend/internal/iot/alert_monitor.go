@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -69,6 +70,8 @@ func markStaleControllersOffline(ctx context.Context, db *pgxpool.Pool, offlineA
 		accountID string
 		name      string
 		lastSeen  time.Time
+		farmID    *string
+		gatewayID *string
 	}
 
 	rows, err := tx.Query(ctx, `
@@ -94,6 +97,13 @@ func markStaleControllersOffline(ctx context.Context, db *pgxpool.Pool, offlineA
 			rows.Close()
 			return err
 		}
+		farmID, gatewayID, err := loadControllerFarmContext(ctx, tx, controller.id)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		controller.farmID = farmID
+		controller.gatewayID = gatewayID
 		staleControllers = append(staleControllers, controller)
 	}
 	if err := rows.Err(); err != nil {
@@ -104,7 +114,7 @@ func markStaleControllersOffline(ctx context.Context, db *pgxpool.Pool, offlineA
 
 	for _, controller := range staleControllers {
 		message := fmt.Sprintf("%s has not reported since %s.", controller.name, controller.lastSeen.UTC().Format(time.RFC3339))
-		if err := insertOpenAlertIfMissing(ctx, tx, controller.accountID, &controller.id, nil, "CONTROLLER_OFFLINE", "WARN", message); err != nil {
+		if err := insertOpenAlertIfMissing(ctx, tx, controller.accountID, &controller.id, nil, controller.farmID, nil, controller.gatewayID, nil, "CONTROLLER_OFFLINE", "WARN", message); err != nil {
 			return err
 		}
 	}
@@ -125,6 +135,11 @@ func markStaleSensorsOffline(ctx context.Context, db *pgxpool.Pool, offlineAfter
 		accountID    string
 		name         string
 		lastSeen     time.Time
+		hwID         string
+		farmID       *string
+		fieldID      *string
+		gatewayID    *string
+		sensorBaseID *string
 	}
 
 	rows, err := tx.Query(ctx, `
@@ -137,7 +152,7 @@ func markStaleSensorsOffline(ctx context.Context, db *pgxpool.Pool, offlineAfter
 		  AND UPPER(COALESCE(s.status, '')) <> 'OFFLINE'
 		  AND s.last_seen IS NOT NULL
 		  AND s.last_seen < NOW() - ($1::double precision * INTERVAL '1 second')
-		RETURNING s.id, c.id, c.owner_account_id, COALESCE(s.name, s.hw_id), s.last_seen
+		RETURNING s.id, c.id, c.owner_account_id, COALESCE(s.name, s.hw_id), s.last_seen, s.hw_id
 	`, offlineAfter.Seconds())
 	if err != nil {
 		return err
@@ -146,10 +161,19 @@ func markStaleSensorsOffline(ctx context.Context, db *pgxpool.Pool, offlineAfter
 	var staleSensors []staleSensor
 	for rows.Next() {
 		var sensor staleSensor
-		if err := rows.Scan(&sensor.id, &sensor.controllerID, &sensor.accountID, &sensor.name, &sensor.lastSeen); err != nil {
+		if err := rows.Scan(&sensor.id, &sensor.controllerID, &sensor.accountID, &sensor.name, &sensor.lastSeen, &sensor.hwID); err != nil {
 			rows.Close()
 			return err
 		}
+		farmID, fieldID, gatewayID, sensorBaseID, err := loadSensorFarmContext(ctx, tx, sensor.controllerID, sensor.hwID)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		sensor.farmID = farmID
+		sensor.fieldID = fieldID
+		sensor.gatewayID = gatewayID
+		sensor.sensorBaseID = sensorBaseID
 		staleSensors = append(staleSensors, sensor)
 	}
 	if err := rows.Err(); err != nil {
@@ -160,7 +184,7 @@ func markStaleSensorsOffline(ctx context.Context, db *pgxpool.Pool, offlineAfter
 
 	for _, sensor := range staleSensors {
 		message := fmt.Sprintf("%s has not reported since %s.", sensor.name, sensor.lastSeen.UTC().Format(time.RFC3339))
-		if err := insertOpenAlertIfMissing(ctx, tx, sensor.accountID, &sensor.controllerID, &sensor.id, "SENSOR_OFFLINE", "WARN", message); err != nil {
+		if err := insertOpenAlertIfMissing(ctx, tx, sensor.accountID, &sensor.controllerID, &sensor.id, sensor.farmID, sensor.fieldID, sensor.gatewayID, sensor.sensorBaseID, "SENSOR_OFFLINE", "WARN", message); err != nil {
 			return err
 		}
 	}
@@ -193,20 +217,77 @@ type alertExecutor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
-func insertOpenAlertIfMissing(ctx context.Context, tx alertExecutor, accountID string, controllerID *string, sensorID *string, alertType string, severity string, message string) error {
+func loadControllerFarmContext(ctx context.Context, q interface {
+	QueryRow(ctx context.Context, sql string, arguments ...any) pgx.Row
+}, controllerID string) (*string, *string, error) {
+	var farmID *string
+	var gatewayID *string
+	err := q.QueryRow(ctx, `
+		SELECT g.farm_id::text, g.id::text
+		FROM gateways g
+		WHERE g.legacy_controller_id::text = $1
+	`, controllerID).Scan(&farmID, &gatewayID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	return farmID, gatewayID, nil
+}
+
+func loadSensorFarmContext(ctx context.Context, q interface {
+	QueryRow(ctx context.Context, sql string, arguments ...any) pgx.Row
+}, controllerID string, sensorHWID string) (*string, *string, *string, *string, error) {
+	var farmID *string
+	var fieldID *string
+	var gatewayID *string
+	var sensorBaseID *string
+	err := q.QueryRow(ctx, `
+		SELECT
+			g.farm_id::text,
+			sba.field_id::text,
+			g.id::text,
+			sb.id::text
+		FROM gateways g
+		LEFT JOIN sensor_bases sb
+		  ON sb.gateway_id = g.id
+		LEFT JOIN sensor_base_assignments sba
+		  ON sba.base_id = sb.id
+		 AND sba.unassigned_at IS NULL
+		WHERE g.legacy_controller_id::text = $1
+		  AND (
+		       lower(sb.serial_number) = lower($2)
+		       OR lower($2) LIKE lower(sb.serial_number) || ':%'
+		       OR lower($2) LIKE lower(sb.serial_number) || '/%'
+		       OR lower($2) LIKE lower(sb.serial_number) || '-%'
+		  )
+		ORDER BY sb.updated_at DESC
+		LIMIT 1
+	`, controllerID, sensorHWID).Scan(&farmID, &fieldID, &gatewayID, &sensorBaseID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil, nil, nil, nil
+		}
+		return nil, nil, nil, nil, err
+	}
+	return farmID, fieldID, gatewayID, sensorBaseID, nil
+}
+
+func insertOpenAlertIfMissing(ctx context.Context, tx alertExecutor, accountID string, controllerID *string, sensorID *string, farmID *string, fieldID *string, gatewayID *string, sensorBaseID *string, alertType string, severity string, message string) error {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO alerts (id, account_id, controller_id, sensor_id, type, severity, message, created_at)
-		SELECT $7, $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, NOW()
+		INSERT INTO alerts (id, account_id, controller_id, sensor_id, farm_id, field_id, gateway_id, sensor_base_id, type, severity, message, created_at)
+		SELECT $11, $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::uuid, $8, $9, $10, NOW()
 		WHERE NOT EXISTS (
 			SELECT 1
 			FROM alerts
 			WHERE account_id = $1::uuid
 			  AND ($2::uuid IS NULL OR controller_id = $2::uuid)
 			  AND ($3::uuid IS NULL OR sensor_id = $3::uuid)
-			  AND type = $4
-			  AND severity = $5
+			  AND type = $8
+			  AND severity = $9
 			  AND acknowledged_at IS NULL
 		)
-	`, accountID, controllerID, sensorID, alertType, severity, message, uuid.New())
+	`, accountID, controllerID, sensorID, farmID, fieldID, gatewayID, sensorBaseID, alertType, severity, message, uuid.New())
 	return err
 }

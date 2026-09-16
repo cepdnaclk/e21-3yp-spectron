@@ -21,16 +21,16 @@ npm install
 2. Set environment variables:
 Create a `.env` file:
 ```
-REACT_APP_API_URL=http://spectron-backend-env.eba-3uqs3iea.ap-south-1.elasticbeanstalk.com
+REACT_APP_API_URL=https://spectroniot.xyz
 REACT_APP_DEMO_MODE=false
 ```
 
 For local backend development, override `REACT_APP_API_URL` with your local port, for example `http://localhost:8080`.
 
-For the deployed AWS backend, use:
+For the deployed backend, use:
 
 ```env
-REACT_APP_API_URL=http://spectron-backend-env.eba-3uqs3iea.ap-south-1.elasticbeanstalk.com
+REACT_APP_API_URL=https://spectroniot.xyz
 ```
 
 ### Temporary Demo Mode

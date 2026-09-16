@@ -106,6 +106,10 @@ if (!(Test-Path $envFile)) {
 $databaseUrl = Get-EnvValue $envFile 'DATABASE_URL'
 $databaseName = Get-DatabaseNameFromUrl $databaseUrl 'spectron'
 
+if ($databaseUrl -match 'your_password|your_gemini_api_key|your_smtp_username|your_smtp_password|example.com') {
+  Write-Host 'Warning: backend/.env still contains placeholder values. Update the database and email credentials before using the app for real work.'
+}
+
 if (!(Test-Path $dataDir)) {
   & $initDb -D $dataDir -U postgres -A trust --encoding=UTF8
 }
@@ -131,11 +135,13 @@ if ($schemaExitCode -ne 0) {
 }
 
 if (!(Test-PortListening 5000)) {
-  Start-Process -FilePath 'npm.cmd' -ArgumentList @('run', 'dev') -WorkingDirectory $backend -RedirectStandardOutput (Join-Path $logDir 'backend.log') -RedirectStandardError (Join-Path $logDir 'backend.err.log') | Out-Null
+  $backendCommand = "Set-Location '$backend'; & 'npm.cmd' run dev 2>&1 | Tee-Object -FilePath '$logDir\\backend.log'"
+  Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoLogo', '-NoExit', '-Command', $backendCommand) | Out-Null
 }
 
 if (!(Test-PortListening 5173)) {
-  Start-Process -FilePath 'npm.cmd' -ArgumentList @('run', 'dev', '--', '--host', '127.0.0.1', '--port', '5173', '--strictPort') -WorkingDirectory $frontend -RedirectStandardOutput (Join-Path $logDir 'frontend.log') -RedirectStandardError (Join-Path $logDir 'frontend.err.log') | Out-Null
+  $frontendCommand = "Set-Location '$frontend'; & 'npm.cmd' run dev -- --host 127.0.0.1 --port 5173 --strictPort 2>&1 | Tee-Object -FilePath '$logDir\\frontend.log'"
+  Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoLogo', '-NoExit', '-Command', $frontendCommand) | Out-Null
 }
 
 Start-Sleep -Seconds 4

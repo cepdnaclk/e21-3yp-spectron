@@ -3,6 +3,9 @@ package httpapi
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,14 +16,17 @@ import (
 )
 
 func TestGroqAISuggestionIntegration(t *testing.T) {
+	if os.Getenv("SENSOR_AI_LIVE_TEST") != "1" {
+		t.Skip("set SENSOR_AI_LIVE_TEST=1 to run the hosted sensor AI test")
+	}
 	// Load the .env file from the backend root folder
 	envPath, _ := filepath.Abs("../../.env")
 	err := godotenv.Load(envPath)
 	if err != nil {
 		t.Logf("Warning: Could not load .env from %s: %v", envPath, err)
 	}
-	if os.Getenv("OPENAI_API_KEY") == "" && os.Getenv("AI_API_KEY") == "" && os.Getenv("GEMINI_API_KEY") == "" && os.Getenv("OPENROUTER_API_KEY") == "" {
-		t.Skip("set OPENAI_API_KEY, AI_API_KEY, GEMINI_API_KEY, or OPENROUTER_API_KEY to run hosted AI integration test")
+	if os.Getenv("GROQ_API_KEY") == "" && os.Getenv("GEMINI_API_KEY") == "" {
+		t.Skip("set GROQ_API_KEY or GEMINI_API_KEY to run hosted AI integration test")
 	}
 
 	handler := &SensorHandler{db: nil}
@@ -89,49 +95,41 @@ func TestGroqAISuggestionIntegration(t *testing.T) {
 	})
 }
 
-func TestOpenRouterEnvironmentSelection(t *testing.T) {
+func TestGroqEnvironmentSelection(t *testing.T) {
 	t.Setenv("AI_PROVIDER", "")
-	t.Setenv("OPENROUTER_API_KEY", "test-openrouter-key")
-	t.Setenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
-	t.Setenv("OPENROUTER_API_BASE_URL", "")
-	t.Setenv("OPENAI_API_KEY", "test-openai-key")
+	t.Setenv("GROQ_API_KEY", "test-groq-key")
+	t.Setenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+	t.Setenv("GROQ_BASE_URL", "")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("AI_API_KEY", "")
-	t.Setenv("AI_MODEL", "")
-	t.Setenv("OPENAI_MODEL", "")
-	t.Setenv("AI_API_BASE_URL", "")
-	t.Setenv("OPENAI_API_BASE_URL", "")
 
-	if provider := configuredAIProvider(); provider != "openrouter" {
-		t.Fatalf("configuredAIProvider() = %q, want openrouter", provider)
+	if provider := configuredAIProvider(); provider != "groq" {
+		t.Fatalf("configuredAIProvider() = %q, want groq", provider)
 	}
-	if apiKey := openAICompatibleAPIKey("openrouter"); apiKey != "test-openrouter-key" {
-		t.Fatalf("openAICompatibleAPIKey(openrouter) = %q", apiKey)
+	if apiKey := openAICompatibleAPIKey("groq"); apiKey != "test-groq-key" {
+		t.Fatalf("openAICompatibleAPIKey(groq) = %q", apiKey)
 	}
-	if model := openAICompatibleModel("openrouter"); model != "openai/gpt-4o-mini" {
-		t.Fatalf("openAICompatibleModel(openrouter) = %q", model)
+	if model := openAICompatibleModel("groq"); model != "llama-3.3-70b-versatile" {
+		t.Fatalf("openAICompatibleModel(groq) = %q", model)
 	}
-	if baseURL := openAICompatibleBaseURL("openrouter"); baseURL != "https://openrouter.ai/api/v1" {
-		t.Fatalf("openAICompatibleBaseURL(openrouter) = %q", baseURL)
+	if baseURL := openAICompatibleBaseURL("groq"); baseURL != "https://api.groq.com/openai/v1" {
+		t.Fatalf("openAICompatibleBaseURL(groq) = %q", baseURL)
 	}
 }
 
-func TestGenericAIAPIKeySelectsOpenRouter(t *testing.T) {
+func TestConfiguredAIProviderDefaultsToGroq(t *testing.T) {
 	t.Setenv("AI_PROVIDER", "")
-	t.Setenv("OPENROUTER_API_KEY", "")
-	t.Setenv("OPENROUTER_MODEL", "")
-	t.Setenv("OPENAI_API_KEY", "")
-	t.Setenv("OPENAI_MODEL", "")
+	t.Setenv("GROQ_API_KEY", "")
+	t.Setenv("GROQ_MODEL", "")
+	t.Setenv("GROQ_BASE_URL", "")
 	t.Setenv("GEMINI_API_KEY", "")
-	t.Setenv("AI_API_KEY", "test-generic-ai-key")
-	t.Setenv("AI_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
-	t.Setenv("AI_API_BASE_URL", "")
-	t.Setenv("OPENAI_API_BASE_URL", "")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("AI_API_KEY", "")
 
-	if provider := configuredAIProvider(); provider != "openrouter" {
-		t.Fatalf("configuredAIProvider() = %q, want openrouter", provider)
-	}
-	if apiKey := openAICompatibleAPIKey("openrouter"); apiKey != "test-generic-ai-key" {
-		t.Fatalf("openAICompatibleAPIKey(openrouter) = %q", apiKey)
+	if provider := configuredAIProvider(); provider != "groq" {
+		t.Fatalf("configuredAIProvider() = %q, want groq", provider)
 	}
 }
 
@@ -170,4 +168,74 @@ func formatFloatPtr(p *float64) string {
 		return "nil"
 	}
 	return fmt.Sprintf("%.2f", *p)
+}
+
+func TestOpenAIAISuggestionRetriesWithoutResponseFormat(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		body, _ := io.ReadAll(r.Body)
+		if calls == 1 {
+			if !strings.Contains(string(body), "response_format") {
+				t.Fatalf("expected first request to include response_format")
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"response_format json_object is unsupported for this model"}}`))
+			return
+		}
+		if strings.Contains(string(body), "response_format") {
+			t.Fatalf("expected retry request without response_format")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"friendly_name\":\"Climate Watch\",\"use_case\":\"climate_monitoring\",\"presentation_profile\":\"dual_climate\",\"primary_metric\":\"temperature\",\"metric_thresholds\":{\"temperature\":{\"min\":18,\"max\":30}},\"report_interval_per_day\":24}"}}]}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("AI_PROVIDER", "groq")
+	t.Setenv("GROQ_API_KEY", "test-groq-key")
+	t.Setenv("GROQ_MODEL", "test-model")
+	t.Setenv("GROQ_BASE_URL", server.URL)
+
+	handler := &SensorHandler{}
+	config, _, err := handler.generateOpenAIAISuggestion(context.Background(), "temperature", models.AISuggestRequest{Purpose: "Monitor crop temperature"}, "No history")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected 2 calls, got %d", calls)
+	}
+	if config.FriendlyName == "" || config.ReportIntervalPerDay != 24 {
+		t.Fatalf("unexpected config: %+v", config)
+	}
+}
+
+func TestOpenAIAISuggestionRepairsMalformedJSON(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		if calls == 1 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"Suggested config: temperature warning near 30C, check every hour."}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"friendly_name\":\"Climate Watch\",\"use_case\":\"climate_monitoring\",\"presentation_profile\":\"dual_climate\",\"primary_metric\":\"temperature\",\"metric_thresholds\":{\"temperature\":{\"min\":18,\"max\":30}},\"report_interval_per_day\":24}"}}]}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("AI_PROVIDER", "groq")
+	t.Setenv("GROQ_API_KEY", "test-groq-key")
+	t.Setenv("GROQ_MODEL", "test-model")
+	t.Setenv("GROQ_BASE_URL", server.URL)
+
+	handler := &SensorHandler{}
+	config, _, err := handler.generateOpenAIAISuggestion(context.Background(), "temperature", models.AISuggestRequest{Purpose: "Monitor crop temperature"}, "No history")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected repair call, got %d calls", calls)
+	}
+	if config.FriendlyName == "" || config.PrimaryMetric != "temperature" {
+		t.Fatalf("unexpected repaired config: %+v", config)
+	}
 }

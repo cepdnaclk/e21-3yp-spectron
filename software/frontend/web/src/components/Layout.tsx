@@ -9,24 +9,34 @@ import {
   Stack,
   Button,
   ButtonBase,
+  IconButton,
   useMediaQuery,
   useTheme,
 } from '@mui/material';
 import {
-  Hub as ChipIcon,
-  Dashboard,
+  Agriculture,
+  Sensors,
+  ShowChart,
   Notifications,
   AccountCircle,
   Groups,
   Logout,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
+import SpectronLogo from './SpectronLogo';
 
+type AppRoute = {
+  label: string;
+  mobileLabel: string;
+  path: string;
+  icon: React.ReactNode;
+};
 
-const baseRoutes = [
-  { label: 'Controllers', path: '/controllers', icon: <ChipIcon /> },
-  { label: 'Monitoring', path: '/monitoring', icon: <Dashboard /> },
-  { label: 'Alerts', path: '/alerts', icon: <Notifications /> },
+const baseRoutes: AppRoute[] = [
+  { label: 'Farms', mobileLabel: 'Farms', path: '/farms', icon: <Agriculture /> },
+  { label: 'Monitoring', mobileLabel: 'Live', path: '/monitoring', icon: <ShowChart /> },
+  { label: 'Hardware', mobileLabel: 'Hardware', path: '/hardware', icon: <Sensors /> },
+  { label: 'Alerts', mobileLabel: 'Alerts', path: '/alerts', icon: <Notifications /> },
 ];
 
 const getInitials = (name?: string) => {
@@ -51,26 +61,31 @@ const Layout: React.FC = () => {
   const routes = React.useMemo(
     () => [
       ...baseRoutes,
-      ...(accountRole === 'OWNER' ? [{ label: 'Team', path: '/team', icon: <Groups /> }] : []),
-      { label: 'Profile', path: '/profile', icon: <AccountCircle /> },
+      ...(accountRole === 'OWNER' ? [{ label: 'Team', mobileLabel: 'Team', path: '/team', icon: <Groups /> }] : []),
+      { label: 'Profile', mobileLabel: 'Profile', path: '/profile', icon: <AccountCircle /> },
+    ],
+    [accountRole]
+  );
+  const mobileRoutes = React.useMemo(
+    () => [
+      ...baseRoutes,
+      ...(accountRole === 'OWNER'
+        ? [{ label: 'Manage access', mobileLabel: 'Access', path: '/team', icon: <Groups /> }]
+        : []),
     ],
     [accountRole]
   );
 
   React.useEffect(() => {
     const path = location.pathname;
-    if (path.startsWith('/controllers')) setValue(0);
-    else if (path.startsWith('/monitoring')) setValue(1);
-    else if (path.startsWith('/alerts')) setValue(2);
-    else {
-      const currentIndex = routes.findIndex((route) => path.startsWith(route.path));
-      setValue(currentIndex >= 0 ? currentIndex : 0);
-    }
-  }, [location, routes]);
+    const normalizedPath = path.startsWith('/controllers') ? '/hardware' : path;
+    const currentIndex = mobileRoutes.findIndex((route) => normalizedPath.startsWith(route.path));
+    setValue(currentIndex >= 0 ? currentIndex : 0);
+  }, [location, mobileRoutes]);
 
   const handleChange = (_event: React.SyntheticEvent, newValue: number) => {
     setValue(newValue);
-    navigate(routes[newValue].path);
+    navigate(mobileRoutes[newValue].path);
   };
 
   const handleLogout = async () => {
@@ -104,7 +119,7 @@ const Layout: React.FC = () => {
           component="aside"
           sx={{
             width: 268,
-            p: 2,
+            p: 1.75,
             position: 'fixed',
             inset: '0 auto 0 0',
           }}
@@ -112,24 +127,27 @@ const Layout: React.FC = () => {
           <Box
             sx={{
               height: '100%',
-              bgcolor: 'transparent',
-              borderRight: '1px solid rgba(60, 57, 17, 0.1)',
-              borderRadius: 0,
+              bgcolor: 'rgba(255, 253, 248, 0.76)',
+              border: '1px solid rgba(60, 57, 17, 0.1)',
+              borderRadius: 4,
               p: 2,
-              boxShadow: 'none',
+              boxShadow: '0 18px 44px rgba(60, 57, 17, 0.08)',
+              backdropFilter: 'blur(16px)',
               display: 'flex',
               flexDirection: 'column',
             }}
           >
-            <Box sx={{ mb: 4 }}>
-              <Box
-                component="img"
-                src="/assets/spectron-logo-full.svg"
-                alt="Spectron"
-                sx={{ height: 28, width: 'auto', display: 'block' }}
-              />
-            </Box>
-
+            <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 3, px: 0.5 }}>
+              <SpectronLogo size={38} />
+              <Box>
+                <Typography variant="h6" sx={{ lineHeight: 1 }}>
+                  SPECTRON
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  AgriAssist
+                </Typography>
+              </Box>
+            </Stack>
             <Stack spacing={1}>
               {routes.map((item, index) => (
                 <ButtonBase
@@ -142,13 +160,16 @@ const Layout: React.FC = () => {
                     gap: 1.5,
                     px: 1.5,
                     py: 1.25,
-                    borderRadius: 999,
+                    borderRadius: 2.5,
                     color: value === index ? '#fffdf8' : 'text.secondary',
                     bgcolor: value === index ? 'primary.dark' : 'transparent',
+                    boxShadow: value === index ? '0 10px 22px rgba(60, 57, 17, 0.18)' : 'none',
+                    transition: 'background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
                     textDecoration: 'none',
                     '&:hover': {
                       bgcolor: value === index ? 'primary.dark' : 'rgba(108, 137, 48, 0.1)',
                       textDecoration: 'none',
+                      transform: 'translateX(2px)',
                     },
                     '& .MuiSvgIcon-root': {
                       color: value === index ? 'secondary.light' : 'primary.main',
@@ -170,13 +191,14 @@ const Layout: React.FC = () => {
               sx={{
                 mt: 'auto',
                 p: 1.5,
-                borderRadius: 0,
-                bgcolor: 'transparent',
-                borderTop: '1px solid rgba(60, 57, 17, 0.1)',
+                borderRadius: 3,
+                bgcolor: 'rgba(255, 253, 248, 0.72)',
+                border: '1px solid rgba(60, 57, 17, 0.1)',
                 display: 'block',
                 textAlign: 'left',
                 color: 'inherit',
                 textDecoration: 'none',
+                boxShadow: '0 10px 24px rgba(60, 57, 17, 0.05)',
               }}
             >
               <Typography variant="caption" color="text.secondary">
@@ -213,7 +235,7 @@ const Layout: React.FC = () => {
                 color="primary"
                 startIcon={<Logout />}
                 onClick={handleLogout}
-                sx={{ mt: 2 }}
+                sx={{ mt: 2, bgcolor: 'rgba(255, 253, 248, 0.76)' }}
               >
                 Logout
               </Button>
@@ -237,7 +259,7 @@ const Layout: React.FC = () => {
           component="header"
           sx={{
             px: { xs: 2.5, md: 4 },
-            pt: { xs: 'calc(16px + env(safe-area-inset-top))', md: 3 },
+            pt: { xs: 2, md: 3 },
             pb: { xs: 1.25, md: 0 },
             display: 'flex',
             justifyContent: 'space-between',
@@ -245,12 +267,32 @@ const Layout: React.FC = () => {
           }}
         >
           {!isDesktop && (
-            <Box
-              component="img"
-              src="/assets/spectron-logo-full.svg"
-              alt="Spectron"
-              sx={{ height: 26, width: 'auto', display: 'block' }}
-            />
+            <>
+              <Stack direction="row" spacing={1.1} alignItems="center" sx={{ minWidth: 0 }}>
+                <SpectronLogo size={32} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="subtitle2" fontWeight={900} letterSpacing={0.4} noWrap>
+                    SPECTRON
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" noWrap>
+                    AgriAssist
+                  </Typography>
+                </Box>
+              </Stack>
+              <IconButton
+                aria-label="Open profile"
+                onClick={() => navigate('/profile')}
+                color="primary"
+                sx={{ width: 44, height: 44, p: 0.25 }}
+              >
+                <Avatar
+                  src={user?.avatar_url || undefined}
+                  sx={{ width: 38, height: 38, bgcolor: 'primary.main', fontSize: 13, fontWeight: 800 }}
+                >
+                  {userInitials}
+                </Avatar>
+              </IconButton>
+            </>
           )}
         </Box>
         <Outlet />
@@ -282,10 +324,13 @@ const Layout: React.FC = () => {
               fontSize: 9,
               whiteSpace: 'nowrap',
             },
+            '& .MuiSvgIcon-root': {
+              fontSize: 22,
+            },
           }}
         >
-          {routes.map((item) => (
-            <BottomNavigationAction key={item.path} label={item.label} icon={item.icon} />
+          {mobileRoutes.map((item) => (
+            <BottomNavigationAction key={item.path} label={item.mobileLabel} icon={item.icon} />
           ))}
         </BottomNavigation>
       )}

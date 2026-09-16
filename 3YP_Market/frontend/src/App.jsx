@@ -20,12 +20,8 @@ const routes = ['/', '/product', '/modules', '/pricing', '/contact']
 
 const imageAssets = [
   {
-    src: '/assets/spectron-device-front.jpeg',
+    src: '/assets/spectron-hero.png',
     alt: 'SPECTRON device mounted on a wooden frame with red and green indicator lights',
-  },
-  {
-    src: '/assets/spectron-device-side.jpeg',
-    alt: 'SPECTRON modular IoT adapter showing side wiring and enclosure',
   },
 ]
 
@@ -46,6 +42,7 @@ const workflow = ['Pick sensor', 'Attach module', 'Configure rules', 'Monitor on
 
 export default function App() {
   const [path, setPath] = useState(normalizePath(window.location.pathname))
+  const [language, setLanguage] = useState('en')
 
   useEffect(() => {
     const handlePopState = () => setPath(normalizePath(window.location.pathname))
@@ -65,7 +62,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#f7f4ec] text-slate-950">
-      <Navbar activePath={path} onNavigate={navigate} />
+      <Navbar activePath={path} onNavigate={navigate} language={language} onLanguageChange={setLanguage} />
       <main>
         <Page onNavigate={navigate} />
       </main>
@@ -131,8 +128,8 @@ function ProductPage({ onNavigate }) {
           ))}
         </div>
         <img
-          src="/assets/spectron-device-front.jpeg"
-          alt="SPECTRON installed device with visible status LEDs"
+          src={imageAssets[0].src}
+          alt={imageAssets[0].alt}
           className="h-full max-h-[560px] w-full rounded-lg object-cover shadow-xl shadow-slate-950/15"
         />
       </div>
@@ -166,8 +163,8 @@ function ModulesPage() {
     >
       <div className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr] lg:items-start">
         <img
-          src="/assets/spectron-device-side.jpeg"
-          alt="SPECTRON side view showing modular wiring"
+          src={imageAssets[0].src}
+          alt={imageAssets[0].alt}
           className="max-h-[620px] w-full rounded-lg object-cover shadow-xl shadow-slate-950/15"
         />
         <div className="grid gap-4 sm:grid-cols-2">
@@ -364,15 +361,13 @@ function Field({ label, ...props }) {
 
 function PhotoPair() {
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      {imageAssets.map((image, index) => (
+    <div className="grid gap-4">
+      {imageAssets.map((image) => (
         <img
-          key={image.src}
+          key={image.alt}
           src={image.src}
           alt={image.alt}
-          className={`h-[420px] w-full rounded-lg object-cover shadow-xl shadow-slate-950/15 ${
-            index === 1 ? 'sm:mt-12' : ''
-          }`}
+          className="h-auto w-full rounded-lg shadow-xl shadow-slate-950/15"
         />
       ))}
     </div>

@@ -1,0 +1,63 @@
+{
+  "crop": "Paddy / Rice",
+  "source": "Sri Lanka RRDI and IRRI Rice Knowledge Bank",
+  "source_url": "https://doa.gov.lk/rrdi_homepage/",
+  "publisher": "Sri Lanka Department of Agriculture and International Rice Research Institute",
+  "reviewed_at": "2026-07-20",
+  "language": "en",
+  "entries": [
+    {
+      "category": "fertilizer",
+      "topic": "Location-specific fertilizer selection",
+      "content": "Rice fertilizer guidance must be selected by agro-climatic zone and whether the field is irrigated or rain-fed; soil-test or leaf-colour-based guidance should take priority when available.",
+      "source_url": "https://doa.gov.lk/rrdi_fertilizerrecomendation/",
+      "required_context": ["agro-climatic zone", "irrigated or rain-fed", "soil test", "leaf colour reading"]
+    },
+    {
+      "category": "disease",
+      "topic": "Rice blast",
+      "content": "Rice blast appearance and severity vary with crop stage and variety; risk is favoured by high humidity, cool nights, dense planting, excessive nitrogen, and susceptible varieties.",
+      "source_url": "https://doa.gov.lk/rrdi_ricediseases_riceblast/",
+      "favouring_conditions": ["high humidity", "cool nights", "dense planting", "excess nitrogen", "susceptible variety"],
+      "confirmation_questions": ["Are spindle-shaped lesions present?", "Was nitrogen applied above the recommendation?", "Is the variety known to be susceptible?"]
+    },
+    {
+      "category": "disease",
+      "topic": "Rice blast prevention",
+      "content": "For blast risk, prioritize certified seed, recommended nitrogen use, weed management, resistant varieties where suitable, and avoiding infected straw in the next crop.",
+      "source_url": "https://doa.gov.lk/rrdi_ricediseases_riceblast/",
+      "actions": ["Check nitrogen history", "Inspect weed pressure", "Record variety", "Use clean seed and residue practices next season"]
+    },
+    {
+      "category": "pest_management",
+      "topic": "Integrated pest management",
+      "content": "Accurate diagnosis, field hygiene, balanced fertilizer, synchronized planting, and protection of natural enemies are preferred foundations for rice pest management; unnecessary pesticide use can worsen some pest outbreaks.",
+      "source_url": "https://www.knowledgebank.irri.org/step-by-step-production/growth/pests-and-diseases",
+      "evidence_type": "international_research_guidance",
+      "actions": ["Confirm the pest before control", "Avoid unnecessary broad-spectrum spraying", "Look for natural enemies"]
+    },
+    {
+      "category": "disease",
+      "topic": "Bacterial blight differential",
+      "content": "Rice bacterial blight can cause seedling wilting and yellowing and drying of leaves, but these signs overlap with other problems and require closer field inspection.",
+      "source_url": "https://www.knowledgebank.irri.org/training/fact-sheets/pest-management/diseases",
+      "symptoms": ["seedling wilting", "leaf yellowing", "leaf drying"],
+      "confirmation_questions": ["Are seedlings or mature leaves affected?", "Is damage spreading along leaf margins or from the tip?"]
+    },
+    {
+      "category": "pest",
+      "topic": "Planthopper risk",
+      "content": "Planthoppers remove plant sap and can transmit rice viruses; dense crops, high nitrogen, and disruption of natural enemies can increase risk.",
+      "source_url": "https://www.knowledgebank.irri.org/step-by-step-production/growth/pests-and-diseases",
+      "confirmation_questions": ["Are planthoppers present near the plant base?", "Are natural enemies visible?", "Was nitrogen recently applied?"]
+    },
+    {
+      "category": "postharvest",
+      "topic": "Grain storage",
+      "growth_stage": "Post-harvest",
+      "content": "Dry rice grain adequately before storage, keep the store clean and dry, separate new grain from infested old grain, and use sealed storage where practical.",
+      "source_url": "https://www.knowledgebank.irri.org/step-by-step-production/growth/pests-and-diseases",
+      "actions": ["Check grain moisture", "Clean the storage area", "Inspect old grain for insects"]
+    }
+  ]
+}

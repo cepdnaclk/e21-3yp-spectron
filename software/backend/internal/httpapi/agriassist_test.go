@@ -23,14 +23,13 @@ func TestFallbackAgricultureSuggestionIncludesRecommendationRules(t *testing.T) 
 		t.Fatal("expected agriculture recommendation rules")
 	}
 
-	foundLocalTreatment := false
+	foundSafeFieldAction := false
 	for _, rule := range config.RecommendationRules {
-		if strings.Contains(rule.ActionRecommendation, "Captan/Carbendazim/Thiram") ||
-			strings.Contains(rule.ActionRecommendation, "Mancozeb") {
-			foundLocalTreatment = true
+		if strings.Contains(rule.ActionRecommendation, "confirm any treatment with a local agricultural officer") {
+			foundSafeFieldAction = true
 		}
 	}
-	if !foundLocalTreatment {
-		t.Fatalf("expected local CSV treatment in rules, got %+v", config.RecommendationRules)
+	if !foundSafeFieldAction {
+		t.Fatalf("expected safe field action guidance in rules, got %+v", config.RecommendationRules)
 	}
 }
