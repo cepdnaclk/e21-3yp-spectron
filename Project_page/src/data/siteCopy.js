@@ -9,6 +9,7 @@
       software: "Software",
       testing: "Testing",
       budget: "Budget",
+      achievements: "Achievements",
       team: "Team",
     },
     toggles: {

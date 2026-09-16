@@ -13,6 +13,7 @@ function Navbar({ copy, theme, onToggleTheme }) {
       { id: "software", label: copy.nav.software },
       { id: "testing", label: copy.nav.testing },
       { id: "budget", label: copy.nav.budget },
+      { id: "achievements", label: copy.nav.achievements },
       { id: "team", label: copy.nav.team },
     ],
     [copy]
