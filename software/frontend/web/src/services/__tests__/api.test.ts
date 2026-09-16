@@ -42,6 +42,15 @@ describe('api helper', () => {
     expect(config?.headers.Authorization).toBe('Bearer user-token-123');
   });
 
+  it('does not reuse a token from a different backend base', async () => {
+    localStorage.setItem('spectron_auth_base', 'https://spectroniot.xyz');
+    localStorage.setItem('spectron_user_auth_token:https://spectroniot.xyz', 'hosted-token');
+
+    const { apiModule } = await importApiWithAxiosMock();
+
+    expect(apiModule.getToken('user')).toBeNull();
+  });
+
   it('removes a token and redirects to sign-in after a 401 response', async () => {
     const originalLocation = window.location;
     delete (window as any).location;
@@ -66,6 +75,3 @@ describe('api helper', () => {
     (window as any).location = originalLocation;
   });
 });
-
-export {};
-

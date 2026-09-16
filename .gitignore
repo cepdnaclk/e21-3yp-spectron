@@ -6,6 +6,18 @@
 **/.env.*
 !**/.env.example
 
+# Generated binaries, caches, and packaged application output
+software/backend/*.exe*
+software/backend/bin/
+software/frontend/web/.npm-cache/
+software/frontend/web/desktop-app/build/
+software/frontend/web/desktop-dist*/
+software/frontend/web/desktop-release*/
+software/frontend/web/release-current/
+**/__pycache__/
+software/backend/coverage
+software/backend/coverage.out
+
 backups/
 **/backups/
 certs/

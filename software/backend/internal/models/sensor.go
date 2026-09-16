@@ -167,6 +167,8 @@ type AISuggestRequest struct {
 	DesiredBatteryLifeDays *int                 `json:"desired_battery_life_days,omitempty"`
 	SamplingPreferences    *SamplingPreferences `json:"sampling_preferences,omitempty"`
 	FollowUpAnswers        map[string]string    `json:"follow_up_answers,omitempty"`
+	FarmContext            string               `json:"-"`
+	WeatherSummary         string               `json:"-"`
 }
 
 type AIFollowUpQuestion struct {

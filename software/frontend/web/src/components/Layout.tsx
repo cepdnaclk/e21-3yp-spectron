@@ -9,6 +9,7 @@ import {
   Stack,
   Button,
   ButtonBase,
+  IconButton,
   useMediaQuery,
   useTheme,
 } from '@mui/material';
@@ -22,6 +23,7 @@ import {
   Logout,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
+import SpectronLogo from './SpectronLogo';
 
 type AppRoute = {
   label: string;
@@ -64,17 +66,26 @@ const Layout: React.FC = () => {
     ],
     [accountRole]
   );
+  const mobileRoutes = React.useMemo(
+    () => [
+      ...baseRoutes,
+      ...(accountRole === 'OWNER'
+        ? [{ label: 'Manage access', mobileLabel: 'Access', path: '/team', icon: <Groups /> }]
+        : []),
+    ],
+    [accountRole]
+  );
 
   React.useEffect(() => {
     const path = location.pathname;
     const normalizedPath = path.startsWith('/controllers') ? '/hardware' : path;
-    const currentIndex = routes.findIndex((route) => normalizedPath.startsWith(route.path));
+    const currentIndex = mobileRoutes.findIndex((route) => normalizedPath.startsWith(route.path));
     setValue(currentIndex >= 0 ? currentIndex : 0);
-  }, [location, routes]);
+  }, [location, mobileRoutes]);
 
   const handleChange = (_event: React.SyntheticEvent, newValue: number) => {
     setValue(newValue);
-    navigate(routes[newValue].path);
+    navigate(mobileRoutes[newValue].path);
   };
 
   const handleLogout = async () => {
@@ -126,6 +137,17 @@ const Layout: React.FC = () => {
               flexDirection: 'column',
             }}
           >
+            <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 3, px: 0.5 }}>
+              <SpectronLogo size={38} />
+              <Box>
+                <Typography variant="h6" sx={{ lineHeight: 1 }}>
+                  SPECTRON
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  AgriAssist
+                </Typography>
+              </Box>
+            </Stack>
             <Stack spacing={1}>
               {routes.map((item, index) => (
                 <ButtonBase
@@ -237,13 +259,41 @@ const Layout: React.FC = () => {
           component="header"
           sx={{
             px: { xs: 2.5, md: 4 },
-            pt: { xs: 'calc(16px + env(safe-area-inset-top))', md: 3 },
+            pt: { xs: 2, md: 3 },
             pb: { xs: 1.25, md: 0 },
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
           }}
         >
+          {!isDesktop && (
+            <>
+              <Stack direction="row" spacing={1.1} alignItems="center" sx={{ minWidth: 0 }}>
+                <SpectronLogo size={32} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="subtitle2" fontWeight={900} letterSpacing={0.4} noWrap>
+                    SPECTRON
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" noWrap>
+                    AgriAssist
+                  </Typography>
+                </Box>
+              </Stack>
+              <IconButton
+                aria-label="Open profile"
+                onClick={() => navigate('/profile')}
+                color="primary"
+                sx={{ width: 44, height: 44, p: 0.25 }}
+              >
+                <Avatar
+                  src={user?.avatar_url || undefined}
+                  sx={{ width: 38, height: 38, bgcolor: 'primary.main', fontSize: 13, fontWeight: 800 }}
+                >
+                  {userInitials}
+                </Avatar>
+              </IconButton>
+            </>
+          )}
         </Box>
         <Outlet />
       </Box>
@@ -279,7 +329,7 @@ const Layout: React.FC = () => {
             },
           }}
         >
-          {routes.map((item) => (
+          {mobileRoutes.map((item) => (
             <BottomNavigationAction key={item.path} label={item.mobileLabel} icon={item.icon} />
           ))}
         </BottomNavigation>

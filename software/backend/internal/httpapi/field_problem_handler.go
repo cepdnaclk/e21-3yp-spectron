@@ -29,8 +29,9 @@ type answerFieldProblemRequest struct {
 }
 
 type resolveFieldProblemRequest struct {
-	Helpful *bool  `json:"helpful,omitempty"`
-	Comment string `json:"comment,omitempty"`
+	Helpful           *bool  `json:"helpful,omitempty"`
+	Comment           string `json:"comment,omitempty"`
+	ResolutionComment string `json:"resolution_comment,omitempty"`
 }
 
 type problemContext struct {
@@ -159,6 +160,11 @@ func (h *FarmHandler) ResolveFieldProblem(w http.ResponseWriter, r *http.Request
 		return
 	}
 	req.Comment = strings.TrimSpace(req.Comment)
+	if req.Comment == "" {
+		// Keep compatibility with released desktop/mobile clients that used the
+		// response field name when submitting the resolution request.
+		req.Comment = strings.TrimSpace(req.ResolutionComment)
+	}
 	if len(req.Comment) > 500 {
 		http.Error(w, "comment must not exceed 500 characters", http.StatusBadRequest)
 		return
@@ -319,6 +325,7 @@ func (h *FarmHandler) generateProblemTurn(r *http.Request, access farmAccess, pr
 		log.Printf("field problem advisor provider fallback for problem %s turn %d: %v", problem.ID, turn, err)
 		result = fallbackFieldProblemAdvice(problem, farmerText, sensorSummary, weatherSummary, recentProblems, matches, turn)
 	}
+	result = ensureEvolvingFollowUp(result, history, turn)
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
 		release()
@@ -395,7 +402,8 @@ func fallbackFieldProblemAdvice(
 	matches []knowledge.Match,
 	turn int,
 ) advisor.Result {
-	headline := fmt.Sprintf("Check %s Field closely before fruit loss spreads.", problem.CropName)
+	focus, headlineAction, question, specificCheck := fallbackAdviceFocus(farmerText)
+	headline := fmt.Sprintf("Check %s in the %s Field today.", focus, problem.CropName)
 	if turn >= 3 {
 		headline = fmt.Sprintf("Make a final field check on %s today.", problem.CropName)
 	}
@@ -415,13 +423,13 @@ func fallbackFieldProblemAdvice(
 	}
 
 	checkNext := []string{
+		specificCheck,
 		"Count how many plants show the same symptom in one row and in the next row.",
-		"Check whether fruit drop is strongest near the flower cluster, stem base, or on only one side of the Field.",
 		"Compare affected plants with healthy plants at the same growth stage before taking treatment action.",
 	}
 	doNow := []string{
 		"Walk the affected area this morning and mark 5 to 10 representative plants so the same plants can be checked again later.",
-		"Separate fruit-drop plants from healthy plants in your notes and record whether leaves are yellowing, curling, spotted, or only aging naturally.",
+		headlineAction,
 		"Check the root-zone moisture by hand at two depths near affected plants and compare it with a healthy nearby area before changing irrigation.",
 	}
 	avoid := []string{
@@ -449,7 +457,7 @@ func fallbackFieldProblemAdvice(
 	}
 
 	status := "NEEDS_ATTENTION"
-	tellUsNext := "Send one close photo of affected leaves and tell whether the root-zone soil feels dry, normal, or very wet."
+	tellUsNext := question
 	if turn >= 3 {
 		status = "URGENT"
 		tellUsNext = ""
@@ -461,7 +469,7 @@ func fallbackFieldProblemAdvice(
 	result := advisor.Result{
 		Status:             status,
 		Headline:           headline,
-		WhatMayBeHappening: advisor.AdvisorText("The symptom may be related to stress around fruit set, uneven watering, disease pressure, or natural aging of older leaves. The current evidence is not enough to confirm one cause, so the safest next step is a structured field check before treatment."),
+		WhatMayBeHappening: advisor.AdvisorText(fmt.Sprintf("The reported %s may be linked to crop stress, uneven watering, pests, disease pressure, or normal aging. The current evidence is not enough to confirm one cause, so the safest next step is a focused field check before treatment.", strings.ToLower(focus))),
 		DoNow:              doNow,
 		CheckNext:          checkNext,
 		WhyThisAdvice: []string{
@@ -476,16 +484,37 @@ func fallbackFieldProblemAdvice(
 			"Leaves show fast wilting, dark lesions, stem rot, or strong foul smell.",
 			"The same problem continues after the next field check and careful irrigation review.",
 		},
-		TellUsNext: advisor.AdvisorText(tellUsNext),
-		SafetyNote: advisor.AdvisorText("This is decision support only. Confirm the visible symptom in the Field before treatment."),
-		Confidence: "LOW",
-		Evidence:   evidence,
-		Summary:    headline,
-		ActionsNow: doNow,
+		TellUsNext:  advisor.AdvisorText(tellUsNext),
+		SafetyNote:  advisor.AdvisorText("This is decision support only. Confirm the visible symptom in the Field before treatment."),
+		Confidence:  "LOW",
+		Evidence:    evidence,
+		Summary:     headline,
+		ActionsNow:  doNow,
 		MonitorNext: checkNext,
-		Recheck:    advisor.AdvisorText("Recheck the marked plants after 6 to 12 hours, then again tomorrow morning."),
+		Recheck:     advisor.AdvisorText("Recheck the marked plants after 6 to 12 hours, then again tomorrow morning."),
 	}
 	return result
+}
+
+// fallbackAdviceFocus keeps safe offline advice tied to what the farmer
+// actually described. It is used only when the hosted AI provider is not
+// available, so different reports do not receive the same generic question.
+func fallbackAdviceFocus(observation string) (focus, action, question, check string) {
+	text := strings.ToLower(observation)
+	switch {
+	case strings.Contains(text, "yellow") || strings.Contains(text, "yellowing"):
+		return "yellowing leaves", "Record whether yellowing starts on older or new leaves and whether it is between the veins.", "Are the yellow leaves older lower leaves or new upper leaves, and are there spots?", "Check whether yellowing begins on lower leaves, new leaves, or between leaf veins."
+	case strings.Contains(text, "spot") || strings.Contains(text, "lesion") || strings.Contains(text, "blight"):
+		return "leaf spots", "Photograph both sides of three spotted leaves and note whether spots have dark edges or concentric rings.", "Do the spots have dark edges, rings, or a yellow halo, and are they spreading after rain?", "Check whether spots have dark edges, rings, a yellow halo, or appear on new leaves."
+	case strings.Contains(text, "wilt") || strings.Contains(text, "droop"):
+		return "wilting plants", "Check whether plants recover in the cooler part of the day and compare root-zone soil with a healthy nearby plant.", "Do plants recover by evening, and does the root-zone soil feel dry, normal, or very wet?", "Check whether wilting improves in the evening and whether it is limited to one wet or dry patch."
+	case strings.Contains(text, "insect") || strings.Contains(text, "pest") || strings.Contains(text, "aphid") || strings.Contains(text, "caterpillar"):
+		return "possible pest damage", "Inspect the underside of ten affected leaves and record any insects, eggs, webbing, or chewing damage.", "What insects, eggs, webbing, sticky residue, or chewing marks can you see under affected leaves?", "Check the underside of affected leaves for insects, eggs, webbing, sticky residue, or chewing marks."
+	case strings.Contains(text, "fruit") || strings.Contains(text, "flower") || strings.Contains(text, "drop"):
+		return "flower or fruit loss", "Record whether loss is strongest near flowers, the stem base, or one part of the Field.", "Is the loss mainly flowers or fruit, and are there dark marks near the stem or flower cluster?", "Check whether loss is mainly flowers or fruit and whether it is strongest near a stem, cluster, or one Field area."
+	default:
+		return "reported crop change", "Record which plant part changed first and whether the change is spreading or limited to one patch.", "Which plant part changed first, when did it begin, and is it spreading or limited to one patch?", "Check which plant part has the strongest change and whether it is spreading, stable, or limited to one patch."
+	}
 }
 
 func summarizeFallbackLine(value string) string {
@@ -538,6 +567,73 @@ func (h *FarmHandler) problemConversationHistory(r *http.Request, problemID uuid
 		items = append(items, map[string]any{"response_number": turn, "farmer_text": observation, "advisor_response": result})
 	}
 	return items, rows.Err()
+}
+
+func ensureEvolvingFollowUp(result advisor.Result, history []map[string]any, turn int) advisor.Result {
+	if turn >= 3 {
+		result.TellUsNext = ""
+		return result
+	}
+
+	current := normalizeAdvisorQuestion(string(result.TellUsNext))
+	if current == "" {
+		return result
+	}
+
+	previous := previousAdvisorQuestions(history)
+	if _, repeated := previous[current]; !repeated {
+		return result
+	}
+
+	// Final guard for a provider that ignores the history instruction. Each
+	// option gathers a different kind of field evidence.
+	candidates := []string{
+		"Is the change spreading to new plants or staying in the same area?",
+		"What does the root-zone soil feel like beside an affected plant?",
+		"Which plant part showed the change first?",
+	}
+	for _, candidate := range candidates {
+		if _, used := previous[normalizeAdvisorQuestion(candidate)]; !used {
+			result.TellUsNext = advisor.AdvisorText(candidate)
+			return result
+		}
+	}
+
+	result.TellUsNext = ""
+	return result
+}
+
+func previousAdvisorQuestions(history []map[string]any) map[string]struct{} {
+	questions := make(map[string]struct{}, len(history))
+	for _, item := range history {
+		response, ok := item["advisor_response"]
+		if !ok {
+			continue
+		}
+
+		var decoded map[string]any
+		switch value := response.(type) {
+		case json.RawMessage:
+			_ = json.Unmarshal(value, &decoded)
+		case []byte:
+			_ = json.Unmarshal(value, &decoded)
+		case map[string]any:
+			decoded = value
+		}
+		if decoded == nil {
+			continue
+		}
+		question, _ := decoded["tell_us_next"].(string)
+		if normalized := normalizeAdvisorQuestion(question); normalized != "" {
+			questions[normalized] = struct{}{}
+		}
+	}
+	return questions
+}
+
+func normalizeAdvisorQuestion(value string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(value), "?.!")
+	return strings.Join(strings.Fields(strings.ToLower(trimmed)), " ")
 }
 
 func (h *FarmHandler) writeFieldProblem(w http.ResponseWriter, r *http.Request, fieldID, problemID uuid.UUID, statusCode int) {

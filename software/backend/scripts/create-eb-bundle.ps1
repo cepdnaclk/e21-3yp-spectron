@@ -17,7 +17,7 @@ function Get-RelativeArchivePath {
     return $baseUri.MakeRelativeUri($fileUri).ToString()
 }
 
-$backendRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$backendRoot = Split-Path -Parent $PSScriptRoot
 $distDir = Join-Path $backendRoot "dist"
 $stagingDir = Join-Path $distDir "eb-staging"
 
@@ -38,7 +38,9 @@ New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
 $itemsToCopy = @(
     "cmd",
     "internal",
+    "datasets",
     ".ebextensions",
+    ".platform",
     "go.mod",
     "go.sum",
     "Buildfile",

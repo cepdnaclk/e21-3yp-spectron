@@ -1501,13 +1501,15 @@ func (h *ControllerHandler) AISuggestHardwareSensorConfigAPI(w http.ResponseWrit
 	mergedContext := mergeSensorContext(req.Context, metadata.StoredContext)
 	req.Context = mergedContext
 	req = enrichAISuggestRequest(req)
+	sensorHelper := SensorHandler{db: h.db}
+	if sensor.legacyID != nil {
+		req = sensorHelper.enrichAISuggestWithFarmData(r.Context(), *sensor.legacyID, req)
+	}
 	historyDays := 14
 	if req.Context != nil && req.Context.HistoricalWindowDays != nil && *req.Context.HistoricalWindowDays > 0 {
 		historyDays = *req.Context.HistoricalWindowDays
 	}
 	historySummary := h.loadHardwareSensorHistorySummary(r.Context(), sensor.id, sensor.legacyID, historyDays)
-
-	sensorHelper := SensorHandler{db: h.db}
 
 	var suggestedConfig models.SensorConfig
 	explanation := "Configuration suggested based on your purpose, context, and sensor type."

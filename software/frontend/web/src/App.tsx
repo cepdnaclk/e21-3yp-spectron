@@ -105,11 +105,11 @@ let theme = createTheme({
         },
         '@media (max-width: 599.95px)': {
           '.MuiContainer-root': {
-            paddingLeft: '10px',
-            paddingRight: '10px',
+            paddingLeft: '16px',
+            paddingRight: '16px',
           },
           '.MuiCardContent-root': {
-            padding: '13px',
+            padding: '16px',
           },
           '.MuiTypography-h4': {
             fontSize: '1.4rem',
@@ -126,6 +126,15 @@ let theme = createTheme({
           },
           '.MuiButton-root': {
             minWidth: 0,
+            minHeight: '44px',
+          },
+          '.MuiIconButton-root': {
+            minWidth: '44px',
+            minHeight: '44px',
+          },
+          '.MuiButton-startIcon, .MuiButton-endIcon': {
+            marginLeft: 0,
+            marginRight: 0,
           },
           '.MuiDialog-paper': {
             margin: '14px',
@@ -174,7 +183,7 @@ let theme = createTheme({
       styleOverrides: {
         root: {
           borderRadius: 16,
-          minHeight: 38,
+          minHeight: 44,
           paddingLeft: 14,
           paddingRight: 14,
           whiteSpace: 'normal',

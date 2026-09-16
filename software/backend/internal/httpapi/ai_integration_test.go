@@ -3,8 +3,12 @@ package httpapi
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/joho/godotenv"
@@ -12,6 +16,9 @@ import (
 )
 
 func TestGroqAISuggestionIntegration(t *testing.T) {
+	if os.Getenv("SENSOR_AI_LIVE_TEST") != "1" {
+		t.Skip("set SENSOR_AI_LIVE_TEST=1 to run the hosted sensor AI test")
+	}
 	// Load the .env file from the backend root folder
 	envPath, _ := filepath.Abs("../../.env")
 	err := godotenv.Load(envPath)
@@ -36,7 +43,7 @@ func TestGroqAISuggestionIntegration(t *testing.T) {
 			},
 		}
 
-		config, explanation, err := handler.generateGroqAISuggestion(ctx, "temperature_humidity", req, "No historical summary available")
+		config, explanation, err := handler.generateOpenAIAISuggestion(ctx, "temperature_humidity", req, "No historical summary available")
 		if err != nil {
 			t.Fatalf("Failed to generate AI suggestion: %v", err)
 		}
@@ -71,7 +78,7 @@ func TestGroqAISuggestionIntegration(t *testing.T) {
 			},
 		}
 
-		config, explanation, err := handler.generateGroqAISuggestion(ctx, "distance", req, "No historical summary available")
+		config, explanation, err := handler.generateOpenAIAISuggestion(ctx, "distance", req, "No historical summary available")
 		if err != nil {
 			t.Fatalf("Failed to generate AI suggestion: %v", err)
 		}
@@ -126,6 +133,36 @@ func TestConfiguredAIProviderDefaultsToGroq(t *testing.T) {
 	}
 }
 
+func TestGenerateHostedAISuggestionRejectsUnsupportedProvider(t *testing.T) {
+	t.Setenv("AI_PROVIDER", "invalid-provider")
+	t.Setenv("GEMINI_API_KEY", "")
+
+	handler := &SensorHandler{}
+	_, _, err := handler.generateHostedAISuggestion(context.Background(), "temperature", models.AISuggestRequest{}, "")
+	if err == nil {
+		t.Fatal("expected unsupported provider error")
+	}
+	if !strings.Contains(err.Error(), "unsupported AI provider") {
+		t.Fatalf("expected unsupported provider error, got %v", err)
+	}
+}
+
+func TestGenerateHostedAISuggestionGeminiProviderDoesNotFallbackToOpenAI(t *testing.T) {
+	t.Setenv("AI_PROVIDER", "gemini")
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "test-openai-key")
+	t.Setenv("AI_API_KEY", "")
+
+	handler := &SensorHandler{}
+	_, _, err := handler.generateHostedAISuggestion(context.Background(), "temperature", models.AISuggestRequest{}, "")
+	if err == nil {
+		t.Fatal("expected hosted AI not configured error")
+	}
+	if !strings.Contains(err.Error(), "hosted AI not configured") {
+		t.Fatalf("expected hosted AI not configured error, got %v", err)
+	}
+}
+
 func formatFloatPtr(p *float64) string {
 	if p == nil {
 		return "nil"
@@ -133,3 +170,72 @@ func formatFloatPtr(p *float64) string {
 	return fmt.Sprintf("%.2f", *p)
 }
 
+func TestOpenAIAISuggestionRetriesWithoutResponseFormat(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		body, _ := io.ReadAll(r.Body)
+		if calls == 1 {
+			if !strings.Contains(string(body), "response_format") {
+				t.Fatalf("expected first request to include response_format")
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"response_format json_object is unsupported for this model"}}`))
+			return
+		}
+		if strings.Contains(string(body), "response_format") {
+			t.Fatalf("expected retry request without response_format")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"friendly_name\":\"Climate Watch\",\"use_case\":\"climate_monitoring\",\"presentation_profile\":\"dual_climate\",\"primary_metric\":\"temperature\",\"metric_thresholds\":{\"temperature\":{\"min\":18,\"max\":30}},\"report_interval_per_day\":24}"}}]}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("AI_PROVIDER", "groq")
+	t.Setenv("GROQ_API_KEY", "test-groq-key")
+	t.Setenv("GROQ_MODEL", "test-model")
+	t.Setenv("GROQ_BASE_URL", server.URL)
+
+	handler := &SensorHandler{}
+	config, _, err := handler.generateOpenAIAISuggestion(context.Background(), "temperature", models.AISuggestRequest{Purpose: "Monitor crop temperature"}, "No history")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected 2 calls, got %d", calls)
+	}
+	if config.FriendlyName == "" || config.ReportIntervalPerDay != 24 {
+		t.Fatalf("unexpected config: %+v", config)
+	}
+}
+
+func TestOpenAIAISuggestionRepairsMalformedJSON(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		if calls == 1 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"Suggested config: temperature warning near 30C, check every hour."}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"friendly_name\":\"Climate Watch\",\"use_case\":\"climate_monitoring\",\"presentation_profile\":\"dual_climate\",\"primary_metric\":\"temperature\",\"metric_thresholds\":{\"temperature\":{\"min\":18,\"max\":30}},\"report_interval_per_day\":24}"}}]}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("AI_PROVIDER", "groq")
+	t.Setenv("GROQ_API_KEY", "test-groq-key")
+	t.Setenv("GROQ_MODEL", "test-model")
+	t.Setenv("GROQ_BASE_URL", server.URL)
+
+	handler := &SensorHandler{}
+	config, _, err := handler.generateOpenAIAISuggestion(context.Background(), "temperature", models.AISuggestRequest{Purpose: "Monitor crop temperature"}, "No history")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected repair call, got %d calls", calls)
+	}
+	if config.FriendlyName == "" || config.PrimaryMetric != "temperature" {
+		t.Fatalf("unexpected repaired config: %+v", config)
+	}
+}

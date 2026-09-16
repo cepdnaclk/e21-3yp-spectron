@@ -407,7 +407,7 @@ const FarmOverview: React.FC = () => {
                             `/fields/${field.id}/advisor${latestProblem ? `?problem=${latestProblem.id}` : ''}`,
                           )}
                         >
-                          {active.length ? 'View problem' : 'Report a problem'}
+                          Field problems
                         </Button>
                         <Button
                           variant="text"

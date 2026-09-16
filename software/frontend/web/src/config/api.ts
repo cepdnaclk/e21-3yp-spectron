@@ -1,8 +1,16 @@
-const DEPLOYED_API_BASE_URL = 'http://spectron-backend-env.eba-3uqs3iea.ap-south-1.elasticbeanstalk.com';
+const DEPLOYED_API_BASE_URL = 'https://spectroniot.xyz';
 
 const configuredApiBaseUrl = process.env.REACT_APP_API_URL?.trim().replace(/\/$/, '');
 
-const normalizeApiBaseUrl = (configuredUrl?: string) => configuredUrl || DEPLOYED_API_BASE_URL;
+const normalizeApiBaseUrl = (configuredUrl?: string) => {
+  const fallbackUrl = configuredUrl || DEPLOYED_API_BASE_URL;
+
+  if (window.location.protocol === 'https:' && fallbackUrl.startsWith('http://')) {
+    return fallbackUrl.replace(/^http:\/\//i, 'https://');
+  }
+
+  return fallbackUrl;
+};
 
 export const API_BASE_URL = normalizeApiBaseUrl(configuredApiBaseUrl);
 
@@ -22,7 +30,7 @@ export const API_ENDPOINTS = {
   CONTROLLERS: {
     LIST: '/controllers',
     GET: (id: string) => `/controllers/${id}`,
-    PAIR: '/controllers/pair',
+    PAIR: '/api/controllers/pair',
     UPDATE: (id: string) => `/controllers/${id}`,
   },
   FARMS: {

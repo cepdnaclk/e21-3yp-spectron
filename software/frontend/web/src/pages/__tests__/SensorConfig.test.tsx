@@ -137,11 +137,49 @@ describe('SensorConfig', () => {
     expect(screen.getByRole('button', { name: /save sensor setup/i })).toBeInTheDocument();
   });
 
+  it('shows only direct climate measurements in a compact alert setup', async () => {
+    renderSensorConfig(baseSensor('temperature_humidity', 'Climate Sensor'));
+
+    expect(await screen.findByText('Metric: Temperature')).toBeInTheDocument();
+    expect(await screen.findByText('Metric: Humidity')).toBeInTheDocument();
+    expect(screen.queryByText('Metric: Temperature Spike')).not.toBeInTheDocument();
+    expect(screen.queryByText('Metric: Heat Index')).not.toBeInTheDocument();
+    expect(screen.queryByText('Metric: Dew Point')).not.toBeInTheDocument();
+    expect(screen.queryByText('Metric: Climate Condition')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Low limit')).toHaveLength(2);
+    expect(screen.getAllByText('High limit')).toHaveLength(2);
+  });
+
+  it.each([
+    ['humidity', 'Humidity Sensor', 'Humidity'],
+    ['humidity_sensor', 'Humidity Sensor', 'Humidity'],
+    ['temperature', 'Temperature Sensor', 'Temperature'],
+    ['pressure_sensor', 'Pressure Sensor', 'Pressure'],
+    ['sht30', 'SHT30 Sensor', 'Temperature'],
+    ['bmp280', 'BMP280 Sensor', 'Temperature'],
+    ['distance', 'Distance Sensor', 'Distance'],
+    ['air_quality', 'Air Quality Sensor', 'Air Quality Index'],
+  ])(
+    'shows configuration controls for %s',
+    async (type, name, metricLabel) => {
+      renderSensorConfig(baseSensor(type, name));
+
+      expect(
+        await screen.findByRole('heading', { name: new RegExp(`set up ${name}`, 'i') }),
+      ).toBeInTheDocument();
+      expect(await screen.findByText(`Metric: ${metricLabel}`)).toBeInTheDocument();
+      expect(screen.queryByText(/select a metric first to see alert options/i)).not.toBeInTheDocument();
+    },
+  );
+
   it('does not save when required setup is missing', async () => {
     const user = userEvent.setup();
     renderSensorConfig(baseSensor('temperature_humidity', 'Climate Sensor'));
 
     await screen.findByRole('heading', { name: /set up climate sensor/i });
+    const lowLimitFields = await screen.findAllByLabelText(/needs attention below/i);
+    await user.clear(lowLimitFields[0]);
+    vi.mocked(saveHardwareSensorConfiguration).mockClear();
     await user.click(screen.getByRole('button', { name: /save sensor setup/i }));
 
     await waitFor(() => {

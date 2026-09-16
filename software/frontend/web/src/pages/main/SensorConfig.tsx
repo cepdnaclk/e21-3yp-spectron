@@ -1,4 +1,4 @@
-import React, {
+﻿import React, {
   useState,
   useEffect,
   useMemo,
@@ -25,8 +25,6 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  FormControlLabel,
-  Switch,
 } from "@mui/material";
 import { ArrowBack, Close, Info as InfoIcon } from "@mui/icons-material";
 import {
@@ -58,6 +56,7 @@ import {
   getRecommendedProfileForDerivedMetric,
   getSensorKnowledgeProfile,
   getSensorHardwareCapabilities,
+  getSensorMetrics,
   getSupportedProfilesForDerivedMetric,
   normalizePresentationConfig,
   metricThresholdsFromAlertSettings,
@@ -149,32 +148,6 @@ type AIDraftSummary = ConfigurationAiSuggestionResponse & {
 };
 
 type AIFollowUpAnswers = Record<string, string>;
-
-const FARM_SENSOR_TYPES = new Set([
-  "temperature",
-  "temperature_sensor",
-  "temp",
-  "humidity",
-  "humidity_sensor",
-  "relative_humidity",
-  "pressure",
-  "pressure_sensor",
-  "temperature_humidity",
-  "temp_humidity",
-  "dht11",
-  "dht22",
-  "sht30",
-  "sht31",
-  "sht35",
-  "bme280",
-  "bmp280",
-]);
-
-const isSupportedFarmSensorType = (sensorType: string) =>
-  FARM_SENSOR_TYPES.has(sensorType.trim().toLowerCase());
-
-const isGateSecuritySensorType = (sensorType: string) =>
-  ["ultrasonic", "vl53l0x", "distance"].includes(sensorType.trim().toLowerCase());
 
 const toNumberOrUndefined = (value: string): number | undefined => {
   if (!value || value.trim() === "") {
@@ -721,8 +694,6 @@ const SensorConfig: React.FC = () => {
   const [maximumLoadKg, setMaximumLoadKg] = useState("");
   const [safeOccupancyPeople, setSafeOccupancyPeople] = useState("");
   const [changeWindowMinutes, setChangeWindowMinutes] = useState("15");
-  const [securityEnabled, setSecurityEnabled] = useState(true);
-  const [securityDetectionDistanceCm, setSecurityDetectionDistanceCm] = useState("120");
   const [attendanceBaselineDistanceCm, setAttendanceBaselineDistanceCm] =
     useState("");
   const [attendanceTriggerDeltaCm, setAttendanceTriggerDeltaCm] =
@@ -825,7 +796,6 @@ const SensorConfig: React.FC = () => {
   );
   const configurationSensorType =
     navigationState?.sensorType || sensor?.type || "";
-  const isGateSecuritySensor = isGateSecuritySensorType(configurationSensorType);
 
   const configurableDerivedMetrics = useMemo(
     () => getConfigurableDerivedMetrics(configurationSensorType),
@@ -836,19 +806,31 @@ const SensorConfig: React.FC = () => {
     [configurationSensorType],
   );
   const observableMetricCatalog = useMemo(
-    () =>
-      isSupportedFarmSensorType(configurationSensorType)
-        ? getObservableMetricCatalog(configurationSensorType)
-        : [],
+    () => getObservableMetricCatalog(configurationSensorType),
     [configurationSensorType],
   );
-  const supportedObservableMetrics = useMemo(
-    () =>
-      observableMetricCatalog.filter(
+  const essentialObservableMetrics = useMemo(() => {
+    const directMetrics = getSensorMetrics(configurationSensorType, useCase)
+      .map((metric) =>
+        observableMetricCatalog.find(
+          (candidate) => candidate.key === metric.key,
+        ),
+      )
+      .filter(
+        (metric): metric is ObservableMetricDefinition =>
+          Boolean(metric) && metric?.availability === "supported_now",
+      );
+
+    if (directMetrics.length > 0) {
+      return directMetrics;
+    }
+
+    const fallbackMetric =
+      observableMetricCatalog.find(
         (metric) => metric.availability === "supported_now",
-      ),
-    [observableMetricCatalog],
-  );
+      ) || observableMetricCatalog[0];
+    return fallbackMetric ? [fallbackMetric] : [];
+  }, [configurationSensorType, observableMetricCatalog, useCase]);
   const selectedDerivedMetric = useMemo(
     () =>
       getObservableMetricDefinition(
@@ -1317,10 +1299,7 @@ const SensorConfig: React.FC = () => {
         buildPresentationAlertSettings(
           sensorType,
           metricKey,
-          metricPresentationProfiles[metricKey] ||
-            (getObservableMetricDefinition(sensorType, metricKey)
-              ?.recommended_profile as PresentationProfileOption | undefined) ||
-            "single_trend",
+          "single_trend",
           currentAlerts,
           metricThresholdsFromAlertSettings(currentAlerts),
         ).map(toAlertSettingInput),
@@ -1330,7 +1309,6 @@ const SensorConfig: React.FC = () => {
       return nextAlerts;
     });
   }, [
-    metricPresentationProfiles,
     configurationSensorType,
     selectedDerivedMetric,
     selectedMetrics,
@@ -1521,18 +1499,6 @@ const SensorConfig: React.FC = () => {
             ? existingHardwareConfig.changeWindowMinutes.toString()
             : "15",
         );
-        setSecurityEnabled(
-          typeof existingHardwareConfig.securityEnabled === "boolean"
-            ? existingHardwareConfig.securityEnabled
-            : (activeConfig?.settings?.alerts?.length ?? 0) > 0,
-        );
-        setSecurityDetectionDistanceCm(
-          typeof existingHardwareConfig.objectDetectionDistanceCm === "number"
-            ? existingHardwareConfig.objectDetectionDistanceCm.toString()
-            : typeof activeConfig?.settings?.alerts?.[0]?.warning_threshold === "number"
-              ? activeConfig.settings.alerts[0].warning_threshold.toString()
-              : "120",
-        );
         setAttendanceBaselineDistanceCm(
           typeof existingHardwareConfig.attendanceBaselineDistanceCm ===
             "number"
@@ -1559,47 +1525,32 @@ const SensorConfig: React.FC = () => {
         );
         setUseCase(configuredUseCase);
 
-        const savedObservableMetrics =
-          activeConfig?.interpretation?.observable_metrics?.filter(Boolean) ||
-          [];
-        const savedDerivedMetrics =
-          activeConfig?.interpretation?.derived_metrics
-            ?.map((metric) => metric.key)
-            .filter(Boolean) || [];
         const hwConfigProfiles =
           (existingHardwareConfig.metric_profiles as
             Record<string, PresentationProfileOption> | undefined) || {};
         const savedMetricPresentationConfigs =
           (existingHardwareConfig.metric_presentation_configs as
             Record<string, PresentationConfigValue> | undefined) || {};
-        const savedProfileMetricKeys = Object.keys(hwConfigProfiles);
-        const savedMetricKeys =
-          savedObservableMetrics.length > 0
-            ? savedObservableMetrics
-            : savedProfileMetricKeys.length > 0
-              ? savedProfileMetricKeys
-            : savedDerivedMetrics.length > 0
-                ? savedDerivedMetrics
-                : getConfigurableDerivedMetrics(effectiveSensorType)
-                    .map((metric) => metric.key)
-                    .filter(Boolean);
+        const directMetricKeys = getSensorMetrics(
+          effectiveSensorType,
+          configuredUseCase,
+        )
+          .map((metric) => metric.key)
+          .filter((metricKey) => {
+            const definition = getObservableMetricDefinition(
+              effectiveSensorType,
+              metricKey,
+            );
+            return definition?.availability === "supported_now";
+          });
+        const configuredMetricIsDirect = Boolean(
+          configuredMetric?.key && directMetricKeys.includes(configuredMetric.key),
+        );
         const hydratedMetricKeys = Array.from(
           new Set(
-            [
-              ...savedMetricKeys,
-              ...getObservableMetricCatalog(effectiveSensorType)
-                .filter((metric) => metric.availability === "supported_now")
-                .map((metric) => metric.key),
-            ].filter(
-              (metricKey) =>
-                Boolean(metricKey) &&
-                Boolean(
-                  getObservableMetricDefinition(
-                    effectiveSensorType,
-                    metricKey,
-                  ),
-                ),
-            ),
+            configuredMetric?.key && !configuredMetricIsDirect
+              ? [configuredMetric.key]
+              : directMetricKeys,
           ),
         );
         if (hydratedMetricKeys.length === 0 && configuredMetric?.key) {
@@ -1716,10 +1667,9 @@ const SensorConfig: React.FC = () => {
       return;
     }
 
-    const fallbackMetric =
-      supportedObservableMetrics[0] || observableMetricCatalog[0];
+    const fallbackMetric = essentialObservableMetrics[0];
     if (!fallbackMetric) return;
-    const detectedMetricKeys = supportedObservableMetrics.map(
+    const detectedMetricKeys = essentialObservableMetrics.map(
       (metric) => metric.key,
     );
     setSelectedMetrics(
@@ -1734,7 +1684,7 @@ const SensorConfig: React.FC = () => {
     observableMetricCatalog,
     selectedMetrics,
     purpose,
-    supportedObservableMetrics,
+    essentialObservableMetrics,
     setPrimaryMetric,
     setPresentationProfile,
   ]);
@@ -1984,7 +1934,7 @@ const SensorConfig: React.FC = () => {
 
   const handleAiSuggestionResponse = useCallback(
     (suggestions: ConfigurationAiSuggestionResponse, sensorType: string) => {
-      // Skip follow-up questions Ã¢â‚¬â€ always show results directly
+      // Skip follow-up questions — always show results directly
       resetAiFollowUpState();
       setShowAiSuggestions(true);
       setAiSuggestions(buildAiDraftSummary(suggestions, sensorType));
@@ -2168,19 +2118,8 @@ const SensorConfig: React.FC = () => {
       return false;
     }
     if (!purpose.trim()) {
-      setPageError(
-        isGateSecuritySensor
-          ? "Please confirm this sensor is for gate security."
-          : "Please explain why you are measuring this.",
-      );
+      setPageError("Please explain why you are measuring this.");
       return false;
-    }
-    if (isGateSecuritySensor && securityEnabled) {
-      const gateDistance = Number(securityDetectionDistanceCm);
-      if (!Number.isFinite(gateDistance) || gateDistance < 1 || gateDistance > 200) {
-        setPageError("Choose a gate detection distance between 1 cm and 200 cm.");
-        return false;
-      }
     }
     if (!presentationProfile.trim()) {
       setPageError("Display setup is missing for this sensor.");
@@ -2255,7 +2194,7 @@ const SensorConfig: React.FC = () => {
         return false;
       }
     }
-    if ((!isGateSecuritySensor || securityEnabled) && alertSettings.length > 0) {
+    if (alertSettings.length > 0) {
       const alertError = validateAlertLimits(alertSettings, configurationSensorType);
       if (alertError) {
         setPageError(alertError);
@@ -2291,24 +2230,6 @@ const SensorConfig: React.FC = () => {
       setPageError("The selected measurement is not supported by this sensor.");
       return;
     }
-
-    const gateDetectionDistance = Number(securityDetectionDistanceCm);
-    const gateDetectionDistanceCmValue =
-      isGateSecuritySensor && securityEnabled && Number.isFinite(gateDetectionDistance)
-        ? Math.min(200, Math.max(1, Math.round(gateDetectionDistance)))
-        : undefined;
-    const effectiveUseCase = isGateSecuritySensor
-      ? "safety_monitoring"
-      : useCase;
-    const effectivePrimaryMetric = isGateSecuritySensor
-      ? "distance"
-      : primaryMetric || selectedMetricDefinition.runtime_metric_key || sensorMetrics[0]?.key;
-    const effectivePurpose = isGateSecuritySensor
-      ? "Gate Security Monitoring"
-      : purpose.trim() || undefined;
-    const effectiveObservableMetrics = isGateSecuritySensor
-      ? ["distance"]
-      : selectedMetrics.filter(Boolean);
 
     if (selectedMetricDefinition.availability === "planned_analytics") {
       setPageError(
@@ -2350,7 +2271,7 @@ const SensorConfig: React.FC = () => {
       }
     }
 
-    if ((!isGateSecuritySensor || securityEnabled) && alertSettings.length > 0) {
+    if (alertSettings.length > 0) {
       const alertError = validateAlertLimits(
         alertSettings,
         configurationSensorType,
@@ -2371,32 +2292,16 @@ const SensorConfig: React.FC = () => {
         resolvedSensorName ||
         "Monitoring System";
       const reports = resolvedReportsPerDay;
-      const alertSettingPayload = isGateSecuritySensor
-        ? gateDetectionDistanceCmValue === undefined
-          ? []
-          : [
-              {
-                key: "distance_security_band",
-                label: "Gate Security Alert",
-                metric_key: "distance",
-                condition: "below",
-                unit: "cm",
-                description:
-                  "Raise a security alert when an object comes within the configured gate distance.",
-                warning_threshold: gateDetectionDistanceCmValue,
-                critical_threshold: Math.max(10, gateDetectionDistanceCmValue - 20),
-              },
-            ]
-        : alertSettings.map((alert) => ({
-            key: alert.key,
-            label: alert.label,
-            metric_key: alert.metricKey,
-            condition: alert.condition,
-            unit: alert.unit,
-            description: alert.description,
-            warning_threshold: toNumberOrUndefined(alert.warningThreshold),
-            critical_threshold: toNumberOrUndefined(alert.criticalThreshold),
-          }));
+      const alertSettingPayload = alertSettings.map((alert) => ({
+        key: alert.key,
+        label: alert.label,
+        metric_key: alert.metricKey,
+        condition: alert.condition,
+        unit: alert.unit,
+        description: alert.description,
+        warning_threshold: toNumberOrUndefined(alert.warningThreshold),
+        critical_threshold: toNumberOrUndefined(alert.criticalThreshold),
+      }));
       const metricThresholdPayload = Object.fromEntries(
         Object.entries(
           metricThresholdsFromAlertSettings(alertSettingPayload),
@@ -2411,7 +2316,8 @@ const SensorConfig: React.FC = () => {
         ]),
       ) as Record<string, MetricThresholdPayload>;
 
-      const primaryMetricKey = effectivePrimaryMetric;
+      const primaryMetricKey =
+        selectedMetricDefinition.runtime_metric_key || sensorMetrics[0]?.key;
       const primaryMetricThreshold: MetricThresholdPayload = primaryMetricKey
         ? metricThresholdPayload[primaryMetricKey] || {}
         : {};
@@ -2443,7 +2349,7 @@ const SensorConfig: React.FC = () => {
         presentationConfig;
       const presentationMetadata = getPresentationMetadata(
         primaryPresentationProfile,
-        effectiveUseCase,
+        useCase,
       );
       const fullScaleDistance = toPositiveIntOrUndefined(fullScaleDistanceCm);
       const sustainedWindow = toPositiveIntOrUndefined(sustainedWindowMinutes);
@@ -2458,7 +2364,6 @@ const SensorConfig: React.FC = () => {
         estimatedBatteryLifeDays,
         metric_profiles: finalMetricProfiles,
         metric_presentation_configs: finalMetricPresentationConfigs,
-        securityEnabled: isGateSecuritySensor ? securityEnabled : existingHardwareConfig.securityEnabled,
       };
 
       if (fullScaleDistance !== undefined) {
@@ -2499,20 +2404,12 @@ const SensorConfig: React.FC = () => {
           attendanceCooldownSeconds,
         );
       }
-      if (isGateSecuritySensor) {
-        if (gateDetectionDistanceCmValue !== undefined) {
-          conversationalHardwareConfig.objectDetectionDistanceCm = gateDetectionDistanceCmValue;
-          conversationalHardwareConfig.fullScaleDistanceCm = gateDetectionDistanceCmValue;
-        } else {
-          delete conversationalHardwareConfig.objectDetectionDistanceCm;
-        }
-      }
 
       const config: SensorConfigPayload = {
         friendly_name: resolvedSensorName,
-        use_case: effectiveUseCase,
+        use_case: useCase,
         presentation_profile: primaryPresentationProfile,
-        primary_metric: effectivePrimaryMetric || undefined,
+        primary_metric: primaryMetric || primaryMetricKey || undefined,
         thresholds: {
           min: primaryMetricThreshold.min,
           max: primaryMetricThreshold.max,
@@ -2534,16 +2431,16 @@ const SensorConfig: React.FC = () => {
         },
         interpretation: {
           friendly_name: resolvedSensorName,
-          purpose: effectivePurpose,
-          use_case: effectiveUseCase,
-          primary_metric: effectivePrimaryMetric || undefined,
+          purpose: purpose.trim() || undefined,
+          use_case: useCase,
+          primary_metric: primaryMetric || primaryMetricKey || undefined,
           display_unit: selectedMetricDefinition.unit || undefined,
           // observable_metrics records every metric key the user explicitly selected
           // in the "What to Measure" step. The monitoring dashboard reads this field
           // to decide which metric cards to render. This is the source of truth.
-          observable_metrics: effectiveObservableMetrics,
+          observable_metrics: selectedMetrics.filter(Boolean),
           derived_metrics: configurableDerivedMetrics
-            .filter((metric) => effectiveObservableMetrics.includes(metric.key))
+            .filter((metric) => selectedMetrics.includes(metric.key))
             .map((metric) => ({
               key: metric.key,
               label: metric.label,
@@ -3063,7 +2960,7 @@ const SensorConfig: React.FC = () => {
                   aiSuggestions.warnings.length > 0 && (
                     <Alert severity="warning" sx={{ mb: 1.5, py: 0.25 }}>
                       <Typography variant="caption">
-                        {aiSuggestions.warnings.join(" Ã¢â‚¬Â¢ ")}
+                        {aiSuggestions.warnings.join(" • ")}
                       </Typography>
                     </Alert>
                   )}
@@ -3215,52 +3112,22 @@ const SensorConfig: React.FC = () => {
           </Box>
         )}
 
-        {isGateSecuritySensor && (
-          <Box
-            sx={{
-              p: 2,
-              borderRadius: 2,
-              bgcolor: "#fffdf8",
-              border: "1px solid rgba(60, 57, 17, 0.12)",
-            }}
-          >
-            <Stack spacing={1.5}>
-              <Box>
-                <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.5 }}>
-                  Gate security
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Use this ToF sensor at the farm gate. Turn security on only when you want alerts for approaching objects.
-                </Typography>
-              </Box>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={securityEnabled}
-                    onChange={(event) => setSecurityEnabled(event.target.checked)}
-                    color="secondary"
-                  />
-                }
-                label={securityEnabled ? "Security alerts are on" : "Security alerts are off"}
-              />
-              <TextField
-                fullWidth
-                label="Gate detection distance"
-                type="number"
-                value={securityDetectionDistanceCm}
-                onChange={(event) => setSecurityDetectionDistanceCm(event.target.value)}
-                inputProps={{ min: 1, max: 200, step: 1 }}
-                helperText="Choose how close an object must come to the gate before Spectron alerts you. Maximum reading is 200 cm (2 m)."
-                disabled={!securityEnabled}
-              />
-            </Stack>
-          </Box>
-        )}
-
         {renderAttendanceQuestions()}
       </Stack>
     </Box>
   );
+
+  const alertMetricGroups = Array.from(
+    new Set([
+      ...selectedMetrics,
+      ...alertSettings.map((alert) => alert.metricKey).filter(Boolean),
+    ]),
+  )
+    .map((metricKey) => ({
+      metricKey,
+      alerts: alertSettings.filter((alert) => alert.metricKey === metricKey),
+    }))
+    .filter((group) => group.alerts.length > 0);
 
   const renderAlertsReviewStep = () => (
     <Box sx={sectionSx}>
@@ -3268,15 +3135,14 @@ const SensorConfig: React.FC = () => {
         Alert limits
       </Typography>
       <InfoButton tooltip="Help">
-        {isGateSecuritySensor
-          ? "Use this section to control how close something can come to the gate before Spectron warns you or raises an intrusion alert."
-          : "A warning tells you to check the Field. A critical limit means the crop may need prompt attention."}
+        A warning tells you to check the Field. A critical limit means the crop
+        may need prompt attention.
       </InfoButton>
 
       <Alert severity="info" sx={{ mt: 2 }}>
-        {isGateSecuritySensor
-          ? "The ToF gate sensor can read up to 200 cm (2 m). Set the detection distance based on your gate layout."
-          : "Use crop- and growth-stage-specific limits. The sensor measurement range only shows what the hardware can read; it is not a safe range for the crop."}
+        Use crop- and growth-stage-specific limits. The sensor measurement range
+        only shows what the hardware can read; it is not a safe range for the
+        crop.
       </Alert>
 
       {learningPhaseStatus?.phase === "completed" &&
@@ -3315,7 +3181,7 @@ const SensorConfig: React.FC = () => {
         </Alert>
       ) : (
         <Box sx={{ mt: 2 }}>
-          {(purpose || primaryMetric) && (
+          {alertMetricGroups.length > 0 && (
             <Box
               sx={{
                 mb: 2,
@@ -3325,45 +3191,44 @@ const SensorConfig: React.FC = () => {
                 alignItems: "center",
               }}
             >
-              {selectedMetrics.map((metric) => {
+              {alertMetricGroups.map(({ metricKey }) => {
                 const metricDef = observableMetricCatalog.find(
-                  (m) => m.key === metric,
+                  (metric) => metric.key === metricKey,
                 );
-                return metricDef ? (
+                return (
                   <Chip
-                    key={metric}
-                    label={`Metric: ${metricDef.label}`}
+                    key={metricKey}
+                    label={`Metric: ${metricDef?.label || getMetricLabel(metricKey)}`}
                     size="small"
                     variant="outlined"
                   />
-                ) : null;
+                );
               })}
-              {purpose && (
-                <Chip
-                  label={`Purpose: ${purpose}`}
-                  size="small"
-                  variant="outlined"
-                />
-              )}
             </Box>
           )}
           <Grid container spacing={2}>
-            {alertSettings.map((alert, index) => {
+            {alertMetricGroups.map(({ metricKey, alerts }) => {
               const hwMetric = getAlertMeasurementRange(
                 configurationSensorType,
-                alert.metricKey,
+                metricKey,
               );
-              const warningValue = Number(alert.warningThreshold);
-              const criticalValue = Number(alert.criticalThreshold);
               const isOutsideSensorRange = (value: number) =>
                 Number.isFinite(value) &&
                 ((hwMetric?.minimum_value !== undefined &&
                   value < hwMetric.minimum_value) ||
                   (hwMetric?.maximum_value !== undefined &&
                     value > hwMetric.maximum_value));
+              const metricDefinition = observableMetricCatalog.find(
+                (metric) => metric.key === metricKey,
+              );
 
               return (
-                <Grid item xs={12} md={6} key={`${alert.key}-${index}`}>
+                <Grid
+                  item
+                  xs={12}
+                  md={alertMetricGroups.length > 1 ? 6 : 12}
+                  key={metricKey}
+                >
                 <Box
                   sx={{
                     p: 2.25,
@@ -3375,30 +3240,11 @@ const SensorConfig: React.FC = () => {
                 >
                   <Typography
                     variant="subtitle2"
-                    sx={{ fontWeight: 800, mb: 0.75 }}
+                    sx={{ fontWeight: 800 }}
                   >
-                    {selectedMetrics.length > 1
-                      ? `${observableMetricCatalog.find((m) => m.key === alert.metricKey)?.label || alert.metricKey}: `
-                      : ""}
-                    {alert.label}
+                    {metricDefinition?.label || getMetricLabel(metricKey)}
+                    {hwMetric?.unit ? ` (${hwMetric.unit})` : ""}
                   </Typography>
-                  <Typography
-                    variant="caption"
-                    sx={{ color: "text.secondary", display: "block", mb: 1 }}
-                  >
-                    {alert.condition === "below"
-                      ? "Alert when below"
-                      : "Alert when above"}
-                  </Typography>
-                  {alert.description && (
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{ mb: 1, fontSize: "0.85rem" }}
-                    >
-                      {alert.description}
-                    </Typography>
-                  )}
                   {(() => {
                     if (
                       hwMetric?.minimum_value !== undefined ||
@@ -3430,74 +3276,104 @@ const SensorConfig: React.FC = () => {
                     }
                     return null;
                   })()}
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        fullWidth
-                        label={alert.warningLabel}
-                        type="number"
-                        placeholder="eg: 30"
-                        value={alert.warningThreshold}
-                        onChange={(e) =>
-                          updateAlertSetting(
-                            alert.key,
-                            "warningThreshold",
-                            e.target.value,
-                          )
-                        }
-                        size="small"
-                        inputProps={{
-                          min: hwMetric?.minimum_value,
-                          max: hwMetric?.maximum_value,
-                          step: "any",
-                        }}
-                        helperText={
-                          isOutsideSensorRange(warningValue)
-                            ? `Use ${hwMetric?.minimum_value ?? ""} to ${hwMetric?.maximum_value ?? ""} ${hwMetric?.unit || ""}`
-                            : alert.warningThreshold
-                              ? "Check the Field at this value"
-                            : "Required"
-                        }
-                        error={
-                          !alert.warningThreshold ||
-                          isOutsideSensorRange(warningValue)
-                        }
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        fullWidth
-                        label={alert.criticalLabel}
-                        type="number"
-                        placeholder="eg: 35"
-                        value={alert.criticalThreshold}
-                        onChange={(e) =>
-                          updateAlertSetting(
-                            alert.key,
-                            "criticalThreshold",
-                            e.target.value,
-                          )
-                        }
-                        size="small"
-                        inputProps={{
-                          min: hwMetric?.minimum_value,
-                          max: hwMetric?.maximum_value,
-                          step: "any",
-                        }}
-                        helperText={
-                          isOutsideSensorRange(criticalValue)
-                            ? `Use ${hwMetric?.minimum_value ?? ""} to ${hwMetric?.maximum_value ?? ""} ${hwMetric?.unit || ""}`
-                            : alert.criticalThreshold
-                              ? "Prompt attention at this value"
-                            : "Required"
-                        }
-                        error={
-                          !alert.criticalThreshold ||
-                          isOutsideSensorRange(criticalValue)
-                        }
-                      />
-                    </Grid>
-                  </Grid>
+                  <Stack spacing={2} sx={{ mt: 1.5 }}>
+                    {alerts.map((alert) => {
+                      const warningValue = Number(alert.warningThreshold);
+                      const criticalValue = Number(alert.criticalThreshold);
+                      const direction =
+                        alert.condition === "below" ? "below" : "above";
+
+                      return (
+                        <Box
+                          key={`${metricKey}-${alert.key}-${alert.condition}`}
+                          sx={{
+                            pt: 1.5,
+                            borderTop: "1px solid rgba(60, 57, 17, 0.08)",
+                          }}
+                        >
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: "text.secondary",
+                              display: "block",
+                              mb: 1,
+                              fontWeight: 700,
+                            }}
+                          >
+                            {direction === "below" ? "Low limit" : "High limit"}
+                          </Typography>
+                          <Grid container spacing={1.5}>
+                            <Grid item xs={12} sm={6}>
+                              <TextField
+                                fullWidth
+                                label={`Needs attention ${direction}`}
+                                type="number"
+                                placeholder="eg: 30"
+                                value={alert.warningThreshold}
+                                onChange={(event) =>
+                                  updateAlertSetting(
+                                    alert.key,
+                                    "warningThreshold",
+                                    event.target.value,
+                                  )
+                                }
+                                size="small"
+                                inputProps={{
+                                  min: hwMetric?.minimum_value,
+                                  max: hwMetric?.maximum_value,
+                                  step: "any",
+                                }}
+                                helperText={
+                                  isOutsideSensorRange(warningValue)
+                                    ? `Use ${hwMetric?.minimum_value ?? ""} to ${hwMetric?.maximum_value ?? ""} ${hwMetric?.unit || ""}`
+                                    : alert.warningThreshold
+                                      ? "Check the Field"
+                                      : "Required"
+                                }
+                                error={
+                                  !alert.warningThreshold ||
+                                  isOutsideSensorRange(warningValue)
+                                }
+                              />
+                            </Grid>
+                            <Grid item xs={12} sm={6}>
+                              <TextField
+                                fullWidth
+                                label={`Urgent ${direction}`}
+                                type="number"
+                                placeholder="eg: 35"
+                                value={alert.criticalThreshold}
+                                onChange={(event) =>
+                                  updateAlertSetting(
+                                    alert.key,
+                                    "criticalThreshold",
+                                    event.target.value,
+                                  )
+                                }
+                                size="small"
+                                inputProps={{
+                                  min: hwMetric?.minimum_value,
+                                  max: hwMetric?.maximum_value,
+                                  step: "any",
+                                }}
+                                helperText={
+                                  isOutsideSensorRange(criticalValue)
+                                    ? `Use ${hwMetric?.minimum_value ?? ""} to ${hwMetric?.maximum_value ?? ""} ${hwMetric?.unit || ""}`
+                                    : alert.criticalThreshold
+                                      ? "Act promptly"
+                                      : "Required"
+                                }
+                                error={
+                                  !alert.criticalThreshold ||
+                                  isOutsideSensorRange(criticalValue)
+                                }
+                              />
+                            </Grid>
+                          </Grid>
+                        </Box>
+                      );
+                    })}
+                  </Stack>
                 </Box>
                 </Grid>
               );
@@ -3696,6 +3572,3 @@ const SensorConfig: React.FC = () => {
 };
 
 export default SensorConfig;
-
-
-

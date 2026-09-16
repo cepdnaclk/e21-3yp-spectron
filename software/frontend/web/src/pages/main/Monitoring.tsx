@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Box, Button, Card, CardContent, Chip, Container, FormControl, Grid, InputLabel,
   MenuItem, Select, Stack, ToggleButton, ToggleButtonGroup, Typography,
@@ -91,7 +91,7 @@ const resolveSensorDisplayGroup = (
 const Monitoring: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const navigationState = location.state as { farmId?: string; fieldId?: string; configurationSaved?: boolean; configuredSensorId?: string; configuredSensorName?: string; observationMessage?: string } | null;
+  const navigationState = location.state as { farmId?: string; fieldId?: string } | null;
   const [farms, setFarms] = useState<Farm[]>([]);
   const [farmId, setFarmId] = useState(navigationState?.farmId || '');
   const [fields, setFields] = useState<Field[]>([]);
@@ -101,6 +101,7 @@ const Monitoring: React.FC = () => {
   const [learningBySensorId, setLearningBySensorId] = useState<Record<string, LearningPhaseStatusResponse>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const readingRefreshInFlight = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -154,6 +155,29 @@ const Monitoring: React.FC = () => {
 
   useEffect(() => { void load(); }, [load]);
   useRealtimeRefresh('customer', load);
+
+  // Readings are intentionally refreshed independently from the heavier Farm,
+  // Field, sensor-detail, and learning-status requests. This gives the Live
+  // screen a one-second update without repeatedly loading unchanged metadata.
+  useEffect(() => {
+    if (!farmId) return undefined;
+
+    const refreshReadings = async () => {
+      if (document.visibilityState !== 'visible' || readingRefreshInFlight.current) return;
+      readingRefreshInFlight.current = true;
+      try {
+        setReadings(await getFarmMonitoringReadings(farmId, hours));
+      } catch {
+        // Keep the last good values. The normal page load and realtime refresh
+        // paths continue to show actionable connection errors.
+      } finally {
+        readingRefreshInFlight.current = false;
+      }
+    };
+
+    const intervalId = window.setInterval(() => { void refreshReadings(); }, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [farmId, hours]);
 
   const downloadLearningPhaseReport = useCallback((sensorId: string) => {
     const status = learningBySensorId[sensorId];
@@ -280,7 +304,7 @@ const Monitoring: React.FC = () => {
                     <Typography variant="h5">{group.fieldName}</Typography>
                     <Typography variant="body2" color="text.secondary">
                       {group.measurements.length > 0
-                        ? `${group.measurements.length} measurements Ã‚Â· ${group.controllerCount} ${group.controllerCount === 1 ? 'Controller' : 'Controllers'}`
+                        ? `${group.measurements.length} measurements · ${group.controllerCount} ${group.controllerCount === 1 ? 'Controller' : 'Controllers'}`
                         : 'No recent readings'}
                     </Typography>
                   </Box>
@@ -376,13 +400,11 @@ const Monitoring: React.FC = () => {
                                           returnTo: '/monitoring',
                                           controllerId: sensorControllerId,
                                           sensorId: latest.sensor_id,
-                                          sensorName: sensorLabel(sensor, latest),
-                                          openSection: 'alerts',
                                         },
                                       },
                                     )}
                                   >
-                                    Alert limits
+                                    Configure
                                   </Button>
                                 </Stack>
                               </Stack>

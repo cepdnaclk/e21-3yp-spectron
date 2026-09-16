@@ -96,6 +96,12 @@ var migration025FieldProblems string
 //go:embed migrations/026_alert_recipient_state.sql
 var migration026AlertRecipientState string
 
+//go:embed migrations/027_one_second_device_sampling.sql
+var migration027OneSecondDeviceSampling string
+
+//go:embed migrations/028_advisor_follow_up_answers.sql
+var migration028AdvisorFollowUpAnswers string
+
 type migration struct {
 	name string
 	sql  string
@@ -130,6 +136,8 @@ var startupMigrations = []migration{
 	{name: "024_crop_growth_stage_choices", sql: migration024CropGrowthStageChoices},
 	{name: "025_field_problems", sql: migration025FieldProblems},
 	{name: "026_alert_recipient_state", sql: migration026AlertRecipientState},
+	{name: "027_one_second_device_sampling", sql: migration027OneSecondDeviceSampling},
+	{name: "028_advisor_follow_up_answers", sql: migration028AdvisorFollowUpAnswers},
 }
 
 func ApplyStartupMigrations(ctx context.Context, pool *pgxpool.Pool) error {

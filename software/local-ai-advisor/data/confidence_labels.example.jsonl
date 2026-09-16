@@ -1,0 +1,3 @@
+{"recommendation_id":"example-1","is_correct_and_safe":true,"features":{"retrieval_score":0.91,"crop_supported":1,"stage_present":1,"observation_detail":0.9,"sensor_available":1,"weather_available":1,"schema_complete":1,"model_token_probability":0.72}}
+{"recommendation_id":"example-2","is_correct_and_safe":false,"features":{"retrieval_score":0.18,"crop_supported":1,"stage_present":0,"observation_detail":0.2,"sensor_available":0,"weather_available":0,"schema_complete":0,"model_token_probability":0.81}}
+

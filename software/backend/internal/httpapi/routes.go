@@ -132,6 +132,7 @@ func RegisterRoutes(r chi.Router, db *pgxpool.Pool, allowedOrigins []string, raw
 			r.Post("/", farmHandler.Create)
 			r.Route("/{farmId}", func(r chi.Router) {
 				r.Get("/", farmHandler.Get)
+				r.Get("/weather", farmHandler.GetWeather)
 				r.Put("/", farmHandler.Update)
 				r.Delete("/", farmHandler.Delete)
 				r.Get("/collaborators", farmHandler.ListCollaborators)

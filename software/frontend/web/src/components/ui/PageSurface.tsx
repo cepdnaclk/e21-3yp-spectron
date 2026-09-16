@@ -37,8 +37,8 @@ export const PageHeaderPanel: React.FC<PageHeaderPanelProps> = ({ title, subtitl
   <Box
     sx={{
       mb: 3,
-      p: { xs: 1.5, md: 2 },
-      minHeight: { xs: 84, md: 102 },
+      p: { xs: 2, md: 2 },
+      minHeight: { xs: 92, md: 102 },
       borderRadius: 4,
       border: '1px solid rgba(60, 57, 17, 0.1)',
       bgcolor: 'rgba(255, 253, 248, 0.9)',
@@ -50,7 +50,7 @@ export const PageHeaderPanel: React.FC<PageHeaderPanelProps> = ({ title, subtitl
         direction={{ xs: 'column', md: 'row' }}
         justifyContent="space-between"
         alignItems={{ xs: 'stretch', md: 'center' }}
-        spacing={2}
+        spacing={{ xs: 1.5, md: 2 }}
     >
       <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0 }}>
         {icon && (
@@ -95,6 +95,7 @@ export const PageHeaderPanel: React.FC<PageHeaderPanelProps> = ({ title, subtitl
             alignSelf: { xs: 'stretch', md: 'center' },
             display: 'flex',
             alignItems: 'center',
+            '& > .MuiButton-root': { width: { xs: '100%', md: 'auto' } },
           }}
         >
           {actions}

@@ -18,6 +18,7 @@
       "growth_stage": "Vegetative",
       "content": "When maize shows holes or feeding damage in newly opening leaves, inspect deep in the whorl for larvae, fresh waste material, and the proportion of affected plants before recommending control.",
       "symptoms": ["holes in unfolding leaves", "whorl feeding", "waste material in whorl"],
+      "actions": ["Inspect deep inside 10 affected and 10 nearby unaffected whorls for larvae and fresh waste material.", "Record the proportion of plants with fresh whorl damage before considering control."],
       "confirmation_questions": ["Are larvae or fresh waste visible inside the whorl?", "What proportion of plants is affected?"],
       "evidence_type": "safe_diagnostic_workflow"
     },
@@ -26,13 +27,15 @@
       "topic": "Water-stress confirmation",
       "content": "Do not diagnose maize water stress from rolled leaves alone; compare the time of day, root-zone moisture, recent rainfall, and whether leaves recover during cooler hours.",
       "symptoms": ["rolled leaves", "temporary wilting"],
+      "actions": ["Compare the same rolled leaves at midday and during the cooler evening hours.", "Check the calibrated root-zone moisture trend and recent rainfall before changing irrigation."],
       "confirmation_questions": ["Do leaves recover in the evening?", "What is the calibrated root-zone moisture trend?"]
     },
     {
       "category": "field_management",
       "topic": "Integrated monitoring",
       "content": "Record maize crop age, variety, plant population, affected-field percentage, recent fertilizer, rainfall, and irrigation before generating a specific pest, nutrient, or water recommendation.",
-      "required_context": ["crop age", "variety", "affected percentage", "fertilizer history", "rainfall", "irrigation"]
+      "required_context": ["crop age", "variety", "affected percentage", "fertilizer history", "rainfall", "irrigation"],
+      "actions": ["Record crop age, variety, affected-field percentage, recent fertilizer, rainfall, and irrigation before deciding the next step."]
     }
   ]
 }

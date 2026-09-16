@@ -19,7 +19,6 @@ export interface AdminDevice {
   name: string;
   location?: string;
   status: string;
-  claimStatus?: string;
   ownerEmail?: string;
   sensorCount: number;
   configuredSensors: number;
@@ -93,8 +92,6 @@ export interface AdminAuditQuery {
 export interface AdminAuditResponse {
   events: AdminAuditEvent[];
   total: number;
-  limit?: number;
-  offset?: number;
 }
 
 export interface CreateOwnerRequest {
@@ -164,15 +161,11 @@ export const getAdminAuditEvents = async (query: AdminAuditQuery = {}): Promise<
     return {
       events: response.data,
       total: response.data.length,
-      limit: query.limit,
-      offset: query.offset,
     };
   }
   return {
     events: response.data.events || [],
     total: response.data.total ?? (response.data.events || []).length,
-    limit: query.limit,
-    offset: query.offset,
   };
 };
 

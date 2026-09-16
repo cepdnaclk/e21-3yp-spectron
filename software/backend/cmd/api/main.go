@@ -72,10 +72,12 @@ func main() {
 	go iot.NewAlertMonitor(pool).Run(monitorCtx)
 
 	srv := &http.Server{
-		Addr:         "0.0.0.0:" + cfg.HTTPPort, // Listen on all interfaces for mobile access
-		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		Addr:        "0.0.0.0:" + cfg.HTTPPort, // Listen on all interfaces for mobile access
+		Handler:     r,
+		ReadTimeout: 15 * time.Second,
+		// Hosted AI Advisor requests can take longer than normal API calls.
+		// The frontend keeps the farmer on a clear loading state while this runs.
+		WriteTimeout: 5 * time.Minute,
 		IdleTimeout:  60 * time.Second,
 	}
 

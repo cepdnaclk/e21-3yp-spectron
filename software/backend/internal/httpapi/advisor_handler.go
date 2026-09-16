@@ -113,7 +113,8 @@ func fallbackDirectFieldAdvice(
 	recentProblems []map[string]any,
 	matches []knowledge.Match,
 ) advisor.Result {
-	headline := fmt.Sprintf("Check %s in the Field before treating the crop.", cropName)
+	focus, action, question, specificCheck := fallbackAdviceFocus(observation)
+	headline := fmt.Sprintf("Check %s in the %s Field before treatment.", focus, cropName)
 	evidence := make([]string, 0, 3)
 	if text := strings.TrimSpace(observation); text != "" {
 		evidence = append(evidence, fmt.Sprintf("Farmer reported: %s", text))
@@ -129,9 +130,9 @@ func fallbackDirectFieldAdvice(
 	}
 
 	checkNext := []string{
+		specificCheck,
 		"Check 5 to 10 representative plants and note whether the symptom is spreading, stable, or limited to one patch.",
 		"Compare affected plants with healthy plants of the same stage before changing irrigation or applying treatment.",
-		"Record whether leaves, stems, flowers, or fruit show the strongest visible change.",
 	}
 	if len(matches) > 0 {
 		topic := strings.TrimSpace(matches[0].Topic)
@@ -145,8 +146,8 @@ func fallbackDirectFieldAdvice(
 
 	doNow := []string{
 		"Walk the affected area now and mark a few plants so you can recheck the same plants later today.",
+		action,
 		"Check the root-zone soil by hand near affected plants and compare it with a nearby healthy area before changing watering.",
-		"Take close photos of leaves, stems, flowers, and fruit so the symptom can be reviewed again if it worsens.",
 	}
 	if len(recentProblems) > 0 {
 		doNow = append(doNow, "Compare this symptom with the recent problem already recorded for this Field before repeating the same action.")
@@ -155,7 +156,7 @@ func fallbackDirectFieldAdvice(
 	result := advisor.Result{
 		Status:             "NEEDS_ATTENTION",
 		Headline:           headline,
-		WhatMayBeHappening: advisor.AdvisorText(fmt.Sprintf("The reported change in %s during %s may be linked to stress, disease pressure, watering imbalance, or normal aging in part of the crop. The cause is still uncertain, so confirm the visible symptom in the Field before taking treatment action.", cropName, stageName)),
+		WhatMayBeHappening: advisor.AdvisorText(fmt.Sprintf("The reported %s in %s during %s may be linked to stress, disease pressure, watering imbalance, or normal aging. The cause is still uncertain, so confirm the visible symptom in the Field before taking treatment action.", strings.ToLower(focus), cropName, stageName)),
 		DoNow:              doNow,
 		CheckNext:          checkNext,
 		WhyThisAdvice: []string{
@@ -173,14 +174,14 @@ func fallbackDirectFieldAdvice(
 			"Plants show severe wilting, stem rot, dark lesions, or rapid fruit loss.",
 			"The same symptom continues after careful rechecking and basic field corrections.",
 		},
-		TellUsNext: advisor.AdvisorText("Tell us whether the soil near affected plants feels dry, normal, or too wet, and send one close photo."),
-		SafetyNote: advisor.AdvisorText("This is decision support only. Confirm the symptom in the Field before treatment."),
-		Confidence: "LOW",
-		Evidence:   evidence,
-		Summary:    headline,
-		ActionsNow: doNow,
+		TellUsNext:  advisor.AdvisorText(question),
+		SafetyNote:  advisor.AdvisorText("This is decision support only. Confirm the symptom in the Field before treatment."),
+		Confidence:  "LOW",
+		Evidence:    evidence,
+		Summary:     headline,
+		ActionsNow:  doNow,
 		MonitorNext: checkNext,
-		Recheck:    advisor.AdvisorText("Recheck the marked plants later today and again tomorrow morning."),
+		Recheck:     advisor.AdvisorText("Recheck the marked plants later today and again tomorrow morning."),
 	}
 	return result
 }

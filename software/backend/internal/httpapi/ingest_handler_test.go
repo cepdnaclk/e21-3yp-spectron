@@ -8,19 +8,19 @@ import (
 )
 
 func TestEffectiveSamplePeriodMsDefaultsToControllerMinimum(t *testing.T) {
-	if got := effectiveSamplePeriodMs(0, 300); got != 300000 {
-		t.Fatalf("expected 300000ms default sample period, got %d", got)
+	if got := effectiveSamplePeriodMs(0, 1); got != 1000 {
+		t.Fatalf("expected 1000ms default sample period, got %d", got)
 	}
 }
 
 func TestEffectiveSamplePeriodMsClampsToControllerMinimum(t *testing.T) {
-	if got := effectiveSamplePeriodMs(1000, 300); got != 300000 {
-		t.Fatalf("expected clamp to 300000ms minimum, got %d", got)
+	if got := effectiveSamplePeriodMs(86400, 1); got != 1000 {
+		t.Fatalf("expected clamp to 1000ms minimum, got %d", got)
 	}
 }
 
 func TestEffectiveSamplePeriodMsAllowsSlowerSchedules(t *testing.T) {
-	if got := effectiveSamplePeriodMs(24, 300); got != 3600000 {
+	if got := effectiveSamplePeriodMs(24, 1); got != 3600000 {
 		t.Fatalf("expected hourly schedule to map to 3600000ms, got %d", got)
 	}
 }

@@ -20,7 +20,10 @@ import (
 )
 
 const (
-	defaultDeviceMinReportingIntervalSec = 300
+	// A one-second minimum keeps configuration pulls and new sensor modules
+	// aligned with the product sampling interval. Controllers may still use a
+	// slower, explicitly configured reporting schedule.
+	defaultDeviceMinReportingIntervalSec = 1
 	defaultTempThresholdHiX100           = 3500
 	defaultHumidityThresholdHiX100       = 8500
 )

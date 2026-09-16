@@ -145,6 +145,27 @@ export interface SensorKnowledgeProfile {
   notes?: string[];
 }
 
+const SENSOR_TYPE_ALIASES: Record<string, string> = {
+  temperature_sensor: 'temperature',
+  temp: 'temperature',
+  humidity_sensor: 'humidity',
+  relative_humidity: 'humidity',
+  pressure_sensor: 'pressure',
+  sht30: 'temperature_humidity',
+  sht31: 'temperature_humidity',
+  sht35: 'temperature_humidity',
+  distance_sensor: 'distance',
+  ultrasonic_sensor: 'ultrasonic',
+  load_sensor: 'load',
+  weight: 'load',
+  air_quality_sensor: 'air_quality',
+};
+
+export const normalizeSensorType = (sensorType: string): string => {
+  const normalized = (sensorType || '').trim().toLowerCase();
+  return SENSOR_TYPE_ALIASES[normalized] || normalized;
+};
+
 const SENSOR_METRIC_MAP: Record<string, SensorMetric[]> = {
   temperature: [{ key: 'temperature', label: 'Temperature', unit: 'C' }],
   humidity: [{ key: 'humidity', label: 'Humidity', unit: '%RH' }],
@@ -1691,7 +1712,7 @@ const detailModeOptionsForProfile = (
 
 const isClimateSensorType = (sensorType: string) =>
   ['temperature_humidity', 'temp_humidity', 'dht11', 'dht22'].includes(
-    (sensorType || '').toLowerCase()
+    normalizeSensorType(sensorType)
   );
 
 const metricLabelOverrides: Record<string, string> = {
@@ -1765,9 +1786,9 @@ const recommendedAlertThresholds = (
     case 'humidity':
       return { belowWarning: 30, belowCritical: 20, aboveWarning: 70, aboveCritical: 80 };
     case 'pressure':
-      return { belowWarning: 980, belowCritical: 950, aboveWarning: 1030, aboveCritical: 1060 };
+      return { belowWarning: 980, belowCritical: 960, aboveWarning: 1030, aboveCritical: 1050 };
     case 'distance':
-      return { belowWarning: 120, belowCritical: 80 };
+      return { aboveWarning: 100, aboveCritical: 150 };
     case 'fill_level':
       return { aboveWarning: 80, aboveCritical: 90 };
     case 'occupancy_count':
@@ -1788,7 +1809,7 @@ const recommendedAlertThresholds = (
 };
 
 export const getSensorMetrics = (sensorType: string, useCase?: string): SensorMetric[] => {
-  const normalizedType = sensorType?.toLowerCase();
+  const normalizedType = normalizeSensorType(sensorType);
   const normalizedUseCase = useCase?.toLowerCase();
 
   if (normalizedType === 'ultrasonic') {
@@ -1808,12 +1829,12 @@ export const getSensorMetrics = (sensorType: string, useCase?: string): SensorMe
 };
 
 export const getSensorHardwareCapabilities = (sensorType: string): SensorHardwareMetric[] => {
-  const normalizedType = sensorType?.toLowerCase();
+  const normalizedType = normalizeSensorType(sensorType);
   return SENSOR_HARDWARE_METRICS[normalizedType] || [];
 };
 
 export const getDerivedMetrics = (sensorType: string, useCase?: string): SensorDerivedMetric[] => {
-  const normalizedType = sensorType?.toLowerCase();
+  const normalizedType = normalizeSensorType(sensorType);
   const normalizedUseCase = useCase?.toLowerCase();
 
   if (normalizedType === 'ultrasonic') {
@@ -1942,13 +1963,46 @@ export const getDerivedMetrics = (sensorType: string, useCase?: string): SensorD
 };
 
 export const getConfigurableDerivedMetrics = (sensorType: string): ConfigurableDerivedMetric[] => {
-  const normalizedType = sensorType?.toLowerCase();
-  return CONFIGURABLE_DERIVED_METRICS[normalizedType] ||
-    (normalizedType === 'vl53l0x' ? CONFIGURABLE_DERIVED_METRICS.ultrasonic : []);
+  const normalizedType = normalizeSensorType(sensorType);
+  return CONFIGURABLE_DERIVED_METRICS[normalizedType] || [];
 };
 
+const directMetricUseCase = (metricKey: string): ConfigurableDerivedMetric['use_case'] => {
+  if (['temperature', 'humidity', 'pressure'].includes(metricKey)) {
+    return 'climate_monitoring';
+  }
+  if (['gas_level', 'aqi'].includes(metricKey)) {
+    return 'safety_monitoring';
+  }
+  if (metricKey === 'weight') {
+    return 'load_monitoring';
+  }
+  return 'generic_monitoring';
+};
+
+const buildDirectObservableMetric = (metric: SensorMetric): ObservableMetricDefinition => ({
+  key: metric.key,
+  label: metric.label,
+  unit: metric.unit,
+  description: `Monitor the sensor's direct ${metric.label.toLowerCase()} reading.`,
+  runtime_metric_key: metric.key,
+  use_case: directMetricUseCase(metric.key),
+  recommended_profile: 'single_trend',
+  supported_profiles: ['single_trend'],
+  purposes: [
+    {
+      key: `${metric.key}_monitoring`,
+      label: `${metric.label} Monitoring`,
+      description: `Track ${metric.label.toLowerCase()} changes and receive alerts when attention is needed.`,
+    },
+  ],
+  availability: 'supported_now',
+  source_metrics: [metric.key],
+  formula: 'Direct reading from the connected sensor channel',
+});
+
 export const getObservableMetricCatalog = (sensorType: string): ObservableMetricDefinition[] => {
-  const normalizedType = sensorType?.toLowerCase();
+  const normalizedType = normalizeSensorType(sensorType);
   if (!normalizedType) {
     return [];
   }
@@ -1962,12 +2016,17 @@ export const getObservableMetricCatalog = (sensorType: string): ObservableMetric
     return catalog;
   }
 
-  return getConfigurableDerivedMetrics(sensorType).map((metric) => ({
-    ...metric,
-    availability: 'supported_now' as const,
-    source_metrics: [metric.runtime_metric_key],
-    formula: 'Directly supported by the current configuration flow',
-  }));
+  const configurableMetrics = getConfigurableDerivedMetrics(normalizedType);
+  if (configurableMetrics.length > 0) {
+    return configurableMetrics.map((metric) => ({
+      ...metric,
+      availability: 'supported_now' as const,
+      source_metrics: [metric.runtime_metric_key],
+      formula: 'Directly supported by the current configuration flow',
+    }));
+  }
+
+  return (SENSOR_METRIC_MAP[normalizedType] || []).map(buildDirectObservableMetric);
 };
 
 export const getObservableMetricDefinition = (
@@ -1988,7 +2047,7 @@ export const getDefaultObservableMetric = (
 };
 
 export const getSensorKnowledgeProfile = (sensorType: string): SensorKnowledgeProfile | undefined => {
-  const normalizedType = sensorType?.toLowerCase();
+  const normalizedType = normalizeSensorType(sensorType);
   if (!normalizedType) {
     return undefined;
   }
@@ -2125,29 +2184,6 @@ const alertTemplateValuesForMetric = (
           condition: 'above',
           unit,
           description: 'Warn when the space becomes more humid than the accepted range.',
-          warning_label: 'Review at or above',
-          critical_label: 'Critical at or above',
-        },
-      ];
-    case 'pressure':
-      return [
-        {
-          key: `${metricKey}_low_band`,
-          label: 'Pressure Too Low',
-          metric_key: metricKey,
-          condition: 'below',
-          unit,
-          description: 'Warn when pressure drops below the expected crop-monitoring range.',
-          warning_label: 'Review at or below',
-          critical_label: 'Critical at or below',
-        },
-        {
-          key: `${metricKey}_high_band`,
-          label: 'Pressure Too High',
-          metric_key: metricKey,
-          condition: 'above',
-          unit,
-          description: 'Warn when pressure rises above the expected crop-monitoring range.',
           warning_label: 'Review at or above',
           critical_label: 'Critical at or above',
         },
@@ -2301,16 +2337,16 @@ const alertTemplateValuesForMetric = (
       return [
         {
           key: `${metricKey}_limit_band`,
-          label: profile === 'event_timeline' ? 'Gate Detection Event' : 'Gate Security Alert',
+          label: profile === 'event_timeline' ? 'Distance Crossing Event' : 'Distance Limit Alert',
           metric_key: metricKey,
-          condition: 'below',
+          condition: 'above',
           unit,
           description:
             profile === 'event_timeline'
-              ? 'Escalate when an object comes inside the configured gate distance.'
-              : 'Warn when an object comes inside the configured gate distance.',
-          warning_label: 'Watch at or below',
-          critical_label: 'Intrusion at or below',
+              ? 'Escalate when the measured distance crosses the event threshold.'
+              : 'Warn when the measured distance exceeds the configured limit.',
+          warning_label: 'Review at or above',
+          critical_label: 'Critical at or above',
         },
       ];
   }

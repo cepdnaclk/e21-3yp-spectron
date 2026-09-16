@@ -669,7 +669,10 @@ func (p *RawReadingsProcessor) evaluateThresholdAlertWithConfig(ctx context.Cont
 		return nil
 	}
 
-	sustainedFor := requiredSustainedDuration(config, evaluation)
+	// Critical limits represent an unsafe reading and must reach the farmer
+	// immediately. Sustained windows suppress noisy warnings, but must not delay
+	// a critical event.
+	sustainedFor := effectiveAlertSustainedDuration(config, evaluation)
 	persisted, err := hasPersistentThresholdBreach(ctx, tx, input, config, evaluation, sustainedFor)
 	if err != nil {
 		return err
@@ -728,6 +731,13 @@ func requiredSustainedDuration(config models.SensorConfig, evaluation thresholdA
 		return time.Duration(clampInt(int(math.Round(minutes)), 1, 24*60)) * time.Minute
 	}
 	return 0
+}
+
+func effectiveAlertSustainedDuration(config models.SensorConfig, evaluation thresholdAlertEvaluation) time.Duration {
+	if evaluation.Severity == "CRITICAL" {
+		return 0
+	}
+	return requiredSustainedDuration(config, evaluation)
 }
 
 func hasPersistentThresholdBreach(
@@ -1500,6 +1510,8 @@ func upsertOpenAlert(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, contro
 		  AND type = $4
 		  AND severity = $5
 		  AND acknowledged_at IS NULL
+		  AND COALESCE(status, 'open') = 'open'
+		  AND COALESCE(state, 'active') <> 'resolved'
 		ORDER BY created_at DESC
 		LIMIT 1
 	`, accountID, controllerID, sensorID, alertType, severity).Scan(&existingID)
